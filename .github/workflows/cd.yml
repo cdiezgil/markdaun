@@ -63,9 +63,7 @@ jobs:
 
       - name: Configure ONNX Runtime (fastembed/ort)
         shell: bash
-        run: |
-          echo "ORT_STRATEGY=download" >> $GITHUB_ENV
-          echo "ORT_LIB_LOCATION=" >> $GITHUB_ENV
+        run: echo "ORT_STRATEGY=download" >> $GITHUB_ENV
 
       - name: Install frontend dependencies
         run: npm ci
