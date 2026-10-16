@@ -7,6 +7,7 @@ mod db;
 mod fs;
 mod graph;
 mod git;
+mod llm;
 
 fn main() {
     tauri::Builder::default()
@@ -33,6 +34,13 @@ fn main() {
             commands::github_push,
             commands::github_pull,
             commands::github_status,
+            commands::brain_configure,
+            commands::brain_get_config,
+            commands::brain_query,
+            commands::brain_get_conversations,
+            commands::brain_get_messages,
+            commands::brain_delete_conversation,
+            commands::brain_update_embedding,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

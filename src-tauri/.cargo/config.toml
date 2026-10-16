@@ -1,0 +1,10 @@
+# Configure the pre-downloaded ONNX Runtime for fastembed.
+# The `ort-sys` crate with `download-binaries` feature can fail on some systems
+# due to TLS certificate verification issues with ureq/rustls.
+# 
+# To pre-download manually (aarch64-apple-darwin):
+#   curl -L -o /tmp/ort.tgz https://parcel.pyke.io/v2/delivery/ortrs/packages/msort-binary/1.18.1/ortrs-msort_static-v1.18.1-aarch64-apple-darwin.tgz
+#   mkdir -p src-tauri/.ort && tar -xzf /tmp/ort.tgz -C src-tauri/.ort --strip-components=1
+#
+[env]
+ORT_LIB_LOCATION = { value = ".ort", relative = true }

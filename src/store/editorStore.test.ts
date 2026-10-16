@@ -63,7 +63,11 @@ describe('TC-02: setContent debounce', () => {
       content: '# Editado',
       vaultPath: '/vault',
     });
-    expect(mockInvoke).toHaveBeenCalledTimes(1);
+    // TC-35: brain_update_embedding is also called (fire-and-forget) for .md files
+    expect(mockInvoke).toHaveBeenCalledWith('brain_update_embedding', {
+      file_path: '/vault/note.md',
+      vault_path: '/vault',
+    });
   });
 
   it('TC-02: debounce resets when setContent called multiple times', async () => {
@@ -87,7 +91,6 @@ describe('TC-02: setContent debounce', () => {
 
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(mockInvoke).toHaveBeenCalledTimes(1);
     expect(mockInvoke).toHaveBeenCalledWith('write_note', {
       path: '/vault/note.md',
       content: '# Draft 2',

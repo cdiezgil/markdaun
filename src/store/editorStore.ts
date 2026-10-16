@@ -5,6 +5,7 @@ import {
   getActiveVault,
   listVaultTree,
   convertAssetSrc,
+  brainUpdateEmbedding,
   type VaultEntry,
 } from '../lib/tauri';
 
@@ -116,6 +117,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       await writeNote(activeNotePath, processedMarkdown, vaultPath);
       set({ saveStatus: 'saved' });
+      // Fire-and-forget: update embeddings after successful save (TC-35)
+      if (activeNotePath.endsWith('.md')) {
+        brainUpdateEmbedding(activeNotePath, vaultPath).catch(() => {});
+      }
     } catch (e) {
       console.error('saveNow failed:', e);
     }
