@@ -20,6 +20,9 @@ fn main() {
             commands::rename_entry,
             commands::delete_entry,
             commands::import_files,
+            commands::read_note,
+            commands::write_note,
+            commands::pick_image_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

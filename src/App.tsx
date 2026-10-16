@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useVaultStore } from './store/vaultStore';
+import { useEditorStore } from './store/editorStore';
 import { VaultTree } from './components/VaultTree/VaultTree';
 import { WelcomeView } from './views/WelcomeView';
 import { EditorView } from './views/EditorView';
@@ -9,6 +10,7 @@ import { PreviewView } from './views/PreviewView';
 function AppLayout() {
   useEffect(() => {
     useVaultStore.getState().loadVault();
+    useEditorStore.getState().initVault().catch(console.error);
   }, []);
 
   return (

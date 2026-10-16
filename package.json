@@ -17,7 +17,16 @@
     "react": "^18",
     "react-dom": "^18",
     "react-router-dom": "^6",
-    "zustand": "^4"
+    "zustand": "^4",
+    "@tiptap/react": "^2",
+    "@tiptap/starter-kit": "^2",
+    "@tiptap/extension-image": "^2",
+    "@tiptap/extension-link": "^2",
+    "@tiptap/extension-table": "^2",
+    "@tiptap/extension-table-row": "^2",
+    "@tiptap/extension-table-cell": "^2",
+    "@tiptap/extension-table-header": "^2",
+    "tiptap-markdown": "^0.8"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
