@@ -12,7 +12,7 @@ set -euo pipefail
 destino="${1:?Uso: avisar.sh <rol-destino> \"<mensaje>\"}"
 mensaje="${2:?Falta el mensaje}"
 emisor="${POOL_ROL:-humano}"
-sesion="${POOL_TMUX_SESSION:-{{SESSION_NAME}}}"
+sesion="${POOL_TMUX_SESSION:-pool-markdaun}"
 log_dir="${POOL_DIR:-$(cd "$(dirname "$0")/.." && pwd)}/.pool"
 
 if [ "$destino" = "$emisor" ]; then

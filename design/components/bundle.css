@@ -1,0 +1,31 @@
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap");
+
+body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); margin: 0; }
+
+.md-btn { font: 500 13px/18px var(--font-sans); display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 8px var(--space-3); border-radius: var(--radius-md); border: 1px solid transparent; cursor: pointer;
+  transition: background .16s cubic-bezier(.2,.7,.2,1); }
+.md-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.md-btn--primary { background: var(--daun); color: var(--on-daun); }
+.md-btn--primary:hover { background: var(--daun-strong); }
+.md-btn--secondary { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
+.md-btn--secondary:hover { background: var(--surface-sunken); }
+.md-btn--ghost { background: none; color: var(--ink-muted); }
+.md-btn--ghost:hover { background: var(--surface-sunken); color: var(--ink); }
+.md-btn--danger { background: none; color: var(--danger); border-color: var(--line); }
+
+.md-wikilink { color: var(--daun); text-decoration: none; border-bottom: 1px solid var(--daun); font-weight: 500; }
+.md-wikilink:hover { color: var(--daun-strong); }
+.md-wikilink--broken { color: var(--amber); border-bottom: 1px dashed var(--amber); }
+.md-tag { display: inline-block; font: 500 12px/16px var(--font-sans); padding: 2px var(--space-2);
+  border-radius: var(--radius-sm); background: var(--sap); color: var(--on-sap); }
+.md-mark { background: var(--mark); color: var(--ink); padding: 0 2px; border-radius: 3px; }
+.md-count { font: 500 11px/16px var(--font-sans); padding: 0 6px; border-radius: var(--radius-pill);
+  background: var(--surface-sunken); color: var(--ink-muted); border: 1px solid var(--line); }
+
+.md-editor { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
+.md-editor__bar { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line); background: var(--surface-sunken); font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.md-editor__body { font: 400 15px/26px var(--font-mono); padding: var(--space-6) var(--space-8); max-width: var(--measure); white-space: pre-wrap; color: var(--ink); }
+.md-syn { color: var(--ink-muted); }
+.md-h { font-weight: 500; }

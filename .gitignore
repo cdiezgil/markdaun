@@ -2,3 +2,8 @@
 *.bak
 .pool/
 graphify-out/
+node_modules/
+dist/
+coverage/
+src-tauri/target/
+*.db
