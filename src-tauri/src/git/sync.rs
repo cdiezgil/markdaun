@@ -146,6 +146,7 @@ pub fn git_pull_inner(vault_path: &Path, remote_url: &str, pat: &str) -> Result<
 /// Connect a vault to a remote GitHub repository.
 /// - If the vault has files: init (or open) the repo, commit everything, and push.
 /// - If the vault is empty: clone the remote into the vault.
+///
 /// Returns what action was taken.
 pub fn git_connect_inner(
     vault_path: &Path,

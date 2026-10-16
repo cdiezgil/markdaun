@@ -42,6 +42,8 @@ export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
       Link.configure({
         openOnClick: true,
         autolink: true,
+        protocols: ['https', 'http', 'mailto'],
+        validate: (href) => /^https?:\/\//i.test(href) || href.startsWith('mailto:'),
       }),
       Image.configure({
         inline: false,
