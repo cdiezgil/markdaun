@@ -6,6 +6,7 @@ mod commands;
 mod db;
 mod fs;
 mod graph;
+mod git;
 
 fn main() {
     tauri::Builder::default()
@@ -26,6 +27,12 @@ fn main() {
             commands::pick_image_file,
             commands::get_vault_graph,
             commands::save_node_position,
+            commands::github_configure,
+            commands::github_get_config,
+            commands::github_disconnect,
+            commands::github_push,
+            commands::github_pull,
+            commands::github_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

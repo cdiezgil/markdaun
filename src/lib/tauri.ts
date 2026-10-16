@@ -49,3 +49,43 @@ export async function listVaultTree(vaultPath: string): Promise<VaultEntry[]> {
 export function convertAssetSrc(absolutePath: string): string {
   return convertFileSrc(absolutePath);
 }
+
+// ── GitHub Sync commands ───────────────────────────────────────────────────────
+
+/** Connect the vault to a GitHub repo (push existing files or clone). */
+export async function githubConfigure(
+  repoUrl: string,
+  pat: string,
+  vaultPath: string,
+): Promise<'pushed' | 'cloned'> {
+  return invoke<'pushed' | 'cloned'>('github_configure', {
+    repoUrl,
+    pat,
+    vaultPath,
+  });
+}
+
+/** Return the stored repo URL, or null if not configured. Never returns the PAT. */
+export async function githubGetConfig(): Promise<string | null> {
+  return invoke<string | null>('github_get_config');
+}
+
+/** Remove the GitHub configuration from the app. */
+export async function githubDisconnect(): Promise<void> {
+  return invoke<void>('github_disconnect');
+}
+
+/** Stage all changes, commit with a timestamped message, and push to origin/main. */
+export async function githubPush(): Promise<void> {
+  return invoke<void>('github_push');
+}
+
+/** Fetch origin/main and fast-forward (or reset hard if diverged). */
+export async function githubPull(): Promise<void> {
+  return invoke<void>('github_pull');
+}
+
+/** Return true if the vault has uncommitted local changes. */
+export async function githubStatus(): Promise<boolean> {
+  return invoke<boolean>('github_status');
+}
