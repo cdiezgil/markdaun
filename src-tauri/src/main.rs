@@ -5,6 +5,7 @@
 mod commands;
 mod db;
 mod fs;
+mod graph;
 
 fn main() {
     tauri::Builder::default()
@@ -23,6 +24,8 @@ fn main() {
             commands::read_note,
             commands::write_note,
             commands::pick_image_file,
+            commands::get_vault_graph,
+            commands::save_node_position,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
