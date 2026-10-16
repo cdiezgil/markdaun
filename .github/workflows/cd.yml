@@ -18,13 +18,12 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             bundle-path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-            ort-url: https://parcel.pyke.io/v2/delivery/ortrs/packages/msort-binary/1.18.1/ortrs-msort_static-v1.18.1-aarch64-apple-darwin.tgz
-            ort-ext: tgz
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             bundle-path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-            ort-url: https://parcel.pyke.io/v2/delivery/ortrs/packages/msort-binary/1.18.1/ortrs-msort_static-v1.18.1-x86_64-pc-windows-msvc.zip
-            ort-ext: zip
+
+    permissions:
+      contents: write
 
     runs-on: ${{ matrix.platform }}
 
@@ -62,16 +61,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-npm-
 
-      - name: Download ONNX Runtime (fastembed/ort)
+      - name: Configure ONNX Runtime (fastembed/ort)
         shell: bash
         run: |
-          mkdir -p src-tauri/.ort
-          curl -fsSL -o /tmp/ort.${{ matrix.ort-ext }} "${{ matrix.ort-url }}"
-          if [ "${{ matrix.ort-ext }}" = "zip" ]; then
-            cd src-tauri/.ort && unzip -j /tmp/ort.zip
-          else
-            tar -xzf /tmp/ort.${{ matrix.ort-ext }} -C src-tauri/.ort --strip-components=1
-          fi
+          echo "ORT_STRATEGY=download" >> $GITHUB_ENV
+          echo "ORT_LIB_LOCATION=" >> $GITHUB_ENV
 
       - name: Install frontend dependencies
         run: npm ci

@@ -1,10 +1,14 @@
-# Configure the pre-downloaded ONNX Runtime for fastembed.
-# The `ort-sys` crate with `download-binaries` feature can fail on some systems
-# due to TLS certificate verification issues with ureq/rustls.
-# 
-# To pre-download manually (aarch64-apple-darwin):
-#   curl -L -o /tmp/ort.tgz https://parcel.pyke.io/v2/delivery/ortrs/packages/msort-binary/1.18.1/ortrs-msort_static-v1.18.1-aarch64-apple-darwin.tgz
-#   mkdir -p src-tauri/.ort && tar -xzf /tmp/ort.tgz -C src-tauri/.ort --strip-components=1
+# Cargo configuration for MarkDaun (src-tauri)
 #
-[env]
-ORT_LIB_LOCATION = { value = ".ort", relative = true }
+# ONNX Runtime (fastembed/ort):
+# ─────────────────────────────
+# CI/CD: uses ORT_STRATEGY=download (set in workflow env).
+#
+# Local development — option A (recommended): let ort download on first build:
+#   ORT_STRATEGY=download cargo build
+#
+# Local development — option B (offline/fast): pre-download and set path:
+#   macOS ARM:
+#     mkdir -p src-tauri/.ort
+#     curl -L https://parcel.pyke.io/v2/delivery/ortrs/packages/msort-binary/1.18.1/ortrs-msort_static-v1.18.1-aarch64-apple-darwin.tgz | tar -xz -C src-tauri/.ort --strip-components=1
+#     export ORT_LIB_LOCATION="$(pwd)/src-tauri/.ort"
