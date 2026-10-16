@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default permissions for MarkDaun","local":true,"windows":["main"],"permissions":["core:default","fs:allow-read-dir","fs:allow-read-file","fs:allow-write-file","fs:allow-mkdir","fs:allow-remove","fs:allow-rename","fs:allow-copy-file","dialog:allow-open"],"platforms":["linux","macOS","windows"]}}
