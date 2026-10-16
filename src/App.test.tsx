@@ -17,6 +17,21 @@ beforeEach(() => {
   useVaultStore.setState({ vaultPath: null, tree: [], isLoading: false, error: null });
 });
 
+describe('TC-01: App renders without crash', () => {
+  it('TC-01: renders_without_crash — mounts App without throwing', () => {
+    mockInvoke.mockResolvedValue(null);
+    expect(() => render(<App />)).not.toThrow();
+  });
+
+  it('TC-01: calls initVault (get_active_vault) on mount', async () => {
+    mockInvoke.mockResolvedValue(null); // get_active_vault (called twice: loadVault + initVault)
+    render(<App />);
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('get_active_vault'),
+    );
+  });
+});
+
 describe('TC-03: App', () => {
   it('TC-03: llama a loadVault al montar', async () => {
     mockInvoke.mockResolvedValueOnce(null); // get_active_vault
