@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { FolderOpen, Network } from 'lucide-react';
+import { Brain, FolderOpen, Network } from 'lucide-react';
 import { useVaultStore } from './store/vaultStore';
 import { useEditorStore } from './store/editorStore';
 import { useSyncStore } from './store/syncStore';
@@ -12,6 +12,7 @@ import { GraphView } from './views/GraphView';
 import { SettingsView } from './views/SettingsView';
 import { ExitDialog } from './components/Sync/ExitDialog';
 import { getCurrentWindow } from './lib/tauri';
+import { SecondBrainView } from './views/SecondBrainView';
 
 function AppLayout() {
   const [showExitDialog, setShowExitDialog] = useState(false);
@@ -100,6 +101,25 @@ function AppLayout() {
             <Network size={16} strokeWidth={1.5} />
             Graph
           </NavLink>
+          <NavLink
+            to="/brain"
+            data-testid="nav-brain"
+            style={({ isActive }) => ({
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '0 var(--space-3)',
+              height: '100%',
+              fontFamily: 'var(--font-sans)',
+              fontSize: '13px',
+              fontWeight: 500,
+              color: isActive ? 'var(--daun)' : 'var(--ink-muted)',
+              textDecoration: 'none',
+            })}
+          >
+            <Brain size={16} strokeWidth={1.5} />
+            Brain
+          </NavLink>
         </nav>
         <VaultTree />
       </aside>
@@ -110,6 +130,7 @@ function AppLayout() {
           <Route path="/preview/:encodedPath" element={<PreviewView />} />
           <Route path="/graph" element={<GraphView />} />
           <Route path="/settings" element={<SettingsView />} />
+          <Route path="/brain" element={<SecondBrainView />} />
         </Routes>
       </main>
       <ExitDialog

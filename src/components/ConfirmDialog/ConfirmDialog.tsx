@@ -3,7 +3,10 @@ import React, { useEffect, useRef } from 'react';
 export interface ConfirmDialogProps {
   open: boolean;
   title: string;
-  message: string;
+  /** Body text of the dialog. Also accepted as `message` for back-compat. */
+  description?: string;
+  /** @deprecated Use `description` instead. */
+  message?: string;
   /** Label for the confirm button. Defaults to "Eliminar". */
   confirmLabel?: string;
   onConfirm: () => void;
@@ -13,11 +16,13 @@ export interface ConfirmDialogProps {
 export function ConfirmDialog({
   open,
   title,
+  description,
   message,
   confirmLabel = 'Eliminar',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const bodyText = description ?? message ?? '';
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -72,7 +77,7 @@ export function ConfirmDialog({
           {title}
         </p>
         <p style={{ fontSize: 14, color: 'var(--ink-muted)', marginBottom: 'var(--space-6)' }}>
-          {message}
+          {bodyText}
         </p>
         <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
           <button
