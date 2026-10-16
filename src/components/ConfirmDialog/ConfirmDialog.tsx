@@ -4,6 +4,8 @@ export interface ConfirmDialogProps {
   open: boolean;
   title: string;
   message: string;
+  /** Label for the confirm button. Defaults to "Eliminar". */
+  confirmLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -12,6 +14,7 @@ export function ConfirmDialog({
   open,
   title,
   message,
+  confirmLabel = 'Eliminar',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -101,7 +104,7 @@ export function ConfirmDialog({
               fontWeight: 500,
             }}
           >
-            Eliminar
+            {confirmLabel}
           </button>
         </div>
       </div>

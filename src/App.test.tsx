@@ -13,6 +13,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetCurrentWindow.mockReturnValue({
     onDragDropEvent: vi.fn().mockResolvedValue(() => {}),
+    onCloseRequested: vi.fn().mockResolvedValue(() => {}),
+    close: vi.fn().mockResolvedValue(undefined),
   } as unknown as ReturnType<typeof getCurrentWindow>);
   useVaultStore.setState({ vaultPath: null, tree: [], isLoading: false, error: null });
 });

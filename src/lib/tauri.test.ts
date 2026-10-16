@@ -9,6 +9,12 @@ import {
   getActiveVault,
   listVaultTree,
   convertAssetSrc,
+  githubConfigure,
+  githubGetConfig,
+  githubDisconnect,
+  githubPush,
+  githubPull,
+  githubStatus,
 } from './tauri';
 
 const mockInvoke = vi.mocked(invoke);
@@ -115,5 +121,90 @@ describe('convertAssetSrc', () => {
   it('converts an absolute path to a tauri asset URL', () => {
     const url = convertAssetSrc('/vault/img.png');
     expect(url).toContain('/vault/img.png');
+  });
+});
+
+// ── GitHub Sync wrappers ──────────────────────────────────────────────────────
+
+describe('githubConfigure', () => {
+  it('TC-GH-01: invokes github_configure with correct params and returns "pushed"', async () => {
+    mockInvoke.mockResolvedValueOnce('pushed');
+    const result = await githubConfigure('https://github.com/u/r', 'token123', '/vault');
+    expect(mockInvoke).toHaveBeenCalledWith('github_configure', {
+      repoUrl: 'https://github.com/u/r',
+      pat: 'token123',
+      vaultPath: '/vault',
+    });
+    expect(result).toBe('pushed');
+  });
+
+  it('TC-GH-02: returns "cloned" when the vault is empty and remote is cloned', async () => {
+    mockInvoke.mockResolvedValueOnce('cloned');
+    const result = await githubConfigure('https://github.com/u/r', 'token123', '/vault');
+    expect(result).toBe('cloned');
+  });
+});
+
+describe('githubGetConfig', () => {
+  it('TC-GH-03: invokes github_get_config and returns the repo URL', async () => {
+    mockInvoke.mockResolvedValueOnce('https://github.com/u/r');
+    const result = await githubGetConfig();
+    expect(mockInvoke).toHaveBeenCalledWith('github_get_config');
+    expect(result).toBe('https://github.com/u/r');
+  });
+
+  it('TC-GH-04: returns null when not configured', async () => {
+    mockInvoke.mockResolvedValueOnce(null);
+    const result = await githubGetConfig();
+    expect(result).toBeNull();
+  });
+});
+
+describe('githubDisconnect', () => {
+  it('TC-GH-05: invokes github_disconnect', async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await githubDisconnect();
+    expect(mockInvoke).toHaveBeenCalledWith('github_disconnect');
+  });
+});
+
+describe('githubPush', () => {
+  it('TC-GH-06: invokes github_push', async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await githubPush();
+    expect(mockInvoke).toHaveBeenCalledWith('github_push');
+  });
+
+  it('TC-GH-07: propagates errors from the backend', async () => {
+    mockInvoke.mockRejectedValueOnce('not_configured');
+    await expect(githubPush()).rejects.toBe('not_configured');
+  });
+});
+
+describe('githubPull', () => {
+  it('TC-GH-08: invokes github_pull', async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await githubPull();
+    expect(mockInvoke).toHaveBeenCalledWith('github_pull');
+  });
+
+  it('TC-GH-09: propagates errors from the backend', async () => {
+    mockInvoke.mockRejectedValueOnce('git_error: network failure');
+    await expect(githubPull()).rejects.toBe('git_error: network failure');
+  });
+});
+
+describe('githubStatus', () => {
+  it('TC-GH-10: invokes github_status and returns true when changes exist', async () => {
+    mockInvoke.mockResolvedValueOnce(true);
+    const result = await githubStatus();
+    expect(mockInvoke).toHaveBeenCalledWith('github_status');
+    expect(result).toBe(true);
+  });
+
+  it('TC-GH-11: returns false when vault is clean', async () => {
+    mockInvoke.mockResolvedValueOnce(false);
+    const result = await githubStatus();
+    expect(result).toBe(false);
   });
 });

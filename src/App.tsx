@@ -1,18 +1,40 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { FolderOpen, Network } from 'lucide-react';
 import { useVaultStore } from './store/vaultStore';
 import { useEditorStore } from './store/editorStore';
+import { useSyncStore } from './store/syncStore';
 import { VaultTree } from './components/VaultTree/VaultTree';
 import { WelcomeView } from './views/WelcomeView';
 import { EditorView } from './views/EditorView';
 import { PreviewView } from './views/PreviewView';
 import { GraphView } from './views/GraphView';
+import { SettingsView } from './views/SettingsView';
+import { ExitDialog } from './components/Sync/ExitDialog';
+import { getCurrentWindow } from './lib/tauri';
 
 function AppLayout() {
+  const [showExitDialog, setShowExitDialog] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
   useEffect(() => {
     useVaultStore.getState().loadVault();
     useEditorStore.getState().initVault().catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow()
+      .onCloseRequested(async (event: { preventDefault(): void }) => {
+        const { config, status } = useSyncStore.getState();
+        if (config.isConnected && status.hasChanges) {
+          event.preventDefault();
+          setShowExitDialog(true);
+        }
+      })
+      .then((fn) => { unlisten = fn; })
+      .catch(console.error);
+    return () => { unlisten?.(); };
   }, []);
 
   return (
@@ -87,8 +109,24 @@ function AppLayout() {
           <Route path="/editor/:encodedPath" element={<EditorView />} />
           <Route path="/preview/:encodedPath" element={<PreviewView />} />
           <Route path="/graph" element={<GraphView />} />
+          <Route path="/settings" element={<SettingsView />} />
         </Routes>
       </main>
+      <ExitDialog
+        open={showExitDialog}
+        isSyncing={isSyncing}
+        onSyncAndQuit={async () => {
+          setIsSyncing(true);
+          const { push } = useSyncStore.getState();
+          const vaultPath = useVaultStore.getState().vaultPath;
+          if (vaultPath) await push(vaultPath).catch(() => {});
+          await getCurrentWindow().close();
+        }}
+        onQuit={async () => {
+          await getCurrentWindow().close();
+        }}
+        onCancel={() => setShowExitDialog(false)}
+      />
     </div>
   );
 }

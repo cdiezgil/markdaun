@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
-import { FilePlus, FolderPlus } from 'lucide-react';
+import { FilePlus, FolderPlus, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { SyncPanel } from '../Sync/SyncPanel';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useVaultStore } from '../../store/vaultStore';
 import { VaultEmpty } from './VaultEmpty';
@@ -67,12 +69,26 @@ export function VaultTree() {
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'flex-end',
           gap: 'var(--space-2)',
           padding: 'var(--space-2) var(--space-3)',
           borderBottom: '1px solid var(--line)',
         }}
       >
+        {/* Settings icon — left side */}
+        <Link
+          to="/settings"
+          title="Ajustes"
+          data-testid="settings-link"
+          style={{
+            color: 'var(--ink-muted)',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          <Settings size={20} strokeWidth={1.5} />
+        </Link>
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
         <button
           onClick={handleNewNote}
           title="Nueva nota"
@@ -109,6 +125,7 @@ export function VaultTree() {
           <TreeNode key={entry.path} entry={entry} depth={0} />
         ))}
       </div>
+      <SyncPanel />
     </div>
   );
 }
