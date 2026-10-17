@@ -64,6 +64,16 @@ function ToolbarButton({ label, isActive = false, onClick, children }: ToolbarBu
   );
 }
 
+function ToolbarSeparator() {
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="toolbar-separator"
+      style={{ width: 1, height: 18, background: 'var(--line)', margin: '0 6px', flexShrink: 0 }}
+    />
+  );
+}
+
 // ── EditorToolbar ─────────────────────────────────────────────────────────────
 
 interface EditorToolbarProps {
@@ -135,20 +145,31 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
   return (
     <div
+      data-testid="editor-toolbar-bar"
+      style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 5,
+        display: 'flex',
+        justifyContent: 'center',
+        padding: 'var(--space-2) var(--space-8)',
+        background: 'var(--bg)',
+        borderBottom: '1px solid var(--line)',
+        flexShrink: 0,
+      }}
+    >
+    <div
       role="toolbar"
       aria-label="Editor toolbar"
       data-testid="editor-toolbar"
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 'var(--space-1)',
-        padding: '0 var(--space-3)',
-        height: 'var(--toolbar-height)',
-        background: 'var(--surface-sunken)',
-        borderBottom: '1px solid var(--line)',
-        flexShrink: 0,
         flexWrap: 'wrap',
-        overflowX: 'auto',
+        gap: 2,
+        width: '100%',
+        maxWidth: 'var(--measure)',
+        marginLeft: 'calc(-1 * var(--space-2))',
       }}
     >
       {/* Headings */}
@@ -175,6 +196,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       >
         <Heading3 size={20} strokeWidth={1.5} />
       </ToolbarButton>
+
+      <ToolbarSeparator />
 
       {/* Inline marks */}
       <ToolbarButton
@@ -210,6 +233,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       </ToolbarButton>
 
       {/* Block elements */}
+      <ToolbarSeparator />
+
       <ToolbarButton
         label="Code block"
         isActive={editor?.isActive('codeBlock') ?? false}
@@ -241,6 +266,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       >
         <ListOrdered size={20} strokeWidth={1.5} />
       </ToolbarButton>
+
+      <ToolbarSeparator />
 
       <ToolbarButton
         label="Diagrama"
@@ -294,6 +321,7 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       >
         <Minus size={20} strokeWidth={1.5} />
       </ToolbarButton>
+    </div>
     </div>
   );
 }

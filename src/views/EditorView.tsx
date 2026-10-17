@@ -4,16 +4,14 @@ import type { Editor } from '@tiptap/react';
 
 import EditorToolbar from '../components/editor/EditorToolbar';
 import EditorCanvas from '../components/editor/EditorCanvas';
-import SaveIndicator from '../components/editor/SaveIndicator';
 import { useEditorStore } from '../store/editorStore';
 
 /**
  * EditorView — TC-01, TC-03, TC-21
  *
  * Layout (flex column, full height):
- *   1. EditorToolbar (44 px fixed, top)
+ *   1. EditorToolbar (sticky, aligned with the text column)
  *   2. EditorCanvas  (flex-grow, scrollable)
- *   3. SaveIndicator (absolute, bottom-right)
  *
  * When activeNotePath is null (no note selected) renders a blank bg surface.
  * Reads the file path from the :encodedPath URL param and calls openNote.
@@ -59,17 +57,6 @@ export function EditorView() {
       <EditorToolbar editor={editor} />
 
       <EditorCanvas onEditorReady={setEditor} />
-
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 'var(--space-4)',
-          right: 'var(--space-4)',
-          zIndex: 10,
-        }}
-      >
-        <SaveIndicator />
-      </div>
     </div>
   );
 }

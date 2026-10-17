@@ -39,6 +39,16 @@ export async function writeNote(
   return invoke<void>('write_note', { path, content, vaultPath });
 }
 
+export interface Backlink {
+  path: string;
+  name: string;
+}
+
+/** Notes in the vault that link to the given note (wikilink or Markdown link). */
+export async function getBacklinks(path: string, vaultPath: string): Promise<Backlink[]> {
+  return invoke<Backlink[]>('get_backlinks', { path, vaultPath });
+}
+
 /** Open the native file picker filtered to image types.
  *  Returns the absolute path selected, or null if cancelled. */
 export async function pickImageFile(): Promise<string | null> {

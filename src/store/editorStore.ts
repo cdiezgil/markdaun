@@ -19,6 +19,8 @@ export interface EditorState {
   vaultPath: string | null;
   vaultTree: VaultEntry[];
   saveStatus: SaveStatus;
+  /** Epoch ms of the last successful save in this session, or null. */
+  lastSavedAt: number | null;
   /** True while the editor holds edits that are not yet persisted to disk. */
   isDirty: boolean;
   /** Plain text currently selected in the editor ('' when none). */
@@ -78,6 +80,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vaultPath: null,
   vaultTree: [],
   saveStatus: 'idle',
+  lastSavedAt: null,
   isDirty: false,
   selectionText: '',
 
@@ -100,6 +103,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       activeNotePath: absolutePath,
       activeNoteContent: processedMarkdown,
       saveStatus: 'idle',
+      lastSavedAt: null,
       isDirty: false,
       selectionText: '',
     });
@@ -131,7 +135,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       await writeNote(activeNotePath, processedMarkdown, vaultPath);
       // Edits made while the write was in flight keep the note dirty.
       if (get().activeNoteContent === activeNoteContent && get().activeNotePath === activeNotePath) {
-        set({ saveStatus: 'saved', isDirty: false });
+        set({ saveStatus: 'saved', isDirty: false, lastSavedAt: Date.now() });
       }
       // Fire-and-forget: update embeddings after successful save (TC-35)
       if (activeNotePath.endsWith('.md')) {
