@@ -1365,7 +1365,7 @@ git commit -m "feat(llm): add per-connection HTTP client with auth headers and e
 - Create: `src-tauri/src/llm/engines/mod.rs`, `src-tauri/src/llm/engines/openai.rs`, `src-tauri/src/llm/engines/openai_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/engines/openai_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/engines/openai_tests.rs`:
 
 ```rust
 use super::openai;
@@ -1540,7 +1540,7 @@ async fn chat_timeout_is_typed() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - add to `llm/mod.rs`: `pub mod engines;`. Create `llm/engines/mod.rs` with only the test declarations plus ChatMessage (below) - but first create it minimal so the failure is the missing `openai`:
+- [x] **Step 2: Run to verify it fails** - add to `llm/mod.rs`: `pub mod engines;`. Create `llm/engines/mod.rs` with only the test declarations plus ChatMessage (below) - but first create it minimal so the failure is the missing `openai`:
 
 Create `src-tauri/src/llm/engines/mod.rs`:
 
@@ -1562,7 +1562,7 @@ pub struct ChatMessage {
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::engines::openai_tests`
 Expected: FAIL to compile (`openai.rs` missing).
 
-- [ ] **Step 3: Implement** - `src-tauri/src/llm/engines/openai.rs`:
+- [x] **Step 3: Implement** - `src-tauri/src/llm/engines/openai.rs`:
 
 ```rust
 use super::ChatMessage;
@@ -1658,12 +1658,12 @@ pub async fn chat(
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::engines::openai_tests`
 Expected: PASS (10 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
