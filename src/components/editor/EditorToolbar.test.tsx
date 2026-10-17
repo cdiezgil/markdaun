@@ -190,3 +190,62 @@ describe('toolbar active state', () => {
     expect(boldBtn.getAttribute('data-active')).toBe('true');
   });
 });
+
+// ── Selector de tamaño de tabla ──────────────────────────────────────────────
+describe('selector de tamaño de tabla', () => {
+  it('el botón de tabla abre el picker en lugar de insertar directamente', async () => {
+    const { editor } = await renderToolbar();
+    fireEvent.click(screen.getByLabelText('Insert table'));
+
+    expect(await screen.findByTestId('table-size-picker')).toBeInTheDocument();
+    expect(editor.chain).not.toHaveBeenCalled();
+  });
+
+  it('elegir 4 × 2 en la rejilla inserta la tabla con esas filas y columnas', async () => {
+    const { editor } = await renderToolbar();
+    fireEvent.click(screen.getByLabelText('Insert table'));
+
+    fireEvent.click(await screen.findByTestId('table-size-cell-3-1'));
+
+    const chain = editor.chain as ReturnType<typeof vi.fn>;
+    expect(chain).toHaveBeenCalled();
+    const chainResult = chain.mock.results[0].value as Record<string, ReturnType<typeof vi.fn>>;
+    expect(chainResult.insertTable).toHaveBeenCalledWith({
+      rows: 4,
+      cols: 2,
+      withHeaderRow: true,
+    });
+    expect(chainResult.run).toHaveBeenCalled();
+    // El picker se cierra tras insertar
+    expect(screen.queryByTestId('table-size-picker')).toBeNull();
+  });
+
+  it('Escape cierra el picker sin insertar nada', async () => {
+    const { editor } = await renderToolbar();
+    fireEvent.click(screen.getByLabelText('Insert table'));
+    await screen.findByTestId('table-size-picker');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByTestId('table-size-picker')).toBeNull();
+    expect(editor.chain).not.toHaveBeenCalled();
+  });
+
+  it('click fuera (overlay) cierra el picker sin insertar', async () => {
+    const { editor } = await renderToolbar();
+    fireEvent.click(screen.getByLabelText('Insert table'));
+    await screen.findByTestId('table-size-picker');
+
+    fireEvent.click(screen.getByTestId('table-size-picker-overlay'));
+
+    expect(screen.queryByTestId('table-size-picker')).toBeNull();
+    expect(editor.chain).not.toHaveBeenCalled();
+  });
+
+  it('el picker no se abre sin editor', async () => {
+    const { default: EditorToolbar } = await import('./EditorToolbar');
+    render(<EditorToolbar editor={null} />);
+    fireEvent.click(screen.getByLabelText('Insert table'));
+    expect(screen.queryByTestId('table-size-picker')).toBeNull();
+  });
+});
