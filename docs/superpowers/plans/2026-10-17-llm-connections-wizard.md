@@ -4229,7 +4229,7 @@ git commit -m "feat(llm): add validate/save/list/delete/active/detect commands w
 - Delete: `src-tauri/src/llm/client.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing tests** - replace `src-tauri/src/commands/brain_tests.rs` entirely with:
+- [x] **Step 1: Write the failing tests** - replace `src-tauri/src/commands/brain_tests.rs` entirely with:
 
 ```rust
 use super::brain_cmd::{brain_query_with_embedding, build_rag_messages, resolve_active};
@@ -4504,12 +4504,12 @@ fn embed_is_deterministic() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test commands::brain_tests`
 Expected: FAIL to compile (`resolve_active` missing; `brain_query_with_embedding` has the old signature).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 3a. Delete `src-tauri/src/llm/client.rs` (`git rm src-tauri/src/llm/client.rs`).
 
@@ -4696,12 +4696,12 @@ pub async fn brain_query(
 
 3d. `src-tauri/src/main.rs`: remove `commands::brain_configure,` and `commands::brain_get_config,` from `generate_handler!` for now (full registration is Task 17; the app won't be launched between these tasks).
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test commands::brain_tests llm::`
 Expected: PASS. (Known flaky `git::tests::pull_*` are outside this filter.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A src-tauri/src
