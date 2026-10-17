@@ -6946,7 +6946,7 @@ git commit -m "feat(ui): add wizard credentials step with CLI detection and adva
 **Files:**
 - Create: `src/components/LlmWizard/Validation.tsx`, `src/components/LlmWizard/Validation.test.tsx`
 
-- [ ] **Step 1: Write the failing test** - `src/components/LlmWizard/Validation.test.tsx`:
+- [x] **Step 1: Write the failing test** - `src/components/LlmWizard/Validation.test.tsx`:
 
 ```tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -7062,12 +7062,12 @@ describe('Validation', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard/Validation.test.tsx`
 Expected: FAIL (`./Validation` not found).
 
-- [ ] **Step 3: Implement** - `src/components/LlmWizard/Validation.tsx`:
+- [x] **Step 3: Implement** - `src/components/LlmWizard/Validation.tsx`:
 
 ```tsx
 import React, { useEffect, useState } from 'react';
@@ -7229,12 +7229,12 @@ export function Validation({ draft, secret, onSuccess, onContinue, onBack }: Pro
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard/Validation.test.tsx && npx tsc --noEmit`
 Expected: PASS (5 tests); tsc clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/LlmWizard
