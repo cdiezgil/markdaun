@@ -42,7 +42,7 @@ function renderValidation(props: Partial<React.ComponentProps<typeof Validation>
   return { onSuccess, onContinue, onBack };
 }
 
-const status = (step: string) => screen.getByTestId(`step-${step}`).getAttribute('data-status');
+const status = (step: string) => screen.getByTestId(`check-${step}`).getAttribute('data-status');
 
 describe('Validation', () => {
   it('runs llm_validate with the draft and secret and shows live step status', async () => {
@@ -60,7 +60,7 @@ describe('Validation', () => {
     await emit({ step: 'models', status: 'ok', detail: '3 models' });
     await emit({ step: 'completion', status: 'ok' });
     expect(status('reach')).toBe('ok');
-    expect(screen.getByTestId('step-models')).toHaveTextContent('3 models');
+    expect(screen.getByTestId('check-models')).toHaveTextContent('3 models');
 
     await act(async () => resolve(RESULT));
     expect(onSuccess).toHaveBeenCalledWith(RESULT);
@@ -96,8 +96,8 @@ describe('Validation', () => {
     const cliDraft = draftFromPreset(PRESETS.find((p) => p.id === 'claude-code')!);
     mockInvoke.mockRejectedValueOnce({ kind: 'CliNotLoggedIn' });
     const { onBack } = renderValidation({ draft: cliDraft });
-    expect(screen.getByTestId('step-reach')).toHaveTextContent(/CLI instalado/i);
-    expect(screen.getByTestId('step-credential')).toHaveTextContent(/sesión/i);
+    expect(screen.getByTestId('check-reach')).toHaveTextContent(/CLI instalado/i);
+    expect(screen.getByTestId('check-credential')).toHaveTextContent(/sesión/i);
     expect(await screen.findByTestId('validation-error')).toHaveTextContent(/ejecuta `claude`/i);
     fireEvent.click(screen.getByTestId('wizard-back'));
     expect(onBack).toHaveBeenCalled();

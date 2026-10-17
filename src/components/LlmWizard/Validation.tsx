@@ -109,7 +109,7 @@ export function Validation({ draft, secret, onSuccess, onContinue, onBack }: Pro
           return (
             <li
               key={id}
-              data-testid={`step-${id}`}
+              data-testid={`check-${id}`}
               data-status={st}
               style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}
             >
