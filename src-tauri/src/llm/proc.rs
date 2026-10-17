@@ -104,13 +104,25 @@ pub async fn run(
     for key in env_remove {
         cmd.env_remove(key);
     }
-    let mut child = cmd.spawn().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            LlmError::CliMissing
-        } else {
-            LlmError::BadResponse(format!("cannot start {}: {e}", bin.display()))
+    // Linux can refuse to exec a freshly-written script with ETXTBSY (os error 26)
+    // while its write has not fully settled; a few brief retries settle the race.
+    let mut child = loop {
+        match cmd.spawn() {
+            Ok(child) => break child,
+            Err(e) => {
+                let txtbsy = e.raw_os_error() == Some(26);
+                if txtbsy {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    continue;
+                }
+                return Err(if e.kind() == std::io::ErrorKind::NotFound {
+                    LlmError::CliMissing
+                } else {
+                    LlmError::BadResponse(format!("cannot start {}: {e}", bin.display()))
+                });
+            }
         }
-    })?;
+    };
     if let Some(mut si) = child.stdin.take() {
         let data = stdin.unwrap_or("").to_string();
         // Write in a task so a child that never reads cannot deadlock us; dropping closes stdin.
