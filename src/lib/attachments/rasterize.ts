@@ -24,7 +24,7 @@ export async function rasterizeImage(src: string): Promise<DerivedImage> {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('No se pudo convertir la imagen.');
   // Transparent SVGs read badly for models on black; paint them on white.
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
   const url = canvas.toDataURL('image/png');

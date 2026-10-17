@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import {
+  ChevronDown,
+  ChevronRight,
   File,
   FileText,
   Folder,
@@ -7,6 +9,7 @@ import {
   Image,
 } from 'lucide-react';
 import { useVaultStore } from '../../store/vaultStore';
+import { useEditorStore } from '../../store/editorStore';
 import { useFileNavigation } from '../../hooks/useFileNavigation';
 import type { VaultEntry } from '../../store/vaultStore';
 import { RenameInput } from './RenameInput';
@@ -24,29 +27,27 @@ interface TreeNodeProps {
 /** MIME type used to drag vault entries between tree nodes. */
 export const ENTRY_MIME = 'application/x-markdaun-entry';
 
+/** Label colour: unsupported file types read as disabled, the rest as ink. */
 function getFileColor(fileType: VaultEntry['file_type']): string {
-  switch (fileType) {
-    case 'md':
-      return 'var(--daun)';
-    case 'image':
-    case 'pdf':
-      return 'var(--ink)';
-    default:
-      return 'var(--ink-muted)';
-  }
+  return fileType === 'other' ? 'var(--ink-muted)' : 'var(--ink)';
 }
 
-function FileIcon({ fileType }: { fileType: VaultEntry['file_type'] }) {
-  const color = getFileColor(fileType);
+/** Notes are shown without their `.md` extension. */
+function displayName(entry: VaultEntry): string {
+  return entry.kind === 'file' && entry.file_type === 'md'
+    ? entry.name.replace(/\.md$/i, '')
+    : entry.name;
+}
+
+function FileIcon({ fileType, active }: { fileType: VaultEntry['file_type']; active: boolean }) {
+  const props = { size: 16, strokeWidth: 1.5, color: active ? 'var(--daun)' : 'var(--ink-muted)' };
   switch (fileType) {
     case 'md':
-      return <FileText size={20} strokeWidth={1.5} color={color} />;
+      return <FileText {...props} />;
     case 'image':
-      return <Image size={20} strokeWidth={1.5} color={color} />;
-    case 'pdf':
-    case 'other':
+      return <Image {...props} />;
     default:
-      return <File size={20} strokeWidth={1.5} color={color} />;
+      return <File {...props} />;
   }
 }
 
@@ -65,8 +66,15 @@ export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNod
   const refreshTree = useVaultStore((s) => s.refreshTree);
   const { navigateToFile } = useFileNavigation();
 
-  const paddingLeft = `calc(${depth} * var(--space-4))`;
-  const fileColor = entry.kind === 'file' ? getFileColor(entry.file_type) : 'var(--ink-muted)';
+  const activeNotePath = useEditorStore((s) => s.activeNotePath);
+  const isActive = entry.kind === 'file' && entry.file_type === 'md' && activeNotePath === entry.path;
+
+  const paddingLeft = `calc(var(--space-2) + ${depth} * var(--space-4))`;
+  const labelColor = isActive
+    ? 'var(--daun)'
+    : entry.kind === 'file'
+      ? getFileColor(entry.file_type)
+      : 'var(--ink)';
 
   function handleClick() {
     if (entry.kind === 'folder') {
@@ -148,32 +156,53 @@ export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNod
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 'var(--space-2)',
+          gap: 6,
+          height: 32,
+          boxSizing: 'border-box',
+          marginInline: 'var(--space-2)',
           paddingLeft,
-          paddingTop: 'var(--space-1)',
-          paddingBottom: 'var(--space-1)',
+          paddingRight: 'var(--space-2)',
+          borderRadius: 'var(--radius-md)',
+          fontFamily: 'var(--font-sans)',
           cursor: entry.kind === 'file' && entry.file_type === 'other' ? 'default' : 'pointer',
           userSelect: 'none',
-          background: dropActive ? 'var(--mark)' : undefined,
+          background: dropActive ? 'var(--mark)' : isActive ? 'var(--bg)' : undefined,
           outline: dropActive ? '1px dashed var(--daun)' : undefined,
         }}
+        className={isActive ? undefined : 'md-hover'}
         data-testid={`tree-node-${entry.name}`}
         data-file-type={entry.file_type}
       >
+        <span style={{ width: 14, height: 14, flexShrink: 0, display: 'inline-flex' }}>
+          {entry.kind === 'folder' &&
+            (expanded ? (
+              <ChevronDown size={14} strokeWidth={1.5} color="var(--ink-muted)" />
+            ) : (
+              <ChevronRight size={14} strokeWidth={1.5} color="var(--ink-muted)" />
+            ))}
+        </span>
         {entry.kind === 'folder' ? (
           expanded ? (
-            <FolderOpen size={20} strokeWidth={1.5} color="var(--ink-muted)" />
+            <FolderOpen size={16} strokeWidth={1.5} color="var(--ink-muted)" />
           ) : (
-            <Folder size={20} strokeWidth={1.5} color="var(--ink-muted)" />
+            <Folder size={16} strokeWidth={1.5} color="var(--ink-muted)" />
           )
         ) : (
-          <FileIcon fileType={entry.file_type} />
+          <FileIcon fileType={entry.file_type} active={isActive} />
         )}
         <span
-          style={{ fontSize: 14, color: fileColor }}
+          style={{
+            fontSize: 14,
+            lineHeight: '20px',
+            color: labelColor,
+            fontWeight: isActive ? 500 : 400,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
           data-testid={`tree-node-name-${entry.name}`}
         >
-          {entry.name}
+          {displayName(entry)}
         </span>
       </div>
 

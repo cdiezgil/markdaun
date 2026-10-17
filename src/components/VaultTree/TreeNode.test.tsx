@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { TreeNode } from './TreeNode';
 import { useVaultStore } from '../../store/vaultStore';
+import { useEditorStore } from '../../store/editorStore';
 import type { VaultEntry } from '../../store/vaultStore';
 import React from 'react';
 
@@ -75,10 +76,34 @@ describe('TC-08: clic en other no navega', () => {
 });
 
 describe('TC-18: colores por tipo de fichero', () => {
-  it('TC-18: .md tiene color var(--daun)', () => {
+  it('TC-18: .md inactivo tiene color var(--ink)', () => {
+    wrap(<TreeNode entry={mdEntry} depth={0} />);
+    const nameSpan = screen.getByTestId('tree-node-name-nota.md');
+    expect(nameSpan.style.color).toBe('var(--ink)');
+  });
+
+  it('TC-18: la nota activa va en var(--daun), peso 500 y fondo var(--bg)', () => {
+    useEditorStore.setState({ activeNotePath: '/vault/nota.md' });
     wrap(<TreeNode entry={mdEntry} depth={0} />);
     const nameSpan = screen.getByTestId('tree-node-name-nota.md');
     expect(nameSpan.style.color).toBe('var(--daun)');
+    expect(nameSpan.style.fontWeight).toBe('500');
+    expect(screen.getByTestId('tree-node-nota.md').style.background).toBe('var(--bg)');
+    useEditorStore.setState({ activeNotePath: null });
+  });
+
+  it('oculta la extensión .md pero no la de otros ficheros', () => {
+    wrap(<TreeNode entry={mdEntry} depth={0} />);
+    expect(screen.getByTestId('tree-node-name-nota.md')).toHaveTextContent(/^nota$/);
+    wrap(<TreeNode entry={imgEntry} depth={0} />);
+    expect(screen.getByTestId('tree-node-name-foto.png')).toHaveTextContent('foto.png');
+  });
+
+  it('filas de 32px con radio var(--radius-md)', () => {
+    wrap(<TreeNode entry={mdEntry} depth={0} />);
+    const row = screen.getByTestId('tree-node-nota.md');
+    expect(row.style.height).toBe('32px');
+    expect(row.style.borderRadius).toBe('var(--radius-md)');
   });
 
   it('TC-18: imagen tiene color var(--ink)', () => {

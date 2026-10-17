@@ -48,7 +48,7 @@ export function getThemeVariables(el: Element = document.documentElement): Theme
     primaryTextColor: token('--ink'),
     secondaryColor: token('--surface-sunken'),
     tertiaryColor: token('--daun'),
-    fontFamily: 'Geist, sans-serif',
+    fontFamily: token('--font-sans'),
   };
 }
 

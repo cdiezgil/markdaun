@@ -70,7 +70,7 @@ export function NameDialog({ open, title, hint, submitLabel = 'Crear', onSubmit,
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0,0,0,0.4)',
+        backgroundColor: 'color-mix(in srgb, var(--ink) 40%, transparent)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { Brain, FolderOpen, Network } from 'lucide-react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useVaultStore } from './store/vaultStore';
 import { useEditorStore } from './store/editorStore';
 import { useSyncStore } from './store/syncStore';
@@ -14,6 +13,7 @@ import { ExitDialog } from './components/Sync/ExitDialog';
 import { getCurrentWindow } from './lib/tauri';
 import { SecondBrainView } from './views/SecondBrainView';
 import { LlmWizard } from './components/LlmWizard/LlmWizard';
+import { TopBar } from './components/Shell/TopBar';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { useLlmStore } from './store/llmStore';
 
@@ -47,92 +47,27 @@ function AppLayout() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <div
+      data-testid="app-shell"
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
+    >
+      <TopBar />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-      <aside
-        style={{
-          width: 'var(--sidebar-width)',
-          flexShrink: 0,
-          background: 'var(--surface-sunken)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-        data-testid="sidebar"
-      >
-        {/* Top nav: Files | Graph */}
-        <nav
-          data-testid="sidebar-nav"
+        <aside
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            height: 'var(--toolbar-height)',
-            borderBottom: '1px solid var(--line)',
+            width: 'var(--sidebar-width)',
             flexShrink: 0,
+            boxSizing: 'border-box',
+            background: 'var(--surface-sunken)',
+            borderRight: '1px solid var(--line)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
-          <NavLink
-            to="/"
-            end
-            data-testid="nav-files"
-            style={({ isActive }) => ({
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '0 var(--space-3)',
-              height: '100%',
-              fontFamily: 'var(--font-sans)',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: isActive ? 'var(--daun)' : 'var(--ink-muted)',
-              textDecoration: 'none',
-            })}
-          >
-            <FolderOpen size={16} strokeWidth={1.5} />
-            Files
-          </NavLink>
-          <NavLink
-            to="/graph"
-            data-testid="nav-graph"
-            style={({ isActive }) => ({
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '0 var(--space-3)',
-              height: '100%',
-              fontFamily: 'var(--font-sans)',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: isActive ? 'var(--daun)' : 'var(--ink-muted)',
-              textDecoration: 'none',
-            })}
-          >
-            <Network size={16} strokeWidth={1.5} />
-            Graph
-          </NavLink>
-          <NavLink
-            to="/brain"
-            data-testid="nav-brain"
-            style={({ isActive }) => ({
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '0 var(--space-3)',
-              height: '100%',
-              fontFamily: 'var(--font-sans)',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: isActive ? 'var(--daun)' : 'var(--ink-muted)',
-              textDecoration: 'none',
-            })}
-          >
-            <Brain size={16} strokeWidth={1.5} />
-            Brain
-          </NavLink>
-        </nav>
-        <VaultTree />
-      </aside>
-      <main style={{ flex: 1, overflow: 'auto' }}>
+          <VaultTree />
+        </aside>
+        <main style={{ flex: 1, minWidth: 0, overflow: 'auto', background: 'var(--bg)' }}>
         <Routes>
           <Route path="/" element={<WelcomeView />} />
           <Route path="/editor/:encodedPath" element={<EditorView />} />
@@ -141,7 +76,7 @@ function AppLayout() {
           <Route path="/settings" element={<SettingsView />} />
           <Route path="/brain" element={<SecondBrainView />} />
         </Routes>
-      </main>
+        </main>
       </div>
       <StatusBar />
       <ExitDialog
