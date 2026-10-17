@@ -21,6 +21,7 @@ const conn = (id: string, name: string, models: string[]): Connection => ({
   caCertPath: null,
   azureApiVersion: null,
   models,
+  visionModels: [],
 });
 
 const HOME = conn('h', 'Casa', ['opus', 'sonnet']);

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { llmSaveConnection, llmVerifyModel } from '../../lib/tauri';
+import { llmSaveConnection, llmTestVision, llmVerifyModel } from '../../lib/tauri';
 import { asLlmError, describeLlmError } from '../../lib/llm/errors';
 import type { Connection, LlmError, ValidateResult } from '../../lib/llm/types';
+import { visionDefault } from '../../lib/llm/vision';
 import {
   disabled,
   errorText,
@@ -37,6 +38,9 @@ export function ModelsAndName({ draft, result, secret, suggested, onSaved, onBac
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<LlmError | null>(null);
+  // Per-model vision flag: preset default, overridden by «Probar visión».
+  const [vision, setVision] = useState<Record<string, boolean>>({});
+  const [probing, setProbing] = useState<string | null>(null);
 
   const candidates = useMemo(
     () => uniq([...result.available, ...suggested, ...draft.models, ...extra]),
@@ -77,6 +81,25 @@ export function ModelsAndName({ draft, result, secret, suggested, onSaved, onBac
     void select(m);
   };
 
+  const sees = (m: string): boolean => {
+    if (m in vision) return vision[m];
+    // Editing a saved connection keeps its stored flags for models it already had.
+    if (draft.id !== '' && draft.models.includes(m)) return (draft.visionModels ?? []).includes(m);
+    return visionDefault(m, draft.presetId);
+  };
+
+  const probeVision = async (model: string) => {
+    setError(null);
+    setProbing(model);
+    try {
+      const ok = await llmTestVision(draft, secretOrNull, model);
+      setVision((v) => ({ ...v, [model]: ok }));
+    } catch (e) {
+      setError(asLlmError(e));
+    }
+    setProbing(null);
+  };
+
   const canSave = name.trim() !== '' && selected.length > 0 && !saving && busy === null;
 
   const save = async () => {
@@ -85,7 +108,12 @@ export function ModelsAndName({ draft, result, secret, suggested, onSaved, onBac
     try {
       // Keep the candidate order so the first listed selection becomes the default.
       const models = candidates.filter((m) => selected.includes(m));
-      const saved = await llmSaveConnection({ ...draft, name: name.trim(), models }, secretOrNull, result.token);
+      const visionModels = models.filter(sees);
+      const saved = await llmSaveConnection(
+        { ...draft, name: name.trim(), models, visionModels },
+        secretOrNull,
+        result.token,
+      );
       onSaved(saved);
     } catch (e) {
       setError(asLlmError(e));
@@ -115,9 +143,31 @@ export function ModelsAndName({ draft, result, secret, suggested, onSaved, onBac
             {busy !== m && !verified.has(m) && !selected.includes(m) && (
               <span style={muted}>(se probará al elegirlo)</span>
             )}
+            {selected.includes(m) && (
+              <>
+                <span data-testid={`vision-${m}`} style={muted}>
+                  · {sees(m) ? 'Ve imágenes' : 'Solo texto'}
+                </span>
+                <button
+                  type="button"
+                  data-testid={`test-vision-${m}`}
+                  style={ghostButton}
+                  disabled={probing !== null || busy !== null}
+                  onClick={() => void probeVision(m)}
+                >
+                  {probing === m ? 'Probando visión…' : 'Probar visión'}
+                </button>
+              </>
+            )}
           </label>
         ))}
       </div>
+
+      {selected.some((m) => !sees(m)) && (
+        <p data-testid="vision-warning" style={muted}>
+          Algún modelo elegido no verá imágenes ni PDFs: no podrás adjuntarlos al chat con él.
+        </p>
+      )}
 
       <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
         <input

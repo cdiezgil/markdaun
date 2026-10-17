@@ -24,6 +24,7 @@
     "@tiptap/starter-kit": "^2",
     "@xyflow/react": "^12",
     "lucide-react": "^0.468.0",
+    "pdfjs-dist": "^4.10.38",
     "react": "^18",
     "react-dom": "^18",
     "react-router-dom": "^6",

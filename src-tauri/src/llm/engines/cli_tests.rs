@@ -4,7 +4,7 @@ use crate::llm::connection::Engine;
 use crate::llm::error::LlmError;
 
 fn m(role: &str, content: &str) -> ChatMessage {
-    ChatMessage { role: role.into(), content: content.into() }
+    ChatMessage::text(role, content)
 }
 
 #[test]
@@ -83,6 +83,69 @@ fn unauthenticated_detection() {
         "Failed to authenticate: OAuth session expired and could not be refreshed"
     ));
     assert!(!looks_unauthenticated("rate limit exceeded"));
+}
+
+fn image_att(name: &str) -> crate::llm::attachment::Attachment {
+    use crate::llm::attachment::*;
+    Attachment {
+        name: name.into(),
+        vault_path: name.into(),
+        kind: AttachmentKind::Image,
+        parts: vec![Part::Image { media_type: "image/png".into(), data_b64: "QUJD".into() }],
+        fallback: vec![],
+    }
+}
+
+fn pdf_att() -> crate::llm::attachment::Attachment {
+    use crate::llm::attachment::*;
+    Attachment {
+        name: "f.pdf".into(),
+        vault_path: "f.pdf".into(),
+        kind: AttachmentKind::Pdf,
+        parts: vec![Part::Document { media_type: "application/pdf".into(), data_b64: "UERG".into() }],
+        fallback: vec![
+            Part::Text("texto pdf".into()),
+            Part::Image { media_type: "image/png".into(), data_b64: "UEFHRQ==".into() },
+        ],
+    }
+}
+
+fn with_atts(text: &str, atts: Vec<crate::llm::attachment::Attachment>) -> Vec<ChatMessage> {
+    vec![ChatMessage::text("system", "sys"), ChatMessage { attachments: atts, ..ChatMessage::text("user", text) }]
+}
+
+#[test]
+fn claude_stream_args_switch_to_stream_json_io() {
+    let a = claude_stream_args("sonnet", "");
+    let j = a.join(" ");
+    assert!(j.contains("-p --input-format stream-json --output-format stream-json --verbose --model sonnet"), "{j}");
+    assert!(a.windows(2).any(|w| w[0] == "--tools" && w[1].is_empty()));
+    assert!(a.contains(&"--no-session-persistence".to_string()));
+}
+
+#[test]
+fn parse_claude_stream_takes_the_result_line() {
+    let out = "{\"type\":\"system\"}\n{\"type\":\"assistant\",\"message\":{}}\n{\"type\":\"result\",\"is_error\":false,\"result\":\"A -> B\"}\n";
+    assert_eq!(parse_claude_stream(out).unwrap(), "A -> B");
+    assert!(matches!(parse_claude_stream("{\"type\":\"system\"}\n").unwrap_err(), LlmError::BadResponse(_)));
+    assert_eq!(
+        parse_claude_stream("{\"type\":\"result\",\"is_error\":true,\"result\":\"Not logged in\"}").unwrap_err(),
+        LlmError::CliNotLoggedIn
+    );
+}
+
+#[test]
+fn claude_stream_input_is_one_user_line_with_content_blocks() {
+    let line = claude_stream_input(&with_atts("¿qué hay?", vec![image_att("a.png"), pdf_att()]), "¿qué hay?");
+    assert!(!line.trim_end().contains('\n'));
+    let v: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(v["type"], "user");
+    assert_eq!(v["message"]["role"], "user");
+    let c = v["message"]["content"].as_array().unwrap();
+    assert_eq!(c[1]["type"], "image");
+    assert_eq!(c[1]["source"]["data"], "QUJD");
+    assert_eq!(c[3]["type"], "document");
+    assert_eq!(c.last().unwrap()["text"], "¿qué hay?");
 }
 
 #[cfg(unix)]
@@ -193,5 +256,51 @@ mod with_scripts {
             chat(Engine::CliGemini, &env, "gemini-2.5-flash", &[m("user", "x")]).await.unwrap_err(),
             LlmError::CliNotLoggedIn
         );
+    }
+
+    #[tokio::test]
+    async fn claude_with_attachments_uses_stream_json_and_parses_the_result_line() {
+        let out_dir = tempfile::tempdir().unwrap();
+        let stdin_file = out_dir.path().join("stdin.json");
+        let args_file = out_dir.path().join("args.txt");
+        let body = format!(
+            "cat > {}\necho \"$*\" > {}\necho '{{\"type\":\"system\"}}'\necho '{{\"type\":\"result\",\"is_error\":false,\"result\":\"A -> B\"}}'",
+            stdin_file.display(),
+            args_file.display()
+        );
+        let (env, _d) = env_with("claude", &body, 5000);
+        let out = chat(Engine::CliClaude, &env, "sonnet", &with_atts("¿qué texto?", vec![image_att("a.png")]))
+            .await
+            .unwrap();
+        assert_eq!(out, "A -> B");
+        let args = std::fs::read_to_string(&args_file).unwrap();
+        assert!(args.contains("--input-format stream-json"), "{args}");
+        assert!(args.contains("--output-format stream-json"), "{args}");
+        assert!(args.contains("--verbose"), "{args}");
+        assert!(args.contains("--system-prompt sys"), "{args}");
+        let sent: serde_json::Value = serde_json::from_str(std::fs::read_to_string(&stdin_file).unwrap().trim()).unwrap();
+        assert_eq!(sent["message"]["content"][1]["type"], "image");
+        assert_eq!(sent["message"]["content"][2]["text"], "¿qué texto?");
+    }
+
+    #[tokio::test]
+    async fn claude_without_attachments_keeps_the_plain_json_path() {
+        let body = "cat >/dev/null\necho \"$*\" | grep -q stream-json && echo '{\"is_error\":false,\"result\":\"stream\"}' || echo '{\"is_error\":false,\"result\":\"plain\"}'";
+        let (env, _d) = env_with("claude", body, 5000);
+        assert_eq!(chat(Engine::CliClaude, &env, "opus", &[m("user", "x")]).await.unwrap(), "plain");
+    }
+
+    #[tokio::test]
+    async fn gemini_references_attachments_as_temp_files_in_the_prompt() {
+        let body = "printf '{\"response\":\"files=[%s] args=%s\"}' \"$(ls | tr '\\n' ' ')\" \"$*\"";
+        let (env, _d) = env_with("gemini", body, 5000);
+        let msgs = with_atts("describe", vec![image_att("a b.png"), pdf_att()]);
+        let out = chat(Engine::CliGemini, &env, "gemini-2.5-pro", &msgs).await.unwrap();
+        assert!(out.contains("--approval-mode plan"), "{out}");
+        assert!(out.contains("@attachment-1-1.png"), "{out}");
+        assert!(out.contains("@attachment-2-2.png"), "pdf page image: {out}");
+        assert!(out.contains("attachment-1-1.png attachment-2-2.png"), "files exist while running: {out}");
+        assert!(out.contains("texto pdf"), "{out}");
+        assert!(out.contains("describe"), "{out}");
     }
 }

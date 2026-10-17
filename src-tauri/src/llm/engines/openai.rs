@@ -1,4 +1,5 @@
 use super::ChatMessage;
+use crate::llm::attachment::Part;
 use crate::llm::auth::Credential;
 use crate::llm::connection::Connection;
 use crate::llm::error::LlmError;
@@ -56,6 +57,18 @@ pub async fn list_models(conn: &Connection, cred: &Credential, client: &Client) 
         .collect())
 }
 
+/// OpenAI content part. Native documents never reach this engine (PDFs use
+/// their page images + text fallback), so they are dropped.
+fn part_json(p: &Part) -> Option<Value> {
+    match p {
+        Part::Text(t) => Some(json!({ "type": "text", "text": t })),
+        Part::Image { media_type, data_b64 } => {
+            Some(json!({ "type": "image_url", "image_url": { "url": format!("data:{media_type};base64,{data_b64}") } }))
+        }
+        Part::Document { .. } => None,
+    }
+}
+
 /// `POST /chat/completions` (non-streaming). Returns `choices[0].message.content`.
 pub async fn chat(
     conn: &Connection,
@@ -64,7 +77,18 @@ pub async fn chat(
     model: &str,
     messages: &[ChatMessage],
 ) -> Result<String, LlmError> {
-    let body = json!({ "model": model, "messages": messages, "stream": false });
+    let wire: Vec<Value> = messages
+        .iter()
+        .map(|m| {
+            if m.attachments.is_empty() {
+                json!({ "role": m.role, "content": m.content })
+            } else {
+                let parts: Vec<Value> = m.expand(false).iter().filter_map(part_json).collect();
+                json!({ "role": m.role, "content": parts })
+            }
+        })
+        .collect();
+    let body = json!({ "model": model, "messages": wire, "stream": false });
     let resp = apply_auth(client.post(chat_url(conn, model)?), conn, cred)
         .json(&body)
         .send()

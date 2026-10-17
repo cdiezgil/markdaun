@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::attachment::{self, Attachment, Part};
 use super::auth;
 use super::connection::{Connection, Engine};
 use super::env::LlmEnv;
@@ -23,6 +24,20 @@ mod openai_tests;
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    /// Images / PDFs sent with this turn only (never persisted as bytes).
+    #[serde(skip)]
+    pub attachments: Vec<Attachment>,
+}
+
+impl ChatMessage {
+    pub fn text(role: impl Into<String>, content: impl Into<String>) -> Self {
+        Self { role: role.into(), content: content.into(), attachments: Vec::new() }
+    }
+
+    /// Ordered parts: attachments first (each preceded by its name), then the text.
+    pub fn expand(&self, native_pdf: bool) -> Vec<Part> {
+        attachment::expand_parts(&self.attachments, &self.content, native_pdf)
+    }
 }
 
 /// Models offered by the connection. CLI engines return their fixed list (after
@@ -46,8 +61,23 @@ pub async fn list_models(conn: &Connection, secret: Option<&str>, env: &LlmEnv) 
     }
 }
 
-/// One non-streaming chat turn through the connection's engine.
+/// One non-streaming chat turn through the connection's engine. Turns with
+/// attachments require a vision-capable model.
 pub async fn chat(
+    conn: &Connection,
+    model: &str,
+    messages: &[ChatMessage],
+    secret: Option<&str>,
+    env: &LlmEnv,
+) -> Result<String, LlmError> {
+    if messages.iter().any(|m| !m.attachments.is_empty()) && !conn.supports_vision(model) {
+        return Err(LlmError::VisionUnsupported);
+    }
+    chat_unchecked(conn, model, messages, secret, env).await
+}
+
+/// Like [`chat`] without the vision gate (used to probe vision support itself).
+pub async fn chat_unchecked(
     conn: &Connection,
     model: &str,
     messages: &[ChatMessage],

@@ -30,6 +30,7 @@ fn draft(url: &str) -> Connection {
         ca_cert_path: None,
         azure_api_version: None,
         models: vec!["gpt-4.1".into()],
+        vision_models: vec![],
     }
 }
 
@@ -219,4 +220,12 @@ fn detect_cli_reports_installed_state() {
     assert_eq!(found.path.as_deref(), Some("/opt/bin/claude"));
     let missing = detect_cli_inner(&env, Engine::CliGemini);
     assert!(!missing.installed && missing.path.is_none());
+}
+
+#[tokio::test]
+async fn test_vision_uses_the_typed_secret_and_reports_support() {
+    let s = spawn(|_| MockResponse::json(200, r#"{"choices":[{"message":{"content":"rojo"}}]}"#));
+    let (_db, env, _vs) = setup();
+    assert!(test_vision_inner(&env, &draft(&s.url), Some("sk".into()), "gpt-4.1").await.unwrap());
+    assert_eq!(s.requests()[0].header("authorization"), Some("Bearer sk"));
 }

@@ -2,7 +2,9 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
+import { useBrainStore } from '../../store/brainStore';
 
 // Mock editor
 function makeEditor(overrides = {}) {
@@ -47,7 +49,17 @@ beforeEach(() => {
 async function renderToolbar(editorOverrides = {}) {
   const { default: EditorToolbar } = await import('./EditorToolbar');
   const editor = makeEditor(editorOverrides) as unknown as import('@tiptap/react').Editor;
-  return { ...render(<EditorToolbar editor={editor} />), editor };
+  return {
+    ...render(
+      <MemoryRouter initialEntries={['/editor/x']}>
+        <Routes>
+          <Route path="/editor/x" element={<EditorToolbar editor={editor} />} />
+          <Route path="/brain" element={<div data-testid="brain-route" />} />
+        </Routes>
+      </MemoryRouter>,
+    ),
+    editor,
+  };
 }
 
 // ── TC-04 to TC-09: Toolbar renders and buttons exist ────────────────────────
@@ -244,8 +256,67 @@ describe('selector de tamaño de tabla', () => {
 
   it('el picker no se abre sin editor', async () => {
     const { default: EditorToolbar } = await import('./EditorToolbar');
-    render(<EditorToolbar editor={null} />);
+    render(
+      <MemoryRouter>
+        <EditorToolbar editor={null} />
+      </MemoryRouter>,
+    );
     fireEvent.click(screen.getByLabelText('Insert table'));
     expect(screen.queryByTestId('table-size-picker')).toBeNull();
+  });
+});
+
+
+// ── Explain the images of this note ───────────────────────────────────────────
+
+describe('Explicar imágenes de esta nota', () => {
+  beforeEach(() => {
+    useBrainStore.setState({ pendingAttachments: [], pendingPrompt: null, notices: [], messages: [] });
+  });
+
+  it('attaches local images/PDFs, fills a prompt with the note text and opens the chat', async () => {
+    useEditorStore.setState({
+      activeNotePath: '/vault/notas/idea.md',
+      vaultPath: '/vault',
+      activeNoteContent: '# Idea\n![flujo](flujo.png)\n[spec](spec.pdf)\n![web](https://x.com/a.png)',
+    });
+    await renderToolbar();
+    fireEvent.click(screen.getByLabelText('Explicar imágenes de esta nota'));
+    const s = useBrainStore.getState();
+    expect(s.pendingAttachments.map((a) => a.vaultPath)).toEqual(['notas/flujo.png', 'notas/spec.pdf']);
+    expect(s.pendingPrompt).toMatchObject({ send: false });
+    expect(s.pendingPrompt?.text).toContain('idea');
+    expect(s.pendingPrompt?.text).toContain('![flujo](flujo.png)');
+    expect(s.notices.join(' ')).toMatch(/remotas/);
+    expect(screen.getByTestId('brain-route')).toBeInTheDocument();
+  });
+
+  it('works on the on-disk form even when the editor holds asset URLs', async () => {
+    useEditorStore.setState({
+      activeNotePath: '/vault/notas/idea.md',
+      vaultPath: '/vault',
+      activeNoteContent: '![flujo](asset:///vault/notas/img/flujo.png)',
+    });
+    await renderToolbar();
+    fireEvent.click(screen.getByLabelText('Explicar imágenes de esta nota'));
+    expect(useBrainStore.getState().pendingAttachments.map((a) => a.vaultPath)).toEqual(['notas/img/flujo.png']);
+    expect(useBrainStore.getState().pendingPrompt?.text).toContain('![flujo](img/flujo.png)');
+  });
+
+  it('opens the chat with a notice when the note has no local images or PDFs', async () => {
+    useEditorStore.setState({ activeNotePath: '/vault/n.md', vaultPath: '/vault', activeNoteContent: 'solo texto' });
+    await renderToolbar();
+    fireEvent.click(screen.getByLabelText('Explicar imágenes de esta nota'));
+    expect(useBrainStore.getState().pendingAttachments).toEqual([]);
+    expect(useBrainStore.getState().notices[0]).toMatch(/no contiene imágenes/);
+  });
+
+  it('reports files beyond the limit of five', async () => {
+    const md = Array.from({ length: 7 }, (_, i) => `![](i${i}.png)`).join('\n');
+    useEditorStore.setState({ activeNotePath: '/vault/n.md', vaultPath: '/vault', activeNoteContent: md });
+    await renderToolbar();
+    fireEvent.click(screen.getByLabelText('Explicar imágenes de esta nota'));
+    expect(useBrainStore.getState().pendingAttachments).toHaveLength(5);
+    expect(useBrainStore.getState().notices.join(' ')).toMatch(/2 archivo\(s\) más/);
   });
 });

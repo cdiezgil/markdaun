@@ -1,3 +1,4 @@
+pub mod attachment;
 pub mod auth;
 pub mod connection;
 pub mod embeddings;
@@ -16,6 +17,8 @@ pub mod testutil;
 pub use embeddings::{chunk_text, embed_text, load_model, EmbedderState};
 pub use engines::ChatMessage;
 
+#[cfg(test)]
+mod attachment_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]

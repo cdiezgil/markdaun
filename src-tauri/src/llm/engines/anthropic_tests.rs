@@ -19,6 +19,7 @@ fn conn(base: &str) -> Connection {
         ca_cert_path: None,
         azure_api_version: None,
         models: vec!["claude-sonnet-4-5".into()],
+        vision_models: vec![],
     }
 }
 
@@ -28,8 +29,8 @@ fn client(c: &Connection) -> reqwest::Client {
 
 fn msgs() -> Vec<ChatMessage> {
     vec![
-        ChatMessage { role: "system".into(), content: "be brief".into() },
-        ChatMessage { role: "user".into(), content: "hola".into() },
+        ChatMessage::text("system", "be brief"),
+        ChatMessage::text("user", "hola"),
     ]
 }
 
@@ -106,4 +107,53 @@ async fn list_models_404_means_unlisted() {
     let s = spawn(|_| MockResponse::json(404, "{}"));
     let c = conn(&s.url);
     assert!(anthropic::list_models(&c, &Credential::None, &client(&c)).await.unwrap().is_empty());
+}
+
+fn with_attachments() -> Vec<ChatMessage> {
+    use crate::llm::attachment::*;
+    let img = Attachment {
+        name: "a.png".into(),
+        vault_path: "a.png".into(),
+        kind: AttachmentKind::Image,
+        parts: vec![Part::Image { media_type: "image/png".into(), data_b64: "QUJD".into() }],
+        fallback: vec![],
+    };
+    let pdf = Attachment {
+        name: "f.pdf".into(),
+        vault_path: "f.pdf".into(),
+        kind: AttachmentKind::Pdf,
+        parts: vec![Part::Document { media_type: "application/pdf".into(), data_b64: "UERG".into() }],
+        fallback: vec![Part::Text("texto".into())],
+    };
+    vec![
+        ChatMessage::text("system", "be brief"),
+        ChatMessage { attachments: vec![img, pdf], ..ChatMessage::text("user", "¿qué ves?") },
+    ]
+}
+
+#[tokio::test]
+async fn chat_sends_image_and_native_document_blocks() {
+    let s = spawn(|_| MockResponse::json(200, r#"{"content":[{"type":"text","text":"ok"}]}"#));
+    let c = conn(&s.url);
+    anthropic::chat(&c, &Credential::None, &client(&c), "m", &with_attachments()).await.unwrap();
+    let body: serde_json::Value = serde_json::from_str(&s.requests()[0].body).unwrap();
+    let content = body["messages"][0]["content"].as_array().unwrap();
+    assert_eq!(content[0]["type"], "text");
+    assert!(content[0]["text"].as_str().unwrap().contains("a.png"));
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["source"]["type"], "base64");
+    assert_eq!(content[1]["source"]["media_type"], "image/png");
+    assert_eq!(content[1]["source"]["data"], "QUJD");
+    assert_eq!(content[3]["type"], "document");
+    assert_eq!(content[3]["source"]["media_type"], "application/pdf");
+    assert_eq!(content[4]["text"], "¿qué ves?");
+}
+
+#[tokio::test]
+async fn text_only_messages_keep_a_plain_string_content() {
+    let s = spawn(|_| MockResponse::json(200, r#"{"content":[{"type":"text","text":"ok"}]}"#));
+    let c = conn(&s.url);
+    anthropic::chat(&c, &Credential::None, &client(&c), "m", &msgs()).await.unwrap();
+    let body: serde_json::Value = serde_json::from_str(&s.requests()[0].body).unwrap();
+    assert_eq!(body["messages"][0]["content"], "hola");
 }

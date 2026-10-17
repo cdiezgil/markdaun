@@ -19,6 +19,7 @@ fn conn(url: &str, ca: Option<String>) -> Connection {
         ca_cert_path: ca,
         azure_api_version: None,
         models: vec!["m".into()],
+        vision_models: vec![],
     }
 }
 

@@ -16,9 +16,14 @@ import {
   Image,
   Minus,
   Table,
+  ScanText,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
-import { useEditorStore } from '../../store/editorStore';
+import { useEditorStore, processImagesOnSave } from '../../store/editorStore';
+import { useBrainStore } from '../../store/brainStore';
+import { collectNoteAttachments, describeSkipped } from '../../lib/attachments/noteRefs';
+import { explainNoteImagesPrompt } from '../../lib/attachments/prompts';
 import { pickImageFile, convertAssetSrc } from '../../lib/tauri';
 import { TableSizePicker } from './TableSizePicker';
 
@@ -66,6 +71,7 @@ interface EditorToolbarProps {
 
 export default function EditorToolbar({ editor }: EditorToolbarProps) {
   const { activeNotePath } = useEditorStore();
+  const navigate = useNavigate();
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
   const tableButtonRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +93,24 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
     } catch (e) {
       console.error('Failed to insert image:', e);
     }
+  };
+
+  const handleExplainImages = () => {
+    const { activeNotePath: notePath, activeNoteContent, vaultPath } = useEditorStore.getState();
+    if (!notePath || !vaultPath) return;
+    const noteDir = notePath.substring(0, notePath.lastIndexOf('/'));
+    // The editor holds asset URLs for images; references must be the on-disk form.
+    const markdown = processImagesOnSave(activeNoteContent ?? '', noteDir);
+    const found = collectNoteAttachments(markdown, notePath, vaultPath);
+    const notices = describeSkipped(found);
+    if (found.attachments.length === 0) {
+      notices.unshift('Esta nota no contiene imágenes ni PDFs locales.');
+    }
+    const noteName = (notePath.split('/').pop() ?? notePath).replace(/\.md$/, '');
+    useBrainStore
+      .getState()
+      .askWithAttachments(found.attachments, { text: explainNoteImagesPrompt(noteName, markdown), send: false }, notices);
+    navigate('/brain');
   };
 
   const handleInsertLink = () => {
@@ -249,6 +273,11 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
             />
           );
         })()}
+
+      {/* Explain the images / PDFs referenced by this note with the AI */}
+      <ToolbarButton label="Explicar imágenes de esta nota" onClick={handleExplainImages}>
+        <ScanText size={20} strokeWidth={1.5} />
+      </ToolbarButton>
 
       {/* Horizontal rule */}
       <ToolbarButton

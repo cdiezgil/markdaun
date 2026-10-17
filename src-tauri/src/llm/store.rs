@@ -9,6 +9,7 @@ use std::path::Path;
 const KEY_ACTIVE_CONN: &str = "llm_active_connection";
 const KEY_ACTIVE_MODEL: &str = "llm_active_model";
 const KEY_MIGRATED: &str = "llm_migrated";
+const KEY_VISION_MIGRATED: &str = "llm_vision_migrated";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -149,6 +150,22 @@ impl LlmStore {
         Ok(())
     }
 
+    /// One-shot: fills `vision_models` of existing connections with the
+    /// per-family defaults. Returns true when it ran.
+    pub fn migrate_vision(&self) -> Result<bool, LlmError> {
+        if self.db.get(KEY_VISION_MIGRATED).map_err(LlmError::storage)?.is_some() {
+            return Ok(false);
+        }
+        for mut c in self.list()? {
+            if c.vision_models.is_empty() {
+                c.vision_models = c.models.iter().filter(|m| vision_default(m)).cloned().collect();
+                self.upsert(c)?;
+            }
+        }
+        self.db.set(KEY_VISION_MIGRATED, "1").map_err(LlmError::storage)?;
+        Ok(true)
+    }
+
     /// One-shot migration of the pre-connections config
     /// (`llm_endpoint_url` / `llm_model` / keyring `llm-api-key`).
     /// Returns true when a connection was created.
@@ -175,6 +192,7 @@ impl LlmStore {
             ca_cert_path: None,
             azure_api_version: None,
             models: vec![model.clone()],
+            vision_models: vec![],
         })?;
         if let Some(k) = &key {
             secrets.set(&connection_account(&saved.id), k)?;

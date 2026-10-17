@@ -78,7 +78,7 @@ export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNod
 
   function handleDragStart(e: React.DragEvent) {
     e.dataTransfer.setData(ENTRY_MIME, entry.path);
-    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.effectAllowed = 'copyMove';
   }
 
   function hasEntryPayload(e: React.DragEvent): boolean {

@@ -20,6 +20,9 @@ pub enum LlmError {
     CliNotLoggedIn,
     #[error("timed out")]
     Timeout,
+    /// Attachments were sent to a model that cannot see images / PDFs.
+    #[error("model does not support images")]
+    VisionUnsupported,
     #[error("bad response: {0}")]
     BadResponse(String),
     /// Save was attempted without a matching validation token.

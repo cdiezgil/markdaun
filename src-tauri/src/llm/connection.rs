@@ -58,9 +58,28 @@ pub struct Connection {
     pub azure_api_version: Option<String>,
     #[serde(default)]
     pub models: Vec<String>,
+    /// Subset of `models` that accept images / PDFs.
+    #[serde(default)]
+    pub vision_models: Vec<String>,
+}
+
+/// Default vision capability by model family (known families see images;
+/// unknown or text-only plans do not).
+pub fn vision_default(model: &str) -> bool {
+    let m = model.to_lowercase();
+    if m.contains("kimi") || m.contains("glm") {
+        return false;
+    }
+    ["claude", "opus", "sonnet", "haiku", "gpt-4o", "gpt-4.1", "gpt-4.5", "gpt-5", "gemini", "o3", "o4", "o1"]
+        .iter()
+        .any(|p| m.starts_with(p) || m.contains(&format!("/{p}")))
 }
 
 impl Connection {
+    pub fn supports_vision(&self, model: &str) -> bool {
+        self.vision_models.iter().any(|m| m == model)
+    }
+
     /// Cheap structural checks before touching the network or the disk.
     pub fn validate_shape(&self) -> Result<(), LlmError> {
         if self.name.trim().is_empty() {

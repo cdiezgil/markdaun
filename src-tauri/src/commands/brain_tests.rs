@@ -1,4 +1,5 @@
-use super::brain_cmd::{brain_query_with_embedding, build_rag_messages, resolve_active};
+use super::brain_cmd::{brain_query_core, brain_query_with_embedding, build_rag_messages, resolve_active};
+use crate::llm::attachment::AttachmentInput;
 use crate::db::{ConversationsDb, VectorsDb};
 use crate::llm::connection::*;
 use crate::llm::proc::FixedResolver;
@@ -29,6 +30,7 @@ fn conn_for(url: &str) -> Connection {
         ca_cert_path: None,
         azure_api_version: None,
         models: vec!["test-model".into()],
+        vision_models: vec![],
     }
 }
 
@@ -380,4 +382,83 @@ fn build_rag_messages_keeps_indexed_chunk_path_label_once() {
     let system = &build_rag_messages("q", &results, &[])[0].content;
     assert!(system.contains("[1] Nota: primera nota.md\n\nHola mundo"));
     assert_eq!(system.matches("Nota: primera nota.md").count(), 1);
+}
+
+// ── Attachments ───────────────────────────────────────────────────────────────
+
+fn tiny_png() -> Vec<u8> {
+    let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([255, 0, 0, 255]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(img).write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
+fn att(path: &str) -> AttachmentInput {
+    AttachmentInput { vault_path: path.into(), derived: None }
+}
+
+async fn query_with(
+    vault: &std::path::Path,
+    conn: &Connection,
+    attachments: &[AttachmentInput],
+) -> (Result<super::brain_cmd::BrainQueryResult, String>, NamedTempFile) {
+    let cfg_file = make_config_db();
+    let (_vec_db, vec_file) = make_vectors_db();
+    let env = test_env(FixedResolver::default(), 3000);
+    let r = brain_query_core(
+        cfg_file.path(),
+        vec_file.path(),
+        "¿qué ves?",
+        vault.to_str().unwrap(),
+        None,
+        conn,
+        "test-model",
+        None,
+        &env,
+        Ok(fake_embedding()),
+        attachments,
+    )
+    .await;
+    (r, cfg_file)
+}
+
+#[tokio::test]
+async fn brain_query_sends_attachment_bytes_but_stores_only_a_reference() {
+    let vault = tempfile::tempdir().unwrap();
+    std::fs::write(vault.path().join("flujo.png"), tiny_png()).unwrap();
+    let server = mock_llm();
+    let mut conn = conn_for(&server.url);
+    conn.vision_models = vec!["test-model".into()];
+
+    let (r, cfg) = query_with(vault.path(), &conn, &[att("flujo.png")]).await;
+    let r = r.unwrap();
+    let body = &server.requests()[0].body;
+    assert!(body.contains("data:image/png;base64,"), "image reaches the model");
+    let msgs = ConversationsDb::open(cfg.path()).unwrap().get_messages(&r.conversation_id).unwrap();
+    assert_eq!(msgs[0].content, "¿qué ves?\n\n📎 flujo.png");
+    assert!(!msgs[0].content.contains("base64"));
+}
+
+#[tokio::test]
+async fn brain_query_rejects_attachments_for_a_non_vision_model() {
+    let vault = tempfile::tempdir().unwrap();
+    std::fs::write(vault.path().join("a.png"), tiny_png()).unwrap();
+    let server = mock_llm();
+    let (r, _cfg) = query_with(vault.path(), &conn_for(&server.url), &[att("a.png")]).await;
+    assert_eq!(r.unwrap_err(), "vision_unsupported");
+    assert!(server.requests().is_empty());
+}
+
+#[tokio::test]
+async fn brain_query_reports_invalid_attachments_before_calling_the_model() {
+    let vault = tempfile::tempdir().unwrap();
+    let server = mock_llm();
+    let mut conn = conn_for(&server.url);
+    conn.vision_models = vec!["test-model".into()];
+    let (r, _cfg) = query_with(vault.path(), &conn, &[att("../secret.png")]).await;
+    assert!(r.unwrap_err().starts_with("attachment_error:"));
+    let six: Vec<_> = (0..6).map(|_| att("a.png")).collect();
+    let (r, _cfg) = query_with(vault.path(), &conn, &six).await;
+    assert!(r.unwrap_err().starts_with("attachment_error:"));
+    assert!(server.requests().is_empty());
 }

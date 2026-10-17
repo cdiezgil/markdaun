@@ -8,11 +8,13 @@ import {
   llmListConnections,
   llmSaveConnection,
   llmSetActive,
+  llmTestVision,
   llmValidate,
   llmVerifyModel,
   onLlmValidateProgress,
 } from './tauri';
 import type { Connection } from './llm/types';
+import { brainQuery } from './tauri';
 
 const mockInvoke = vi.mocked(invoke);
 const mockListen = vi.mocked(listen);
@@ -29,6 +31,7 @@ const draft: Connection = {
   caCertPath: null,
   azureApiVersion: null,
   models: ['m'],
+  visionModels: [],
 };
 
 beforeEach(() => {
@@ -87,5 +90,29 @@ describe('onLlmValidateProgress', () => {
     expect(mockListen).toHaveBeenCalledWith('llm-validate-progress', expect.any(Function));
     expect(seen).toEqual([{ step: 'reach', status: 'ok' }]);
     expect(off).toBe(unlisten);
+  });
+});
+
+describe('multimodal wrappers', () => {
+  it('llmTestVision sends draft, secret and model', async () => {
+    await llmTestVision(draft, 'sk', 'gpt-4o');
+    expect(mockInvoke).toHaveBeenCalledWith('llm_test_vision', { draft, secret: 'sk', model: 'gpt-4o' });
+  });
+
+  it('brainQuery sends attachments (camelCase) or null', async () => {
+    await brainQuery('q', '/v', 'c1', [{ vaultPath: 'a.png' }]);
+    expect(mockInvoke).toHaveBeenCalledWith('brain_query', {
+      question: 'q',
+      vaultPath: '/v',
+      conversationId: 'c1',
+      attachments: [{ vaultPath: 'a.png' }],
+    });
+    await brainQuery('q', '/v');
+    expect(mockInvoke).toHaveBeenLastCalledWith('brain_query', {
+      question: 'q',
+      vaultPath: '/v',
+      conversationId: null,
+      attachments: null,
+    });
   });
 });

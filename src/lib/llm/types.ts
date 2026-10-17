@@ -22,6 +22,8 @@ export interface Connection {
   caCertPath: string | null;
   azureApiVersion: string | null;
   models: string[];
+  /** Subset of `models` that accept images / PDFs. */
+  visionModels: string[];
 }
 
 export const DEFAULT_AZURE_SCOPE = 'https://cognitiveservices.azure.com/.default';
@@ -38,6 +40,7 @@ export type LlmErrorKind =
   | 'CliMissing'
   | 'CliNotLoggedIn'
   | 'Timeout'
+  | 'VisionUnsupported'
   | 'BadResponse'
   | 'NotValidated'
   | 'Storage';

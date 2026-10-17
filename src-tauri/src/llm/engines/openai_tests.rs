@@ -20,13 +20,14 @@ fn conn(base: &str) -> Connection {
         ca_cert_path: None,
         azure_api_version: None,
         models: vec!["gpt-4.1".into()],
+        vision_models: vec![],
     }
 }
 
 fn msgs() -> Vec<ChatMessage> {
     vec![
-        ChatMessage { role: "system".into(), content: "be brief".into() },
-        ChatMessage { role: "user".into(), content: "hola".into() },
+        ChatMessage::text("system", "be brief"),
+        ChatMessage::text("user", "hola"),
     ]
 }
 
@@ -167,4 +168,46 @@ async fn chat_timeout_is_typed() {
         openai::chat(&c, &Credential::None, &fast, "m", &msgs()).await,
         Err(LlmError::Timeout)
     );
+}
+
+fn pdf_and_image() -> Vec<ChatMessage> {
+    use crate::llm::attachment::*;
+    let img = Attachment {
+        name: "a.png".into(),
+        vault_path: "a.png".into(),
+        kind: AttachmentKind::Image,
+        parts: vec![Part::Image { media_type: "image/png".into(), data_b64: "QUJD".into() }],
+        fallback: vec![],
+    };
+    let pdf = Attachment {
+        name: "f.pdf".into(),
+        vault_path: "f.pdf".into(),
+        kind: AttachmentKind::Pdf,
+        parts: vec![Part::Document { media_type: "application/pdf".into(), data_b64: "UERG".into() }],
+        fallback: vec![
+            Part::Text("texto del pdf".into()),
+            Part::Image { media_type: "image/png".into(), data_b64: "UEFHRQ==".into() },
+        ],
+    };
+    vec![
+        ChatMessage::text("system", "be brief"),
+        ChatMessage { attachments: vec![img, pdf], ..ChatMessage::text("user", "explica") },
+    ]
+}
+
+#[tokio::test]
+async fn chat_sends_images_as_data_uris_and_pdfs_as_pages_plus_text() {
+    let s = spawn(|_| MockResponse::json(200, CHAT_OK));
+    let c = conn(&s.url);
+    openai::chat(&c, &Credential::None, &client(&c), "gpt-4.1", &pdf_and_image()).await.unwrap();
+    let body: serde_json::Value = serde_json::from_str(&s.requests()[0].body).unwrap();
+    assert_eq!(body["messages"][0]["content"], "be brief");
+    let content = body["messages"][1]["content"].as_array().unwrap();
+    let types: Vec<_> = content.iter().map(|p| p["type"].as_str().unwrap()).collect();
+    assert_eq!(types, vec!["text", "image_url", "text", "text", "image_url", "text"]);
+    assert_eq!(content[1]["image_url"]["url"], "data:image/png;base64,QUJD");
+    assert_eq!(content[3]["text"], "texto del pdf");
+    assert_eq!(content[4]["image_url"]["url"], "data:image/png;base64,UEFHRQ==");
+    assert!(!body.to_string().contains("UERG"), "native PDF bytes must not be sent");
+    assert_eq!(content[5]["text"], "explica");
 }

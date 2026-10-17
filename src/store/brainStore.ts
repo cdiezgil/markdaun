@@ -7,6 +7,9 @@ import {
   type BrainConversation,
   type BrainMessage,
 } from '../lib/tauri';
+import { prepareAttachments } from '../lib/attachments/prepare';
+import { MAX_ATTACHMENTS, type ChatAttachment } from '../lib/attachments/types';
+import { useLlmStore } from './llmStore';
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -15,6 +18,23 @@ export type { BrainMessage };
 
 // ── Store state & actions ─────────────────────────────────────────────────────
 
+/** A prompt handed to the chat panel by another view (consumed once). */
+export interface PendingPrompt {
+  text: string;
+  /** Send immediately instead of just filling the input. */
+  send: boolean;
+  nonce: number;
+}
+
+const NATIVE_PDF_ENGINES = new Set(['anthropicMessages', 'cliClaude']);
+
+/** Does the active connection take PDFs natively (else pages + text are sent)? */
+function activeTakesPdfNatively(): boolean {
+  const { connections, active } = useLlmStore.getState();
+  const conn = connections.find((c) => c.id === active?.connectionId);
+  return !!conn && NATIVE_PDF_ENGINES.has(conn.engine);
+}
+
 export interface BrainState {
   conversations: BrainConversation[];
   currentConversationId: string | null;
@@ -22,6 +42,23 @@ export interface BrainState {
   filterQuery: string;
   isLoading: boolean;
   error: string | null;
+  /** Files queued for the next message (cleared once sent). */
+  pendingAttachments: ChatAttachment[];
+  /** Non-blocking messages about the last send (e.g. PDF truncated). */
+  notices: string[];
+  pendingPrompt: PendingPrompt | null;
+
+  addAttachment(a: ChatAttachment): 'added' | 'duplicate' | 'limit';
+  removeAttachment(vaultPath: string): void;
+  clearAttachments(): void;
+  setNotices(notices: string[]): void;
+  /** Replace the queue and hand a prompt to the chat panel. */
+  askWithAttachments(
+    attachments: ChatAttachment[],
+    prompt: { text: string; send: boolean },
+    notices?: string[],
+  ): void;
+  consumePendingPrompt(): void;
 
   // Derived: conversations filtered by filterQuery (on title).
   // Computed inline — not stored state.
@@ -42,6 +79,46 @@ export const useBrainStore = create<BrainState>((set, get) => ({
   filterQuery: '',
   isLoading: false,
   error: null,
+  pendingAttachments: [],
+  notices: [],
+  pendingPrompt: null,
+
+  // ── Attachments ──────────────────────────────────────────────────────────────
+
+  addAttachment(a) {
+    const { pendingAttachments } = get();
+    if (pendingAttachments.some((p) => p.vaultPath === a.vaultPath)) return 'duplicate';
+    if (pendingAttachments.length >= MAX_ATTACHMENTS) return 'limit';
+    set({ pendingAttachments: [...pendingAttachments, a] });
+    return 'added';
+  },
+
+  removeAttachment(vaultPath) {
+    set({ pendingAttachments: get().pendingAttachments.filter((a) => a.vaultPath !== vaultPath) });
+  },
+
+  clearAttachments() {
+    set({ pendingAttachments: [] });
+  },
+
+  setNotices(notices) {
+    set({ notices });
+  },
+
+  askWithAttachments(attachments, prompt, notices = []) {
+    set({
+      notices,
+      pendingAttachments: attachments.slice(0, MAX_ATTACHMENTS),
+      currentConversationId: null,
+      messages: [],
+      error: null,
+      pendingPrompt: { ...prompt, nonce: Date.now() + Math.random() },
+    });
+  },
+
+  consumePendingPrompt() {
+    set({ pendingPrompt: null });
+  },
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
@@ -82,20 +159,41 @@ export const useBrainStore = create<BrainState>((set, get) => ({
   },
 
   async query(question, vaultPath) {
-    const { currentConversationId, messages } = get();
+    const { currentConversationId, messages, pendingAttachments } = get();
 
-    // Optimistic: append user message immediately.
+    // Optimistic: append user message immediately (with the same reference list
+    // the backend stores instead of the bytes).
+    const refs = pendingAttachments.map((a) => `📎 ${a.name}`).join('\n');
     const optimisticUser: BrainMessage = {
       id: `optimistic-${Date.now()}`,
       role: 'user',
-      content: question,
+      content: refs ? `${question}\n\n${refs}` : question,
       sources: null,
       created_at: new Date().toISOString(),
     };
-    set({ messages: [...messages, optimisticUser], isLoading: true, error: null });
+    set({ messages: [...messages, optimisticUser], isLoading: true, error: null, notices: [] });
 
     try {
-      const result = await brainQuery(question, vaultPath, currentConversationId ?? undefined);
+      let inputs;
+      if (pendingAttachments.length > 0) {
+        try {
+          const prepared = await prepareAttachments(pendingAttachments, {
+            nativePdf: activeTakesPdfNatively(),
+          });
+          inputs = prepared.inputs;
+          set({ notices: prepared.notices });
+        } catch (e) {
+          throw `attachment_error: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
+      const result = await brainQuery(
+        question,
+        vaultPath,
+        currentConversationId ?? undefined,
+        inputs,
+      );
+      // Attachments travel with this turn only.
+      set({ pendingAttachments: [] });
 
       const assistantMsg: BrainMessage = {
         id: result.message_id,

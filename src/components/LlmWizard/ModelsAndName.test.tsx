@@ -55,7 +55,12 @@ describe('ModelsAndName', () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
     expect(mockInvoke).toHaveBeenCalledWith('llm_save_connection', {
-      draft: { ...draft, name: 'Casa', models: ['claude-sonnet-4-5', 'claude-opus-4-1'] },
+      draft: {
+        ...draft,
+        name: 'Casa',
+        models: ['claude-sonnet-4-5', 'claude-opus-4-1'],
+        visionModels: ['claude-sonnet-4-5', 'claude-opus-4-1'],
+      },
       secret: 'sk',
       validationToken: 'tok',
     });
@@ -119,5 +124,72 @@ describe('ModelsAndName', () => {
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('llm_save_connection', expect.objectContaining({ secret: null })),
     );
+  });
+});
+
+
+describe('ModelsAndName vision', () => {
+  const kimiDraft = {
+    ...draftFromPreset(PRESETS.find((p) => p.id === 'kimi-coding')!),
+    models: ['kimi-for-coding'],
+  };
+  const kimiResult = { token: 'tok', available: [], verified: ['kimi-for-coding'] };
+
+  it('flags text-only models by default and warns about it', () => {
+    renderStep({ draft: kimiDraft, result: kimiResult, suggested: ['kimi-for-coding'] });
+    expect(screen.getByTestId('vision-kimi-for-coding')).toHaveTextContent('Solo texto');
+    expect(screen.getByTestId('vision-warning')).toHaveTextContent('no verá imágenes');
+  });
+
+  it('known vision families are flagged as seeing images without a warning', () => {
+    renderStep();
+    expect(screen.getByTestId('vision-claude-sonnet-4-5')).toHaveTextContent('Ve imágenes');
+    expect(screen.queryByTestId('vision-warning')).not.toBeInTheDocument();
+  });
+
+  it('«Probar visión» records the probe result and it is saved', async () => {
+    mockInvoke.mockResolvedValueOnce(true as never); // llm_test_vision
+    const saved = { ...kimiDraft, id: 'n' };
+    renderStep({ draft: kimiDraft, result: kimiResult, suggested: ['kimi-for-coding'] });
+    fireEvent.click(screen.getByTestId('test-vision-kimi-for-coding'));
+    await waitFor(() => expect(screen.getByTestId('vision-kimi-for-coding')).toHaveTextContent('Ve imágenes'));
+    expect(mockInvoke).toHaveBeenCalledWith('llm_test_vision', {
+      draft: kimiDraft,
+      secret: 'sk',
+      model: 'kimi-for-coding',
+    });
+    expect(screen.queryByTestId('vision-warning')).not.toBeInTheDocument();
+
+    mockInvoke.mockResolvedValueOnce(saved as never);
+    fireEvent.click(screen.getByTestId('save-btn'));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        'llm_save_connection',
+        expect.objectContaining({
+          draft: expect.objectContaining({ visionModels: ['kimi-for-coding'] }),
+        }),
+      ),
+    );
+  });
+
+  it('editing keeps the stored flag of models the connection already had', () => {
+    renderStep({ draft: { ...draft, id: 'saved', visionModels: [] } });
+    expect(screen.getByTestId('vision-claude-sonnet-4-5')).toHaveTextContent('Solo texto');
+  });
+
+  it('a negative probe marks the model as text-only', async () => {
+    mockInvoke.mockResolvedValueOnce(false as never);
+    renderStep();
+    fireEvent.click(screen.getByTestId('test-vision-claude-sonnet-4-5'));
+    await waitFor(() => expect(screen.getByTestId('vision-claude-sonnet-4-5')).toHaveTextContent('Solo texto'));
+    expect(screen.getByTestId('vision-warning')).toBeInTheDocument();
+  });
+
+  it('a failing probe shows the error and keeps the previous flag', async () => {
+    mockInvoke.mockRejectedValueOnce({ kind: 'Unauthorized' });
+    renderStep();
+    fireEvent.click(screen.getByTestId('test-vision-claude-sonnet-4-5'));
+    await waitFor(() => expect(screen.getByTestId('models-error')).toBeInTheDocument());
+    expect(screen.getByTestId('vision-claude-sonnet-4-5')).toHaveTextContent('Ve imágenes');
   });
 });

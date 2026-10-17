@@ -1,6 +1,8 @@
 use crate::commands::vault_index::{index_file, list_vault_notes, relative_note_path, vault_note_listing};
 use crate::db::{Conversation, ConversationsDb, Message, VectorsDb};
+use crate::llm::attachment::{build_attachments, stored_references, AttachmentInput};
 use crate::llm::connection::Connection;
+use crate::llm::error::LlmError;
 use crate::llm::engines;
 use crate::llm::env::LlmEnv;
 use crate::llm::store::LlmStore;
@@ -84,19 +86,13 @@ pub fn build_rag_messages(
     };
 
     vec![
-        ChatMessage {
-            role: "system".to_string(),
-            content: system,
-        },
-        ChatMessage {
-            role: "user".to_string(),
-            content: question.to_string(),
-        },
+        ChatMessage::text("system", system),
+        ChatMessage::text("user", question),
     ]
 }
 
-/// Core RAG query — takes the (possibly failed) query embedding for testability.
-/// An embedding or vector-search failure degrades to an answer without notes context.
+/// Text-only RAG query (see [`brain_query_core`]); used by the tests.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub async fn brain_query_with_embedding(
     db_path: &Path,
@@ -110,6 +106,53 @@ pub async fn brain_query_with_embedding(
     env: &LlmEnv,
     query_embedding: Result<Vec<f32>, String>,
 ) -> Result<BrainQueryResult, String> {
+    brain_query_core(
+        db_path,
+        vectors_db_path,
+        question,
+        vault_path,
+        conversation_id,
+        conn,
+        model,
+        secret,
+        env,
+        query_embedding,
+        &[],
+    )
+    .await
+}
+
+/// Core RAG query — takes the (possibly failed) query embedding for testability.
+/// An embedding or vector-search failure degrades to an answer without notes context.
+/// Attachments are validated first and sent only with this turn; the stored user
+/// message keeps a `📎 name` reference list instead of the bytes.
+#[allow(clippy::too_many_arguments)]
+pub async fn brain_query_core(
+    db_path: &Path,
+    vectors_db_path: &Path,
+    question: &str,
+    vault_path: &str,
+    conversation_id: Option<String>,
+    conn: &Connection,
+    model: &str,
+    secret: Option<&str>,
+    env: &LlmEnv,
+    query_embedding: Result<Vec<f32>, String>,
+    attachment_inputs: &[AttachmentInput],
+) -> Result<BrainQueryResult, String> {
+    // 0. Validate attachments before anything is persisted or sent.
+    let attachments = build_attachments(Path::new(vault_path), attachment_inputs)
+        .map_err(|e| format!("attachment_error: {e}"))?;
+    if !attachments.is_empty() && !conn.supports_vision(model) {
+        return Err("vision_unsupported".to_string());
+    }
+    let stored_question = if attachments.is_empty() {
+        question.to_string()
+    } else {
+        let names: Vec<String> = attachments.iter().map(|a| a.name.clone()).collect();
+        format!("{question}\n\n{}", stored_references(&names))
+    };
+
     // 1. Search for similar chunks; any failure degrades to "no context".
     let search = query_embedding.and_then(|emb| {
         let vec_db = VectorsDb::open(vectors_db_path).map_err(|e| format!("db_error: {e}"))?;
@@ -129,7 +172,10 @@ pub async fn brain_query_with_embedding(
         .iter()
         .map(|f| relative_note_path(Path::new(vault_path), f))
         .collect();
-    let messages = build_rag_messages(question, &results, &vault_notes);
+    let mut messages = build_rag_messages(question, &results, &vault_notes);
+    if let Some(last) = messages.last_mut() {
+        last.attachments = attachments;
+    }
 
     // 3. Open (or create) conversation.
     let conv_db = ConversationsDb::open(db_path).map_err(|e| format!("db_error: {e}"))?;
@@ -145,13 +191,14 @@ pub async fn brain_query_with_embedding(
 
     // 4. Persist user message.
     conv_db
-        .add_message(&conv_id, "user", question, None)
+        .add_message(&conv_id, "user", &stored_question, None)
         .map_err(|e| format!("db_error: {e}"))?;
 
     // 5. Call the active connection's engine.
-    let answer = engines::chat(conn, model, &messages, secret, env)
-        .await
-        .map_err(|e| format!("llm_error: {e}"))?;
+    let answer = engines::chat(conn, model, &messages, secret, env).await.map_err(|e| match e {
+        LlmError::VisionUnsupported => "vision_unsupported".to_string(),
+        other => format!("llm_error: {other}"),
+    })?;
 
     // 6. Persist assistant message.
     let message_id = conv_db
@@ -218,6 +265,7 @@ pub async fn brain_query(
     question: String,
     vault_path: String,
     conversation_id: Option<String>,
+    attachments: Option<Vec<AttachmentInput>>,
 ) -> Result<BrainQueryResult, String> {
     let db_path = app_db_path(&app)?;
     let vdb_path = vectors_db_path(&app)?;
@@ -228,7 +276,7 @@ pub async fn brain_query(
     // Embed question locally; failure degrades to an answer without context.
     let query_emb = embed_query(&embedder, cache_dir, question.clone()).await;
 
-    brain_query_with_embedding(
+    brain_query_core(
         &db_path,
         &vdb_path,
         &question,
@@ -239,6 +287,7 @@ pub async fn brain_query(
         secret.as_deref(),
         &env,
         query_emb,
+        attachments.as_deref().unwrap_or(&[]),
     )
     .await
 }
