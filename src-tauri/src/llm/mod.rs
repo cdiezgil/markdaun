@@ -4,6 +4,7 @@ pub mod auth;
 pub mod client;
 pub mod connection;
 pub mod embeddings;
+pub mod engines;
 pub mod error;
 pub mod http;
 pub mod secrets;
