@@ -5700,7 +5700,7 @@ git commit -m "feat(ui): add typed wrappers for llm_* commands"
 **Files:**
 - Create: `src/store/llmStore.ts`, `src/store/llmStore.test.ts`
 
-- [ ] **Step 1: Write the failing test** - `src/store/llmStore.test.ts`:
+- [x] **Step 1: Write the failing test** - `src/store/llmStore.test.ts`:
 
 ```ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -5813,12 +5813,12 @@ describe('wizard state', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/store/llmStore.test.ts`
 Expected: FAIL (`./llmStore` not found).
 
-- [ ] **Step 3: Implement** - `src/store/llmStore.ts`:
+- [x] **Step 3: Implement** - `src/store/llmStore.ts`:
 
 ```ts
 import { create } from 'zustand';
@@ -5895,12 +5895,12 @@ export const useLlmStore = create<LlmState>((set, get) => ({
 }));
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/store/llmStore.test.ts && npx tsc --noEmit`
 Expected: PASS (7 tests); tsc clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/store/llmStore.ts src/store/llmStore.test.ts
