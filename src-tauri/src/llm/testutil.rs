@@ -192,3 +192,40 @@ pub fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
 }
+
+use super::auth::Clock;
+use super::env::LlmEnv;
+use super::proc::FixedResolver;
+use super::secrets::MemorySecretStore;
+use std::sync::atomic::{AtomicI64, Ordering};
+
+/// Controllable clock for token-cache tests.
+pub struct FakeClock(AtomicI64);
+
+impl FakeClock {
+    pub fn new(now: i64) -> Self {
+        Self(AtomicI64::new(now))
+    }
+    pub fn set(&self, now: i64) {
+        self.0.store(now, Ordering::SeqCst);
+    }
+    pub fn advance(&self, secs: i64) {
+        self.0.fetch_add(secs, Ordering::SeqCst);
+    }
+}
+
+impl Clock for FakeClock {
+    fn now_unix(&self) -> i64 {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// LlmEnv with in-memory secrets, a fake clock and the given fake binaries.
+pub fn test_env(resolver: FixedResolver, timeout_ms: u64) -> LlmEnv {
+    LlmEnv::new(
+        Arc::new(resolver),
+        Arc::new(FakeClock::new(1_000)),
+        Arc::new(MemorySecretStore::default()),
+        Duration::from_millis(timeout_ms),
+    )
+}

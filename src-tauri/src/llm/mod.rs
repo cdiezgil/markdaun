@@ -5,6 +5,7 @@ pub mod client;
 pub mod connection;
 pub mod embeddings;
 pub mod engines;
+pub mod env;
 pub mod error;
 pub mod http;
 pub mod proc;
@@ -16,6 +17,10 @@ pub use embeddings::{chunk_text, embed_text, load_model};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod auth_tests;
+#[cfg(test)]
+mod env_tests;
 #[cfg(test)]
 mod error_tests;
 #[cfg(test)]
