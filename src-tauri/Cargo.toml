@@ -24,12 +24,15 @@ chrono = { version = "0.4", features = ["serde"] }
 fastembed = "3"
 ort-sys = { version = "=2.0.0-rc.4" }
 sqlite-vec = "0.1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+tokio = { version = "1", features = ["process", "time", "rt", "io-util", "macros"] }
+tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-tempfile = "3"
 tokio = { version = "1", features = ["full"] }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 
 [profile.dev]
 incremental = true
