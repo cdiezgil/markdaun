@@ -38,3 +38,7 @@ pub mod chat_notes;
 pub use chat_notes::*;
 #[cfg(test)]
 mod chat_notes_tests;
+
+pub mod vault_index;
+#[cfg(test)]
+mod vault_index_tests;

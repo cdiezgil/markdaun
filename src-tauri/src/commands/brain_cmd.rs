@@ -1,10 +1,11 @@
+use crate::commands::vault_index::{index_file, list_vault_notes, relative_note_path, vault_note_listing};
 use crate::db::{Conversation, ConversationsDb, Message, VectorsDb};
 use crate::llm::connection::Connection;
 use crate::llm::engines;
 use crate::llm::env::LlmEnv;
 use crate::llm::store::LlmStore;
 use crate::llm::ChatMessage;
-use crate::llm::{chunk_text, embed_text, load_model, EmbedderState};
+use crate::llm::{embed_text, load_model, EmbedderState};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::Manager;
@@ -17,13 +18,13 @@ pub(crate) fn app_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("config.db"))
 }
 
-fn vectors_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn vectors_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("vectors.db"))
 }
 
-fn model_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn model_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let cache = dir.join("fastembed_cache");
     std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
@@ -49,26 +50,37 @@ pub struct BrainQueryResult {
 /// writes after the user confirms the proposal card.
 pub(crate) const NOTE_BLOCK_INSTRUCTION: &str = "Si el usuario te pide crear o ampliar una nota, responde con uno o más bloques de código con esta forma exacta (el usuario debe confirmar cada bloque; nada se guarda sin su confirmación):\n```markdaun-note path=\"Carpeta/nombre.md\" mode=\"create\"\n# Título\ncontenido en Markdown\n```\n`path` es relativo a la bóveda y debe terminar en .md. `mode` es \"create\" (nota nueva) o \"append\" (añadir al final de una nota existente). Usa estos bloques solo cuando se te pida una nota.";
 
-/// Build the RAG prompt: system message with context chunks, user message with the question.
-pub fn build_rag_messages(question: &str, results: &[crate::db::vectors::SearchResult]) -> Vec<ChatMessage> {
+/// Build the RAG prompt: system message with the vault's note index and the
+/// retrieved chunks (each labelled with its note path), user message with the question.
+pub fn build_rag_messages(
+    question: &str,
+    results: &[crate::db::vectors::SearchResult],
+    vault_notes: &[String],
+) -> Vec<ChatMessage> {
     let context: String = results
         .iter()
         .enumerate()
         .map(|(i, r)| {
-            let name = Path::new(&r.file_path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&r.file_path);
-            format!("[{}] {}: {}", i + 1, name, r.content)
+            // Chunks indexed by the vault sync already start with "Nota: <path>".
+            if r.content.starts_with("Nota: ") {
+                format!("[{}] {}", i + 1, r.content)
+            } else {
+                let name = Path::new(&r.file_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&r.file_path);
+                format!("[{}] Nota: {}\n\n{}", i + 1, name, r.content)
+            }
         })
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("\n\n");
 
     let base = "Eres un asistente de conocimiento personal. Responde únicamente en base al contexto proporcionado. Si la respuesta no se puede inferir del contexto, indícalo claramente.";
+    let listing = vault_note_listing(vault_notes);
     let system = if context.is_empty() {
-        format!("{base}\n\n{NOTE_BLOCK_INSTRUCTION}")
+        format!("{base}\n\n{NOTE_BLOCK_INSTRUCTION}\n\n{listing}")
     } else {
-        format!("{base}\n\n{NOTE_BLOCK_INSTRUCTION}\n\nContexto:\n{context}")
+        format!("{base}\n\n{NOTE_BLOCK_INSTRUCTION}\n\n{listing}\n\nContexto:\n{context}")
     };
 
     vec![
@@ -113,7 +125,11 @@ pub async fn brain_query_with_embedding(
     let sources: Vec<String> = results.iter().map(|r| r.file_path.clone()).collect();
 
     // 2. Build RAG prompt.
-    let messages = build_rag_messages(question, &results);
+    let vault_notes: Vec<String> = list_vault_notes(Path::new(vault_path))
+        .iter()
+        .map(|f| relative_note_path(Path::new(vault_path), f))
+        .collect();
+    let messages = build_rag_messages(question, &results, &vault_notes);
 
     // 3. Open (or create) conversation.
     let conv_db = ConversationsDb::open(db_path).map_err(|e| format!("db_error: {e}"))?;
@@ -331,15 +347,6 @@ async fn reindex_file(
     let vdb_path = vectors_db_path(app)?;
     let cache_dir = model_cache_dir(app)?;
 
-    // Read file content — errors silently discarded (fire-and-forget).
-    let content = match std::fs::read_to_string(file_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("[brain_update_embedding] read error {file_path}: {e}");
-            return Ok(());
-        }
-    };
-
     let model = match shared_model(embedder, cache_dir).await {
         Ok(m) => m,
         Err(e) => {
@@ -348,36 +355,20 @@ async fn reindex_file(
         }
     };
 
-    let embedded = tokio::task::spawn_blocking(move || {
-        let chunks = chunk_text(&content, 1500, 200);
-        let mut embedded: Vec<(usize, String, Vec<f32>)> = Vec::new();
-        for (i, chunk) in chunks.iter().enumerate() {
-            match embed_text(&model, chunk) {
-                Ok(emb) => embedded.push((i, chunk.clone(), emb)),
-                Err(e) => eprintln!("[brain_update_embedding] embed error chunk {i}: {e}"),
+    let (file, vault) = (file_path.to_string(), vault_path.to_string());
+    tokio::task::spawn_blocking(move || {
+        let vec_db = match VectorsDb::open(&vdb_path) {
+            Ok(db) => db,
+            Err(e) => {
+                eprintln!("[brain_update_embedding] VectorsDb open error: {e}");
+                return;
             }
+        };
+        let embed = |t: &str| embed_text(&model, t).map_err(|e| format!("embed_error: {e}"));
+        if let Err(e) = index_file(&vec_db, Path::new(&vault), Path::new(&file), &embed) {
+            eprintln!("[brain_update_embedding] index error: {e}");
         }
-        embedded
     })
     .await
-    .map_err(|e| format!("embed_error: {e}"))?;
-
-    let chunk_refs: Vec<(usize, &str, &[f32])> = embedded
-        .iter()
-        .map(|(i, s, e)| (*i, s.as_str(), e.as_slice()))
-        .collect();
-
-    let vec_db = match VectorsDb::open(&vdb_path) {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("[brain_update_embedding] VectorsDb open error: {e}");
-            return Ok(());
-        }
-    };
-
-    if let Err(e) = vec_db.upsert_file_chunks(vault_path, file_path, &chunk_refs) {
-        eprintln!("[brain_update_embedding] upsert error: {e}");
-    }
-
-    Ok(())
+    .map_err(|e| format!("embed_error: {e}"))
 }

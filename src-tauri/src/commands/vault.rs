@@ -1,3 +1,4 @@
+use super::vault_index::spawn_vault_sync;
 use crate::db::ConfigDb;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
@@ -43,6 +44,7 @@ pub async fn open_vault_dialog(app: tauri::AppHandle) -> Result<Option<String>, 
             let path_str = path.to_string();
             let db_path = app_db_path(&app)?;
             set_active_vault_inner(&db_path, &path_str)?;
+            spawn_vault_sync(&app, path_str.clone());
             Ok(Some(path_str))
         }
         None => Ok(None),
@@ -61,5 +63,17 @@ pub async fn set_active_vault(
     path: String,
 ) -> Result<(), String> {
     let db_path = app_db_path(&app)?;
-    set_active_vault_inner(&db_path, &path)
+    set_active_vault_inner(&db_path, &path)?;
+    spawn_vault_sync(&app, path);
+    Ok(())
+}
+
+/// Startup trigger: index the active vault (if any) in the background.
+pub fn sync_active_vault_index(app: &tauri::AppHandle) {
+    let Ok(db_path) = app_db_path(app) else { return };
+    match get_active_vault_inner(&db_path) {
+        Ok(Some(vault)) => spawn_vault_sync(app, vault),
+        Ok(None) => {}
+        Err(e) => eprintln!("[vault_index] cannot read active vault: {e}"),
+    }
 }

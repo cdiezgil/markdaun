@@ -1,4 +1,5 @@
 use crate::fs::{VaultEntry, walk_vault};
+use super::vault_index::spawn_index_update;
 use std::path::Path;
 
 /// Security guard: ensures `path` is strictly within `vault_root`.
@@ -98,6 +99,7 @@ pub async fn create_folder(
 
 #[tauri::command]
 pub async fn rename_entry(
+    app: tauri::AppHandle,
     path: String,
     new_name: String,
     vault_path: String,
@@ -121,7 +123,9 @@ pub async fn rename_entry(
     let canonical = new_path
         .canonicalize()
         .map_err(|e| format!("io_error: {e}"))?;
-    Ok(canonical.to_string_lossy().to_string())
+    let new_abs = canonical.to_string_lossy().to_string();
+    spawn_index_update(&app, vault_path, vec![path], vec![new_abs.clone()]);
+    Ok(new_abs)
 }
 
 /// Moves an entry (note or folder) into a destination folder. Testable core.
@@ -168,19 +172,26 @@ pub fn move_entry_inner(
 
 #[tauri::command]
 pub async fn move_entry(
+    app: tauri::AppHandle,
     source_path: String,
     dest_folder_path: String,
     vault_path: String,
 ) -> Result<String, String> {
-    move_entry_inner(
+    let dest = move_entry_inner(
         Path::new(&source_path),
         Path::new(&dest_folder_path),
         Path::new(&vault_path),
-    )
+    )?;
+    spawn_index_update(&app, vault_path, vec![source_path], vec![dest.clone()]);
+    Ok(dest)
 }
 
 #[tauri::command]
-pub async fn delete_entry(path: String, vault_path: String) -> Result<(), String> {
+pub async fn delete_entry(
+    app: tauri::AppHandle,
+    path: String,
+    vault_path: String,
+) -> Result<(), String> {
     let entry_path = Path::new(&path);
     let vault = Path::new(&vault_path);
 
@@ -205,6 +216,7 @@ pub async fn delete_entry(path: String, vault_path: String) -> Result<(), String
         std::fs::remove_file(entry_path).map_err(|e| format!("io_error: {e}"))?;
     }
 
+    spawn_index_update(&app, vault_path, vec![path], vec![]);
     Ok(())
 }
 
@@ -238,6 +250,7 @@ pub(crate) fn unique_dest(dest_dir: &Path, file_name: &str) -> std::path::PathBu
 /// Imports dropped file bytes into the vault (HTML5 drop; no source path available).
 #[tauri::command]
 pub async fn import_file_data(
+    app: tauri::AppHandle,
     dest_folder_path: String,
     file_name: String,
     contents: Vec<u8>,
@@ -260,10 +273,14 @@ pub async fn import_file_data(
     let canonical = dest
         .canonicalize()
         .map_err(|e| format!("io_error: {e}"))?;
-    Ok(canonical.to_string_lossy().to_string())
+    let abs = canonical.to_string_lossy().to_string();
+    spawn_index_update(&app, vault_path, vec![], vec![abs.clone()]);
+    Ok(abs)
 }
+
 #[tauri::command]
 pub async fn import_files(
+    app: tauri::AppHandle,
     dest_folder_path: String,
     source_paths: Vec<String>,
     vault_path: String,
@@ -293,5 +310,6 @@ pub async fn import_files(
         result_paths.push(canonical.to_string_lossy().to_string());
     }
 
+    spawn_index_update(&app, vault_path, vec![], result_paths.clone());
     Ok(result_paths)
 }
