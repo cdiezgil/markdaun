@@ -14,6 +14,7 @@ import { ExitDialog } from './components/Sync/ExitDialog';
 import { getCurrentWindow } from './lib/tauri';
 import { SecondBrainView } from './views/SecondBrainView';
 import { LlmWizard } from './components/LlmWizard/LlmWizard';
+import { ModelSwitcher } from './components/ModelSwitcher/ModelSwitcher';
 import { useLlmStore } from './store/llmStore';
 
 function AppLayout() {
@@ -151,6 +152,7 @@ function AppLayout() {
         }}
         onCancel={() => setShowExitDialog(false)}
       />
+      <ModelSwitcher />
       {wizardOpen && <LlmWizard />}
     </div>
   );
