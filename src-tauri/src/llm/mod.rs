@@ -11,6 +11,7 @@ pub mod http;
 pub mod proc;
 pub mod secrets;
 pub mod store;
+pub mod validate;
 
 pub use client::{chat_completion, ChatMessage, LlmConfig};
 pub use embeddings::{chunk_text, embed_text, load_model};
@@ -39,3 +40,5 @@ pub mod testutil;
 mod testutil_tests;
 #[cfg(test)]
 mod tls_tests;
+#[cfg(test)]
+mod validate_tests;
