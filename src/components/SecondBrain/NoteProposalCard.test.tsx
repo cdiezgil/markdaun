@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { NoteProposalCard } from './NoteProposalCard';
+import { NoteProposalCard, type NoteProposal } from './NoteProposalCard';
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -21,7 +21,7 @@ function backend(opts: { exists?: boolean; tail?: string; writeError?: string } 
 const create = { path: 'Folder/new.md', mode: 'create' as const, content: '# New\nbody' };
 const append = { path: 'old.md', mode: 'append' as const, content: 'more text' };
 
-function setup(proposal = create, over: Partial<React.ComponentProps<typeof NoteProposalCard>> = {}) {
+function setup(proposal: NoteProposal = create, over: Partial<React.ComponentProps<typeof NoteProposalCard>> = {}) {
   const onOpen = vi.fn();
   const onWritten = vi.fn();
   render(
