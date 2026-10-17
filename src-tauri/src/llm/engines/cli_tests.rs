@@ -79,6 +79,9 @@ fn parse_gemini_variants() {
 fn unauthenticated_detection() {
     assert!(looks_unauthenticated("Not logged in · Please run /login"));
     assert!(looks_unauthenticated("Error: Please set an Auth method in your settings.json"));
+    assert!(looks_unauthenticated(
+        "Failed to authenticate: OAuth session expired and could not be refreshed"
+    ));
     assert!(!looks_unauthenticated("rate limit exceeded"));
 }
 

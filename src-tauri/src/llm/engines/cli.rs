@@ -87,6 +87,8 @@ pub fn looks_unauthenticated(text: &str) -> bool {
         "not authenticated",
         "please login",
         "login required",
+        "failed to authenticate",
+        "session expired",
     ]
     .iter()
     .any(|m| s.contains(m))

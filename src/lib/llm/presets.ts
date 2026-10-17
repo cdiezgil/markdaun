@@ -59,7 +59,7 @@ export const PRESETS: Preset[] = [
     azureApiVersion: null,
     keyUrl: null,
     suggestedModels: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
-    help: 'Usa tu cuenta de Google a través de la CLI oficial de Gemini. No se guarda ninguna clave.',
+    help: 'Usa tu cuenta de Google a través de la CLI oficial de Gemini. Ojo: Google ya no soporta Gemini Code Assist para particulares en esta CLI (las cuentas migran a Antigravity, que no tiene CLI usable); si tu cuenta se vio afectada, usa Gemini API con clave.',
     cliLogin: 'gemini',
   },
   {
