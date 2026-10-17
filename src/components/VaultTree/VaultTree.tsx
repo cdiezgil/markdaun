@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { FilePlus, FolderPlus, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { SyncPanel } from '../Sync/SyncPanel';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useVaultStore } from '../../store/vaultStore';
 import { VaultEmpty } from './VaultEmpty';
 import { TreeNode, ENTRY_MIME } from './TreeNode';
@@ -16,33 +15,10 @@ export function VaultTree() {
   const createNote = useVaultStore((s) => s.createNote);
   const createFolder = useVaultStore((s) => s.createFolder);
   const moveEntry = useVaultStore((s) => s.moveEntry);
-  const importFiles = useVaultStore((s) => s.importFiles);
-  const refreshTree = useVaultStore((s) => s.refreshTree);
+  const importFileData = useVaultStore((s) => s.importFileData);
 
   const [dialog, setDialog] = useState<CreateDialog>(null);
   const [rootDropActive, setRootDropActive] = useState(false);
-
-  useEffect(() => {
-    if (!vaultPath) return;
-
-    let unlisten: (() => void) | undefined;
-
-    getCurrentWindow()
-      .onDragDropEvent((event) => {
-        if (event.payload.type === 'drop') {
-          const paths = event.payload.paths as string[];
-          // importFiles ya llama refreshTree internamente
-          importFiles(vaultPath, paths);
-        }
-      })
-      .then((fn) => {
-        unlisten = fn;
-      });
-
-    return () => {
-      unlisten?.();
-    };
-  }, [vaultPath, importFiles, refreshTree]);
 
   if (!vaultPath) {
     return <VaultEmpty />;
@@ -63,18 +39,35 @@ export function VaultTree() {
   }
 
   function handleRootDragOver(e: React.DragEvent) {
-    if (!hasEntryPayload(e)) return;
+    const hasFiles = Array.from(e.dataTransfer.types).includes('Files');
+    if (!hasEntryPayload(e) && !hasFiles) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = hasEntryPayload(e) ? 'move' : 'copy';
     setRootDropActive(true);
   }
 
   async function handleRootDrop(e: React.DragEvent) {
     setRootDropActive(false);
+    if (!vaultPath) return;
+
+    // Internal moves take priority over external files.
     const sourcePath = e.dataTransfer.getData(ENTRY_MIME);
-    if (!sourcePath || !vaultPath || sourcePath === vaultPath) return;
-    e.preventDefault();
-    await moveEntry(sourcePath, vaultPath);
+    if (sourcePath && sourcePath !== vaultPath) {
+      e.preventDefault();
+      await moveEntry(sourcePath, vaultPath);
+      return;
+    }
+
+    // External files dropped from the OS: import bytes into the vault root.
+    const hasFiles = Array.from(e.dataTransfer.types).includes('Files');
+    const files = hasFiles ? Array.from(e.dataTransfer.files ?? []) : [];
+    if (files.length > 0) {
+      e.preventDefault();
+      for (const file of files) {
+        const contents = new Uint8Array(await file.arrayBuffer());
+        await importFileData(vaultPath, file.name, contents);
+      }
+    }
   }
 
   return (

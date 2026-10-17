@@ -22,7 +22,7 @@ interface VaultState {
   renameEntry(path: string, newName: string): Promise<void>;
   deleteEntry(path: string): Promise<void>;
   moveEntry(sourcePath: string, destFolderPath: string): Promise<void>;
-  importFiles(destFolderPath: string, sourcePaths: string[]): Promise<void>;
+  importFileData(destFolderPath: string, fileName: string, contents: Uint8Array): Promise<void>;
 }
 
 export const useVaultStore = create<VaultState>((set, get) => ({
@@ -150,13 +150,14 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
   },
 
-  async importFiles(destFolderPath: string, sourcePaths: string[]) {
+  async importFileData(destFolderPath: string, fileName: string, contents: Uint8Array) {
     const { vaultPath } = get();
     set({ error: null });
     try {
-      await invoke<string[]>('import_files', {
+      await invoke<string>('import_file_data', {
         destFolderPath: destFolderPath,
-        sourcePaths: sourcePaths,
+        fileName: fileName,
+        contents: Array.from(contents),
         vaultPath: vaultPath,
       });
       await get().refreshTree();

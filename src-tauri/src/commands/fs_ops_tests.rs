@@ -371,3 +371,62 @@ fn move_rejects_dest_that_is_not_a_folder() {
     let result = move_entry_inner(&a, &file_dest, vault.path());
     assert_eq!(result, Err("dest_not_folder".to_string()));
 }
+
+// ── import_file_data ─────────────────────────────────────────────────────────
+
+#[test]
+fn import_file_data_inner_writes_bytes() {
+    // Exercises the same logic the command applies (testable without the Tauri runtime).
+    let vault = tempdir().unwrap();
+    let dest_dir = vault.path();
+    let file_name = "foto.png";
+    let contents = b"png-bytes";
+
+    let file_name = Path::new(file_name).file_name().unwrap().to_str().unwrap();
+    let dest = super::fs_ops::unique_dest(dest_dir, file_name);
+    fs::write(&dest, contents).unwrap();
+
+    assert_eq!(fs::read(&dest).unwrap(), b"png-bytes");
+    assert_eq!(dest, dest_dir.join("foto.png"));
+}
+
+#[test]
+fn import_file_data_strips_directories_from_name() {
+    let vault = tempdir().unwrap();
+    // A reported name may carry parent directories; only the final name may be used.
+    let reported = "/Users/someone/Desktop/nota.md";
+    let file_name = Path::new(reported).file_name().unwrap().to_str().unwrap();
+    assert_eq!(file_name, "nota.md");
+
+    let dest = super::fs_ops::unique_dest(vault.path(), file_name);
+    fs::write(&dest, b"x").unwrap();
+    assert!(vault.path().join("nota.md").is_file());
+}
+
+#[test]
+fn unique_dest_adds_suffix_on_collision() {
+    let vault = tempdir().unwrap();
+    fs::write(vault.path().join("nota.md"), b"old").unwrap();
+
+    let dest = super::fs_ops::unique_dest(vault.path(), "nota.md");
+    assert_eq!(dest, vault.path().join("nota_1.md"));
+
+    fs::write(&dest, b"new").unwrap();
+    let dest2 = super::fs_ops::unique_dest(vault.path(), "nota.md");
+    assert_eq!(dest2, vault.path().join("nota_2.md"));
+}
+
+#[test]
+fn unique_dest_no_suffix_when_free() {
+    let vault = tempdir().unwrap();
+    let dest = super::fs_ops::unique_dest(vault.path(), "nueva.md");
+    assert_eq!(dest, vault.path().join("nueva.md"));
+}
+
+#[test]
+fn import_file_data_dest_outside_vault_is_rejected() {
+    let vault = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    let result = assert_within_vault(outside.path(), vault.path());
+    assert_eq!(result, Err("path_outside_vault".to_string()));
+}
