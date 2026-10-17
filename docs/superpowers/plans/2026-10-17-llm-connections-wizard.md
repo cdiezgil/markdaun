@@ -7891,7 +7891,7 @@ git commit -m "feat(ui): add LlmWizard container and mount it in App"
 - Create: `src/components/ModelSwitcher/ModelSwitcher.tsx`, `src/components/ModelSwitcher/ModelSwitcher.test.tsx`
 - Modify: `src/App.tsx`
 
-- [ ] **Step 1: Write the failing test** - `src/components/ModelSwitcher/ModelSwitcher.test.tsx`:
+- [x] **Step 1: Write the failing test** - `src/components/ModelSwitcher/ModelSwitcher.test.tsx`:
 
 ```tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -8040,12 +8040,12 @@ describe('ModelSwitcher', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/ModelSwitcher`
 Expected: FAIL (`./ModelSwitcher` not found).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/components/ModelSwitcher/ModelSwitcher.tsx`:
 
@@ -8242,12 +8242,12 @@ export function ModelSwitcher(): JSX.Element | null {
 
 `src/App.tsx`: add `import { ModelSwitcher } from './components/ModelSwitcher/ModelSwitcher';` and, directly above `{wizardOpen && <LlmWizard />}`, add `<ModelSwitcher />`. (`AppLayout` is rendered inside `BrowserRouter`, so `useNavigate` works.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/ModelSwitcher src/App.test.tsx && npx tsc --noEmit`
 Expected: PASS (7 switcher tests, App tests unchanged); tsc clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/ModelSwitcher src/App.tsx
