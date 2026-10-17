@@ -11,6 +11,7 @@ import { Markdown } from 'tiptap-markdown';
 
 import { useEditorStore } from '../../store/editorStore';
 import { createWikilinkExtension } from './extensions/WikilinkExtension';
+import { vaultStoreWikilinkOptions } from './extensions/vaultWikilinkOptions';
 import { MermaidCodeBlock } from './extensions/MermaidCodeBlock';
 import { HighlightExtension } from './extensions/HighlightExtension';
 import { TagExtension } from './extensions/TagExtension';
@@ -35,7 +36,7 @@ export function noteCaption(notePath: string, vaultPath: string | null, savedAt:
 }
 
 export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
-  const { activeNoteContent, activeNotePath, vaultPath, vaultTree, lastSavedAt, setContent, setSelectionText } =
+  const { activeNoteContent, activeNotePath, vaultPath, lastSavedAt, setContent, setSelectionText } =
     useEditorStore();
 
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
@@ -74,7 +75,7 @@ export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
       }),
       HighlightExtension,
       TagExtension,
-      createWikilinkExtension(vaultTree),
+      createWikilinkExtension(vaultStoreWikilinkOptions),
     ],
     content: activeNoteContent ?? '',
     onUpdate: ({ editor: ed }) => {
