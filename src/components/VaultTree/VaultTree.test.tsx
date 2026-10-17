@@ -191,6 +191,7 @@ describe('drag & drop a la raíz', () => {
       types: ['application/x-markdaun-entry'],
       setData: vi.fn(),
       getData: vi.fn().mockReturnValue(getDataValue),
+      files: [],
       effectAllowed: '',
       dropEffect: '',
     };

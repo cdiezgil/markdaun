@@ -59,7 +59,8 @@ export function VaultTree() {
     }
 
     // External files dropped from the OS: import bytes into the vault root.
-    const files = Array.from(e.dataTransfer.files);
+    const hasFiles = Array.from(e.dataTransfer.types).includes('Files');
+    const files = hasFiles ? Array.from(e.dataTransfer.files ?? []) : [];
     if (files.length > 0) {
       e.preventDefault();
       for (const file of files) {
