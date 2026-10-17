@@ -4713,7 +4713,7 @@ git commit -m "refactor(brain): dispatch brain_query to the active connection an
 **Files:**
 - Modify: `src-tauri/src/main.rs`, `src-tauri/src/llm/mod.rs`, `src-tauri/src/llm/proc.rs`, `src-tauri/src/llm/secrets.rs`
 
-- [ ] **Step 1: Write the failing check** - the "test" here is the compiler. Replace `src-tauri/src/main.rs` with:
+- [x] **Step 1: Write the failing check** - the "test" here is the compiler. Replace `src-tauri/src/main.rs` with:
 
 ```rust
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
@@ -4782,14 +4782,14 @@ Remove the first line of `src-tauri/src/llm/mod.rs` (`#![allow(dead_code)] ...`)
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo build`
 Expected: FAIL with `dead_code` errors (`deny(warnings)`), typically for test-only helpers `FixedResolver` and `MemorySecretStore` and possibly small unused items.
 
-- [ ] **Step 2: Fix** - make test-only helpers test-only: in `llm/proc.rs` put `#[cfg(test)]` on the `FixedResolver` struct, its `impl`, and its `impl BinaryResolver` (three attributes). In `llm/secrets.rs` put `#[cfg(test)]` on `MemorySecretStore`, its `#[derive(Default)]` struct and `impl SecretStore for MemorySecretStore` (keep the `HashMap`/`Mutex` imports under `#[cfg(test)]` too: `#[cfg(test)] use std::collections::HashMap; #[cfg(test)] use std::sync::Mutex;`). For any other `dead_code` error the compiler reports, delete the unused item (and its tests) rather than allowing it; do not re-add `allow(dead_code)`.
+- [x] **Step 2: Fix** - make test-only helpers test-only: in `llm/proc.rs` put `#[cfg(test)]` on the `FixedResolver` struct, its `impl`, and its `impl BinaryResolver` (three attributes). In `llm/secrets.rs` put `#[cfg(test)]` on `MemorySecretStore`, its `#[derive(Default)]` struct and `impl SecretStore for MemorySecretStore` (keep the `HashMap`/`Mutex` imports under `#[cfg(test)]` too: `#[cfg(test)] use std::collections::HashMap; #[cfg(test)] use std::sync::Mutex;`). For any other `dead_code` error the compiler reports, delete the unused item (and its tests) rather than allowing it; do not re-add `allow(dead_code)`.
 
-- [ ] **Step 3: Run build and the whole Rust suite**
+- [x] **Step 3: Run build and the whole Rust suite**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo build && ORT_STRATEGY=download cargo test`
 Expected: build succeeds with zero warnings; all tests pass except the pre-existing flaky `git::tests::pull_fast_forward` / `git::tests::pull_reset_hard_on_divergence` (ignore if they fail).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A src-tauri
