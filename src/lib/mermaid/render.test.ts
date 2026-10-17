@@ -8,6 +8,7 @@ vi.mock('mermaid', () => factory());
 import { getThemeVariables, renderMermaid, __resetMermaidForTests } from './render';
 
 const TOKENS: Record<string, string> = {
+  '--font-sans': "'Geist Test', sans-serif",
   '--bg': '#F7F5EF',
   '--surface': '#FFFFFF',
   '--surface-sunken': '#EEEBE2',
@@ -34,7 +35,7 @@ describe('getThemeVariables', () => {
     expect(v.primaryTextColor).toBe('#1B2420');
     expect(v.secondaryColor).toBe('#EEEBE2');
     expect(v.tertiaryColor).toBe('#2F6B4F');
-    expect(v.fontFamily).toContain('Geist');
+    expect(v.fontFamily).toBe("'Geist Test', sans-serif");
   });
 });
 

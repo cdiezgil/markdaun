@@ -39,8 +39,11 @@ const RULES: Array<{ rule: string; test: (line: string) => boolean }> = [
   {
     rule: 'font-family literal',
     test: (l) => {
-      const m = /(?:font-family\s*:|fontFamily\s*:)\s*(.*)/.exec(l);
-      return !!m && !/^['"]?\s*(?:var\(--|inherit\b)/.test(m[1].trim());
+      const css = /font-family\s*:\s*(.*)/.exec(l);
+      if (css) return !/^['"]?\s*(?:var\(--|inherit\b)/.test(css[1].trim());
+      // JS/TS: only string literals are values; type annotations and calls are not.
+      const js = /fontFamily\s*:\s*(['"`])(.*)/.exec(l);
+      return !!js && !/^\s*(?:var\(--|inherit\b)/.test(js[2]);
     },
   },
   {
@@ -86,6 +89,8 @@ describe('findViolations (scanner)', () => {
     expect(findViolations("fontFamily: 'var(--font-mono)'")).toHaveLength(0);
     expect(findViolations('font-family: var(--font-sans);')).toHaveLength(0);
     expect(findViolations('font-family: inherit;')).toHaveLength(0);
+    expect(findViolations('  fontFamily: string;')).toHaveLength(0);
+    expect(findViolations("  fontFamily: token('--font-sans'),")).toHaveLength(0);
     expect(findViolations("borderRadius: 'var(--radius-md)'")).toHaveLength(0);
     expect(findViolations("borderRadius: '50%'")).toHaveLength(0);
     expect(findViolations('border-radius: 0;')).toHaveLength(0);
