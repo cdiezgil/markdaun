@@ -1,82 +1,75 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { GraphNode } from './GraphNode';
+import { TagNode } from './TagNode';
+import { FolderHalo } from './FolderHalo';
+import type { NodeProps } from '@xyflow/react';
 
-// Mock @xyflow/react Handle to avoid ReactFlow context requirement
 vi.mock('@xyflow/react', () => ({
-  Handle: (_props: Record<string, unknown>) => <div data-testid="handle" />,
-  Position: { Left: 'left', Right: 'right' },
+  Handle: () => null,
+  Position: { Top: 'top' },
 }));
 
-import { GraphNode } from './GraphNode';
-import type { GraphNodeData } from '../../store/graphStore';
+const base = {
+  path: '/vault/a.md',
+  label: 'a',
+  kind: 'md',
+  isOrphan: false,
+  diameter: 20,
+  backlinks: 1,
+  links: 1,
+  folder: '',
+  tags: [],
+  excerpt: '',
+};
 
-function makeNodeProps(overrides: Partial<GraphNodeData> & { selected?: boolean }) {
-  const data: GraphNodeData = {
-    path: '/vault/note.md',
-    label: 'note',
-    kind: overrides.kind ?? 'md',
-    isOrphan: overrides.isOrphan ?? false,
-    ...overrides,
-  };
-  return {
-    data,
-    selected: overrides.selected ?? false,
-    id: data.path,
-    // minimal NodeProps stubs
-    type: 'graphNode',
-    dragging: false,
-    isConnectable: true,
-    zIndex: 0,
-    positionAbsoluteX: 0,
-    positionAbsoluteY: 0,
-  };
-}
+const props = (data: Record<string, unknown>) => ({ data }) as unknown as NodeProps;
 
-// ── TC-14: GraphNode renders ──────────────────────────────────────────────────
-describe('TC-14: GraphNode renders', () => {
-  it('TC-14: renders node label', () => {
-    render(<GraphNode {...(makeNodeProps({}) as unknown as Parameters<typeof GraphNode>[0])} />);
-    expect(screen.getByText('note')).toBeDefined();
+describe('GraphNode', () => {
+  it('renders a daun circle sized by diameter with the label underneath', () => {
+    render(<GraphNode {...props(base)} />);
+    const dot = screen.getByTestId('graph-node-dot');
+    expect(dot.style.background).toBe('var(--daun)');
+    expect(screen.getByTestId(`graph-node-/vault/a.md`).style.width).toBe('20px');
+    expect(screen.getByTestId('graph-node-label').textContent).toBe('a');
   });
 
-  it('TC-14: has correct testid', () => {
-    render(<GraphNode {...(makeNodeProps({}) as unknown as Parameters<typeof GraphNode>[0])} />);
-    expect(screen.getByTestId('graph-node-/vault/note.md')).toBeDefined();
+  it('draws orphans hollow with amber outline and label', () => {
+    render(<GraphNode {...props({ ...base, isOrphan: true })} />);
+    expect(screen.getByTestId('graph-node-dot').style.border).toBe('2px solid var(--amber)');
+    expect(screen.getByTestId('graph-node-label').style.color).toBe('var(--amber)');
   });
 
-  it('TC-14: .md node has daun left border in style', () => {
-    render(<GraphNode {...(makeNodeProps({ kind: 'md' }) as unknown as Parameters<typeof GraphNode>[0])} />);
-    const node = screen.getByTestId('graph-node-/vault/note.md');
-    expect(node.style.borderLeft).toContain('var(--daun)');
+  it('rings the open note in sap and bolds its label', () => {
+    render(<GraphNode {...props({ ...base, active: true })} />);
+    expect(screen.getByTestId('graph-node-dot').style.boxShadow).toBe('0 0 0 5px var(--sap)');
+    const label = screen.getByTestId('graph-node-label');
+    expect(label.style.fontWeight).toBe('600');
+    expect(label.style.fontSize).toBe('13px');
   });
 
-  it('TC-14: non-.md node has no daun left border', () => {
-    render(<GraphNode {...(makeNodeProps({ kind: 'image', path: '/vault/img.png', label: 'img.png' }) as unknown as Parameters<typeof GraphNode>[0])} />);
-    const node = screen.getByTestId('graph-node-/vault/img.png');
-    expect(node.style.borderLeft).toBe('');
+  it('dims non-matching nodes', () => {
+    render(<GraphNode {...props({ ...base, dim: true })} />);
+    expect(screen.getByTestId('graph-node-/vault/a.md').style.opacity).toBe('0.2');
   });
 });
 
-// ── TC-15: GraphNode selected state ──────────────────────────────────────────
-describe('TC-15: GraphNode selected', () => {
-  it('TC-15: selected node shows data-selected="true"', () => {
-    render(<GraphNode {...(makeNodeProps({ selected: true }) as unknown as Parameters<typeof GraphNode>[0])} />);
-    const node = screen.getByTestId('graph-node-/vault/note.md');
-    expect(node.getAttribute('data-selected')).toBe('true');
+describe('TagNode', () => {
+  it('renders a sap chip with the tag and its count', () => {
+    render(<TagNode {...props({ label: 'ideas', count: 3 })} />);
+    const chip = screen.getByTestId('tag-node-ideas');
+    expect(chip.textContent).toContain('#ideas');
+    expect(chip.textContent).toContain('3');
+    expect(chip.style.background).toBe('var(--sap)');
   });
+});
 
-  it('TC-15: unselected node shows data-selected="false"', () => {
-    render(<GraphNode {...(makeNodeProps({ selected: false }) as unknown as Parameters<typeof GraphNode>[0])} />);
-    const node = screen.getByTestId('graph-node-/vault/note.md');
-    expect(node.getAttribute('data-selected')).toBe('false');
-  });
-
-  it('TC-15: selected node has data-selected attribute true', () => {
-    render(<GraphNode {...(makeNodeProps({ selected: true }) as unknown as Parameters<typeof GraphNode>[0])} />);
-    const node = screen.getByTestId('graph-node-/vault/note.md');
-    // Verify selected state is reflected — style.border uses CSS vars which jsdom doesn't resolve,
-    // so we verify the attribute that drives the conditional style
-    expect(node.getAttribute('data-selected')).toBe('true');
+describe('FolderHalo', () => {
+  it('renders the uppercase folder label over a faint halo', () => {
+    render(<FolderHalo {...props({ folder: 'Test' })} />);
+    const halo = screen.getByTestId('folder-halo-Test');
+    expect(halo.textContent).toBe('Test');
+    expect(halo.style.pointerEvents).toBe('none');
   });
 });

@@ -1,235 +1,206 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
+import type { Node as RFNode, Edge } from '@xyflow/react';
 import { useGraphStore } from '../../store/graphStore';
+import { useEditorStore } from '../../store/editorStore';
 import { GraphCanvas } from './GraphCanvas';
-import type { Node as RFNode } from '@xyflow/react';
 
-// Mock @xyflow/react with testable stubs
+const fitView = vi.fn();
+
 vi.mock('@xyflow/react', () => ({
   ReactFlow: ({
     nodes,
     edges,
+    onNodesChange,
+    onNodeClick,
     onNodeDoubleClick,
     onNodeDragStop,
+    onPaneClick,
   }: {
     nodes: RFNode[];
-    edges: { id: string; source: string; target: string }[];
-    onNodeDoubleClick?: (e: React.MouseEvent, node: RFNode) => void;
-    onNodeDragStop?: (e: React.MouseEvent, node: RFNode) => void;
+    edges: Edge[];
+    onNodesChange?: (c: unknown[]) => void;
+    onNodeClick?: (e: React.MouseEvent, n: RFNode) => void;
+    onNodeDoubleClick?: (e: React.MouseEvent, n: RFNode) => void;
+    onNodeDragStop?: (e: React.MouseEvent, n: RFNode) => void;
+    onPaneClick?: () => void;
   }) => (
-    <div data-testid="react-flow">
+    <div data-testid="react-flow" onClick={() => onPaneClick?.()}>
       {nodes.map((n) => (
         <div
           key={n.id}
           data-testid={`rf-node-${n.id}`}
           data-type={n.type}
-          data-opacity={(n.style as Record<string, unknown>)?.opacity}
-          onDoubleClick={(e) =>
-            onNodeDoubleClick?.(e, n)
+          data-dim={String((n.data as Record<string, unknown>).dim)}
+          data-active={String((n.data as Record<string, unknown>).active)}
+          style={n.style}
+          onClick={(e) => {
+            e.stopPropagation();
+            onNodeClick?.(e, n);
+          }}
+          onDoubleClick={(e) => onNodeDoubleClick?.(e, n)}
+          onMouseUp={(e) => onNodeDragStop?.(e, { ...n, position: { x: 7, y: 9 } })}
+          onMouseDown={() =>
+            onNodesChange?.([{ type: 'position', id: n.id, position: { x: 7, y: 9 } }])
           }
-          onClick={(e) =>
-            onNodeDragStop?.(e as unknown as React.MouseEvent, n)
-          }
-        >
-          {String((n.data as Record<string, unknown>)['label'] ?? n.id)}
-        </div>
+        />
       ))}
       {edges.map((e) => (
-        <div key={e.id} data-testid={`rf-edge-${e.id}`} />
+        <div
+          key={e.id}
+          data-testid={`rf-edge-${e.id}`}
+          data-stroke={(e.style as Record<string, unknown>)?.stroke as string}
+        />
       ))}
     </div>
   ),
   ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   Background: () => <div data-testid="rf-background" />,
-  Controls: () => <div data-testid="rf-controls" />,
-}));
-
-vi.mock('./GraphControls', () => ({
-  GraphControls: ({ vaultPath }: { vaultPath: string }) => (
-    <div data-testid="graph-controls-stub" data-vault={vaultPath} />
-  ),
+  BackgroundVariant: { Dots: 'dots' },
+  Handle: () => null,
+  Position: { Top: 'top' },
+  useReactFlow: () => ({ fitView, zoomIn: vi.fn(), zoomOut: vi.fn() }),
+  useViewport: () => ({ zoom: 1, x: 0, y: 0 }),
 }));
 
 const mockInvoke = vi.mocked(invoke);
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  useGraphStore.setState({
-    nodes: [],
-    edges: [],
-    isLoading: false,
-    error: null,
-    showOrphans: true,
-    searchQuery: '',
-  });
-});
+const graph = {
+  nodes: [
+    { path: '/vault/a.md', name: 'a.md', kind: 'md', x: null, y: null, tags: ['ideas'], excerpt: 'hola' },
+    { path: '/vault/b.md', name: 'b.md', kind: 'md', x: 10, y: 20, tags: [], excerpt: '' },
+    { path: '/vault/Test/o.md', name: 'o.md', kind: 'md', x: null, y: null, tags: [], excerpt: '' },
+  ],
+  edges: [{ source: '/vault/a.md', target: '/vault/b.md' }],
+};
 
-function renderCanvas(vaultPath = '/vault') {
-  return render(
+function Where() {
+  return <div data-testid="where">{useLocation().pathname}</div>;
+}
+
+async function setup(active: string | null = null) {
+  useEditorStore.setState({ activeNotePath: active });
+  mockInvoke.mockResolvedValueOnce(graph);
+  await useGraphStore.getState().loadGraph('/vault');
+  render(
     <MemoryRouter>
-      <GraphCanvas vaultPath={vaultPath} />
+      <GraphCanvas vaultPath="/vault" />
+      <Where />
     </MemoryRouter>,
   );
 }
 
-// ── TC-14: GraphCanvas renders ────────────────────────────────────────────────
-describe('TC-14: GraphCanvas renders', () => {
-  it('TC-14: renders graph canvas container', () => {
-    renderCanvas();
+beforeEach(() => {
+  vi.clearAllMocks();
+  useGraphStore.setState({
+    model: null,
+    nodes: [],
+    edges: [],
+    tagNodes: [],
+    tagEdges: [],
+    loadId: 0,
+    showLinks: true,
+    showTags: false,
+    showOrphans: true,
+    searchQuery: '',
+    selectedPath: null,
+  });
+});
+
+describe('GraphCanvas', () => {
+  it('renders the container and chrome', async () => {
+    await setup();
     expect(screen.getByTestId('graph-canvas')).toBeDefined();
+    expect(screen.getByTestId('graph-controls')).toBeDefined();
+    expect(screen.getByTestId('graph-zoom')).toBeDefined();
+    expect(screen.getByTestId('graph-legend')).toBeDefined();
   });
 
-  it('TC-14: renders nodes from store', () => {
-    useGraphStore.setState({
-      nodes: [
-        {
-          id: '/vault/a.md',
-          type: 'graphNode',
-          position: { x: 0, y: 0 },
-          data: { path: '/vault/a.md', label: 'a', kind: 'md', isOrphan: false },
-        } as unknown as RFNode,
-      ],
-      edges: [],
-    });
-
-    renderCanvas();
-    expect(screen.getByTestId('rf-node-/vault/a.md')).toBeDefined();
-  });
-});
-
-// ── TC-16: double click navigates to editor ───────────────────────────────────
-describe('TC-16: double click navigates to editor', () => {
-  it('TC-16: double clicking a graphNode triggers onNodeDoubleClick', () => {
-    useGraphStore.setState({
-      nodes: [
-        {
-          id: '/vault/note.md',
-          type: 'graphNode',
-          position: { x: 0, y: 0 },
-          data: { path: '/vault/note.md', label: 'note', kind: 'md', isOrphan: false },
-        } as unknown as RFNode,
-      ],
-      edges: [],
-    });
-
-    renderCanvas();
-    const node = screen.getByTestId('rf-node-/vault/note.md');
-    // Should not throw
-    fireEvent.dblClick(node);
-    expect(node).toBeDefined();
-  });
-});
-
-// ── TC-17: orphan toggle hides orphan nodes ───────────────────────────────────
-describe('TC-17: orphan toggle', () => {
-  it('TC-17: orphan nodes not rendered when showOrphans=false', () => {
-    useGraphStore.setState({
-      nodes: [
-        {
-          id: '/vault/orphan.md',
-          type: 'graphNode',
-          position: { x: 0, y: 0 },
-          data: { path: '/vault/orphan.md', label: 'orphan', kind: 'md', isOrphan: true },
-        } as unknown as RFNode,
-        {
-          id: 'orphanGroup_root',
-          type: 'orphanGroup',
-          position: { x: 0, y: 0 },
-          data: { folderName: 'root' },
-        } as unknown as RFNode,
-      ],
-      edges: [],
-      showOrphans: false,
-    });
-
-    renderCanvas();
-    expect(screen.queryByTestId('rf-node-/vault/orphan.md')).toBeNull();
-    expect(screen.queryByTestId('rf-node-orphanGroup_root')).toBeNull();
+  it('renders note nodes, link edges and a halo for the named folder', async () => {
+    await setup();
+    expect(screen.getByTestId('rf-node-/vault/a.md').dataset.type).toBe('graphNode');
+    expect(screen.getByTestId('rf-node-halo:Test').dataset.type).toBe('folderHalo');
+    expect(screen.getByTestId('rf-edge-/vault/a.md→/vault/b.md')).toBeDefined();
   });
 
-  it('TC-17: orphan nodes visible when showOrphans=true', () => {
-    useGraphStore.setState({
-      nodes: [
-        {
-          id: '/vault/orphan.md',
-          type: 'graphNode',
-          position: { x: 0, y: 0 },
-          data: { path: '/vault/orphan.md', label: 'orphan', kind: 'md', isOrphan: true },
-        } as unknown as RFNode,
-      ],
-      edges: [],
-      showOrphans: true,
-    });
-
-    renderCanvas();
-    expect(screen.getByTestId('rf-node-/vault/orphan.md')).toBeDefined();
+  it('fits the view after a load', async () => {
+    await setup();
+    await waitFor(() => expect(fitView).toHaveBeenCalled());
   });
-});
 
-// ── TC-18: search dims non-matching nodes ─────────────────────────────────────
-describe('TC-18: search filter', () => {
-  it('TC-18: non-matching node gets opacity 0.2', () => {
-    useGraphStore.setState({
-      nodes: [
-        {
-          id: '/vault/NoteA.md',
-          type: 'graphNode',
-          position: { x: 0, y: 0 },
-          data: { path: '/vault/NoteA.md', label: 'NoteA', kind: 'md', isOrphan: false },
-        } as unknown as RFNode,
-        {
-          id: '/vault/About.md',
-          type: 'graphNode',
-          position: { x: 100, y: 0 },
-          data: { path: '/vault/About.md', label: 'About', kind: 'md', isOrphan: false },
-        } as unknown as RFNode,
-      ],
-      edges: [],
-      searchQuery: 'note',
-    });
-
-    renderCanvas();
-
-    const aboutNode = screen.getByTestId('rf-node-/vault/About.md');
-    expect(aboutNode.getAttribute('data-opacity')).toBe('0.2');
-
-    const noteNode = screen.getByTestId('rf-node-/vault/NoteA.md');
-    expect(noteNode.getAttribute('data-opacity')).toBeNull();
+  it('hides orphans when Huérfanas is off', async () => {
+    await setup();
+    fireEvent.click(screen.getByTestId('toggle-orphans'));
+    expect(screen.queryByTestId('rf-node-/vault/Test/o.md')).toBeNull();
+    expect(screen.queryByTestId('rf-node-halo:Test')).toBeNull();
   });
-});
 
-// ── TC-21: drag stop saves position ──────────────────────────────────────────
-describe('TC-21: drag stop saves position', () => {
-  it('TC-21: clicking node (simulating drag stop) triggers savePosition invoke', async () => {
+  it('hides edges when Enlaces is off', async () => {
+    await setup();
+    fireEvent.click(screen.getByTestId('toggle-links'));
+    expect(screen.queryByTestId('rf-edge-/vault/a.md→/vault/b.md')).toBeNull();
+  });
+
+  it('adds tag nodes when Etiquetas is on', async () => {
+    await setup();
+    expect(screen.queryByTestId('rf-node-tag:ideas')).toBeNull();
+    fireEvent.click(screen.getByTestId('toggle-tags'));
+    expect(screen.getByTestId('rf-node-tag:ideas').dataset.type).toBe('tagNode');
+  });
+
+  it('dims non-matching nodes while searching', async () => {
+    await setup();
+    fireEvent.change(screen.getByTestId('graph-search'), { target: { value: 'a' } });
+    expect(screen.getByTestId('rf-node-/vault/a.md').dataset.dim).toBe('false');
+    expect(screen.getByTestId('rf-node-/vault/b.md').dataset.dim).toBe('true');
+  });
+
+  it('marks the open note and highlights its edges', async () => {
+    await setup('/vault/a.md');
+    expect(screen.getByTestId('rf-node-/vault/a.md').dataset.active).toBe('true');
+    expect(screen.getByTestId('rf-edge-/vault/a.md→/vault/b.md').dataset.stroke).toBe('var(--daun)');
+  });
+
+  it('shows the card of the open note and of a clicked node, hides it on pane click', async () => {
+    await setup('/vault/a.md');
+    expect(screen.getByTestId('graph-note-title').textContent).toBe('a');
+    fireEvent.click(screen.getByTestId('rf-node-/vault/b.md'));
+    expect(screen.getByTestId('graph-note-title').textContent).toBe('b');
+    fireEvent.click(screen.getByTestId('react-flow'));
+    expect(screen.queryByTestId('graph-note-card')).toBeNull();
+  });
+
+  it('double click opens the note in the editor', async () => {
+    await setup();
+    fireEvent.doubleClick(screen.getByTestId('rf-node-/vault/a.md'));
+    expect(screen.getByTestId('where').textContent).toBe(
+      `/editor/${encodeURIComponent('/vault/a.md')}`,
+    );
+  });
+
+  it('moves a dragged node in the store and persists its position', async () => {
+    await setup();
     mockInvoke.mockResolvedValue(undefined);
-
-    useGraphStore.setState({
-      nodes: [
-        {
-          id: '/vault/a.md',
-          type: 'graphNode',
-          position: { x: 300, y: 150 },
-          data: { path: '/vault/a.md', label: 'a', kind: 'md', isOrphan: false },
-        } as unknown as RFNode,
-      ],
-      edges: [],
+    fireEvent.mouseDown(screen.getByTestId('rf-node-/vault/a.md'));
+    expect(useGraphStore.getState().nodes.find((n) => n.id === '/vault/a.md')!.position).toEqual({
+      x: 7,
+      y: 9,
     });
-
-    renderCanvas();
-
-    const node = screen.getByTestId('rf-node-/vault/a.md');
-    fireEvent.click(node);
-
-    await vi.waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('save_node_position', {
-        vaultPath: '/vault',
-        filePath: '/vault/a.md',
-        x: 300,
-        y: 150,
-      });
+    fireEvent.mouseUp(screen.getByTestId('rf-node-/vault/a.md'));
+    expect(mockInvoke).toHaveBeenCalledWith('save_node_position', {
+      vaultPath: '/vault',
+      filePath: '/vault/a.md',
+      x: 7,
+      y: 9,
     });
+  });
+
+  it('does not persist halo or tag drags', async () => {
+    await setup();
+    fireEvent.mouseUp(screen.getByTestId('rf-node-halo:Test'));
+    expect(mockInvoke).not.toHaveBeenCalledWith('save_node_position', expect.anything());
   });
 });

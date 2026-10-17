@@ -19,6 +19,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useVaultStore.setState({ vaultPath: null, tree: [], isLoading: false, error: null });
   useGraphStore.setState({
+    model: null,
     nodes: [],
     edges: [],
     isLoading: false,
