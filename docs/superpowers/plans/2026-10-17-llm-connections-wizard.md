@@ -1907,7 +1907,7 @@ git commit -m "feat(llm): add Anthropic Messages engine"
 - Create: `src-tauri/src/llm/tls_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/tls_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/tls_tests.rs`:
 
 ```rust
 use super::auth::Credential;
@@ -1960,21 +1960,21 @@ async fn self_signed_server_succeeds_with_ca_cert_path() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - add `#[cfg(test)] mod tls_tests;` to `llm/mod.rs`.
+- [x] **Step 2: Run to verify it fails** - add `#[cfg(test)] mod tls_tests;` to `llm/mod.rs`.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::tls_tests`
 Expected: with the infrastructure from Tasks 5-7 these should actually **pass immediately** (this task adds coverage, not production code). If `self_signed_server_fails...` returns `Unreachable` instead of `TlsUntrusted`, the classifier needs the fix in Step 3. If any test panics with "Could not automatically determine the process-level CryptoProvider", see the risk note below.
 
-- [ ] **Step 3: Fix only if Step 2 failed** - In `http.rs::classify_send_error`, print the chain once (`eprintln!("{}", error_chain(e))`) to see the actual rustls message, and add the missing substring to the `contains` checks (typical: `"invalid peer certificate"`, `"unknownissuer"`, `"certificate verify failed"`). Remove the `eprintln!` afterwards.
+- [x] **Step 3: Fix only if Step 2 failed** - In `http.rs::classify_send_error`, print the chain once (`eprintln!("{}", error_chain(e))`) to see the actual rustls message, and add the missing substring to the `contains` checks (typical: `"invalid peer certificate"`, `"unknownissuer"`, `"certificate verify failed"`). Remove the `eprintln!` afterwards.
 
 Risk note: if two rustls crypto providers end up enabled (`cargo tree -i aws-lc-rs` prints something), either remove the feature that pulls it in or install the ring provider explicitly once at startup: `let _ = rustls::crypto::ring::default_provider().install_default();` (add `rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }` to `[dependencies]` in that case and call it at the top of `main()` and in the TLS tests).
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::tls_tests`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
