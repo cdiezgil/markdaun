@@ -1991,7 +1991,7 @@ git commit -m "test(llm): cover self-signed TLS failure and custom root CA succe
 - Create: `src-tauri/src/llm/proc.rs`, `src-tauri/src/llm/proc_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/proc_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/proc_tests.rs`:
 
 ```rust
 use super::error::LlmError;
@@ -2080,12 +2080,12 @@ fn login_shell_resolver_finds_sh_and_caches() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - add `pub mod proc;` and `#[cfg(test)] mod proc_tests;` to `llm/mod.rs`.
+- [x] **Step 2: Run to verify it fails** - add `pub mod proc;` and `#[cfg(test)] mod proc_tests;` to `llm/mod.rs`.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::proc_tests`
 Expected: FAIL to compile (`proc.rs` missing).
 
-- [ ] **Step 3: Implement** - `src-tauri/src/llm/proc.rs`:
+- [x] **Step 3: Implement** - `src-tauri/src/llm/proc.rs`:
 
 ```rust
 use super::error::LlmError;
@@ -2211,12 +2211,12 @@ pub async fn run(
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::proc_tests`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
