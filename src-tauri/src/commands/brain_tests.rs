@@ -326,3 +326,34 @@ async fn brain_query_keeps_user_message_when_llm_fails() {
     assert_eq!(messages[0].role, "user");
     assert_eq!(messages[0].content, "pregunta perdida");
 }
+
+// ── Note proposal instruction + index progress ────────────────────────────────
+
+#[test]
+fn build_rag_messages_teaches_markdaun_note_blocks() {
+    for results in [vec![], vec![crate::db::vectors::SearchResult {
+        file_path: "/v/a.md".into(), content: "c".into(), distance: 0.1,
+    }]] {
+        let system = &build_rag_messages("q", &results)[0].content;
+        assert!(system.contains("```markdaun-note path="));
+        assert!(system.contains("mode=\"create\""));
+        assert!(system.contains("append"));
+        assert!(system.contains(".md"));
+        assert!(system.contains("relativo a la bóveda"));
+        assert!(system.contains("confirm"));
+    }
+}
+
+#[tokio::test]
+async fn with_index_progress_reports_start_and_end_even_on_failure() {
+    use super::brain_cmd::{with_index_progress, IndexProgress};
+    use std::cell::RefCell;
+    let seen = RefCell::new(Vec::new());
+    let out: Result<(), String> =
+        with_index_progress(|p| seen.borrow_mut().push(p), async { Err("boom".to_string()) }).await;
+    assert!(out.is_err());
+    assert_eq!(
+        *seen.borrow(),
+        vec![IndexProgress { done: 0, total: 1 }, IndexProgress { done: 1, total: 1 }]
+    );
+}

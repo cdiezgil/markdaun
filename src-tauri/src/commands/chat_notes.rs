@@ -1,7 +1,10 @@
 //! Commands that let the Second Brain chat create or extend Markdown notes.
 //! Every path is relative to the vault and validated before touching disk.
 
+use super::brain_cmd::reindex_file_with_progress;
+use crate::llm::EmbedderState;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteMode {
@@ -96,12 +99,25 @@ pub(crate) fn read_note_tail_inner(vault: &Path, rel: &str, lines: usize) -> Res
     Ok(all[start..].join("\n"))
 }
 
-/// Phase B hook: re-embed a note after the chat wrote it. Intentionally a
-/// no-op until it is wired to the embedding update path.
-fn reindex_after_write(_abs_path: &str, _vault_path: &str) {}
+/// Re-embed the written note in the background. Failures are ignored: the
+/// write has already succeeded and indexing is best-effort.
+fn reindex_after_write(
+    app: tauri::AppHandle,
+    embedder: Arc<EmbedderState>,
+    abs_path: String,
+    vault_path: String,
+) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = reindex_file_with_progress(&app, &embedder, &abs_path, &vault_path).await {
+            eprintln!("[chat_write_note] re-embed failed for {abs_path}: {e}");
+        }
+    });
+}
 
 #[tauri::command]
 pub async fn chat_write_note(
+    app: tauri::AppHandle,
+    embedder: tauri::State<'_, Arc<EmbedderState>>,
     path: String,
     content: String,
     mode: String,
@@ -109,7 +125,7 @@ pub async fn chat_write_note(
 ) -> Result<String, String> {
     let mode = WriteMode::parse(&mode)?;
     let abs = write_note_inner(Path::new(&vault_path), &path, &content, mode)?;
-    reindex_after_write(&abs, &vault_path);
+    reindex_after_write(app, embedder.inner().clone(), abs.clone(), vault_path);
     Ok(abs)
 }
 

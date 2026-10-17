@@ -45,6 +45,10 @@ pub struct BrainQueryResult {
 
 // ─── Inner helpers (testable without AppHandle) ───────────────────────────────
 
+/// Tells the model how to propose creating or extending a note. The app only
+/// writes after the user confirms the proposal card.
+pub(crate) const NOTE_BLOCK_INSTRUCTION: &str = "Si el usuario te pide crear o ampliar una nota, responde con uno o más bloques de código con esta forma exacta (el usuario debe confirmar cada bloque; nada se guarda sin su confirmación):\n```markdaun-note path=\"Carpeta/nombre.md\" mode=\"create\"\n# Título\ncontenido en Markdown\n```\n`path` es relativo a la bóveda y debe terminar en .md. `mode` es \"create\" (nota nueva) o \"append\" (añadir al final de una nota existente). Usa estos bloques solo cuando se te pida una nota.";
+
 /// Build the RAG prompt: system message with context chunks, user message with the question.
 pub fn build_rag_messages(question: &str, results: &[crate::db::vectors::SearchResult]) -> Vec<ChatMessage> {
     let context: String = results
@@ -60,12 +64,11 @@ pub fn build_rag_messages(question: &str, results: &[crate::db::vectors::SearchR
         .collect::<Vec<_>>()
         .join("\n");
 
+    let base = "Eres un asistente de conocimiento personal. Responde únicamente en base al contexto proporcionado. Si la respuesta no se puede inferir del contexto, indícalo claramente.";
     let system = if context.is_empty() {
-        "Eres un asistente de conocimiento personal. Responde únicamente en base al contexto proporcionado. Si la respuesta no se puede inferir del contexto, indícalo claramente.".to_string()
+        format!("{base}\n\n{NOTE_BLOCK_INSTRUCTION}")
     } else {
-        format!(
-            "Eres un asistente de conocimiento personal. Responde únicamente en base al contexto proporcionado. Si la respuesta no se puede inferir del contexto, indícalo claramente.\n\nContexto:\n{context}"
-        )
+        format!("{base}\n\n{NOTE_BLOCK_INSTRUCTION}\n\nContexto:\n{context}")
     };
 
     vec![
@@ -260,8 +263,51 @@ pub async fn brain_delete_conversation(
         .map_err(|e| format!("db_error: {e}"))
 }
 
+/// Progress of Second Brain (re)indexing, emitted as `brain-index-progress`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct IndexProgress {
+    pub done: usize,
+    pub total: usize,
+}
+
+pub const INDEX_PROGRESS_EVENT: &str = "brain-index-progress";
+
+/// Runs `work` for a single file, reporting 0/1 before and 1/1 after
+/// (also when the work fails, so the UI never stays stuck on "indexing").
+pub(crate) async fn with_index_progress<E, F, T>(emit: E, work: F) -> T
+where
+    E: Fn(IndexProgress),
+    F: std::future::Future<Output = T>,
+{
+    emit(IndexProgress { done: 0, total: 1 });
+    let out = work.await;
+    emit(IndexProgress { done: 1, total: 1 });
+    out
+}
+
+/// Re-embed one Markdown file, emitting `brain-index-progress`. Shared by
+/// `brain_update_embedding` and `chat_write_note`.
+pub(crate) async fn reindex_file_with_progress(
+    app: &tauri::AppHandle,
+    embedder: &Arc<EmbedderState>,
+    file_path: &str,
+    vault_path: &str,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    if !file_path.ends_with(".md") {
+        return Ok(());
+    }
+    with_index_progress(
+        |p| {
+            let _ = app.emit(INDEX_PROGRESS_EVENT, p);
+        },
+        reindex_file(app, embedder, file_path, vault_path),
+    )
+    .await
+}
+
 /// Chunk a Markdown file, embed each chunk, and upsert into vectors.db.
-/// Fire-and-forget: errors are logged but not propagated.
+/// Fire-and-forget: embedding/db errors are logged but not propagated.
 #[tauri::command]
 pub async fn brain_update_embedding(
     app: tauri::AppHandle,
@@ -269,15 +315,24 @@ pub async fn brain_update_embedding(
     file_path: String,
     vault_path: String,
 ) -> Result<(), String> {
+    reindex_file_with_progress(&app, embedder.inner(), &file_path, &vault_path).await
+}
+
+async fn reindex_file(
+    app: &tauri::AppHandle,
+    embedder: &Arc<EmbedderState>,
+    file_path: &str,
+    vault_path: &str,
+) -> Result<(), String> {
     if !file_path.ends_with(".md") {
         return Ok(());
     }
 
-    let vdb_path = vectors_db_path(&app)?;
-    let cache_dir = model_cache_dir(&app)?;
+    let vdb_path = vectors_db_path(app)?;
+    let cache_dir = model_cache_dir(app)?;
 
     // Read file content — errors silently discarded (fire-and-forget).
-    let content = match std::fs::read_to_string(&file_path) {
+    let content = match std::fs::read_to_string(file_path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[brain_update_embedding] read error {file_path}: {e}");
@@ -285,7 +340,7 @@ pub async fn brain_update_embedding(
         }
     };
 
-    let model = match shared_model(&embedder, cache_dir).await {
+    let model = match shared_model(embedder, cache_dir).await {
         Ok(m) => m,
         Err(e) => {
             eprintln!("[brain_update_embedding] load_model error: {e}");
@@ -320,7 +375,7 @@ pub async fn brain_update_embedding(
         }
     };
 
-    if let Err(e) = vec_db.upsert_file_chunks(&vault_path, &file_path, &chunk_refs) {
+    if let Err(e) = vec_db.upsert_file_chunks(vault_path, file_path, &chunk_refs) {
         eprintln!("[brain_update_embedding] upsert error: {e}");
     }
 
