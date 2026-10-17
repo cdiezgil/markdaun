@@ -53,7 +53,13 @@ impl BinaryResolver for LoginShellResolver {
         let out = if cfg!(windows) {
             std::process::Command::new("where").arg(name).output().ok()?
         } else {
-            std::process::Command::new("zsh").args(["-lc", &format!("command -v {name}")]).output().ok()?
+            let cmd = format!("command -v {name}");
+            // Prefer the user's login shell (zsh on macOS) for a PATH that
+            // matches the terminal; fall back to sh where zsh is absent (e.g. Linux CI).
+            match std::process::Command::new("zsh").args(["-lc", &cmd]).output() {
+                Ok(out) if out.status.success() => out,
+                _ => std::process::Command::new("sh").args(["-lc", &cmd]).output().ok()?,
+            }
         };
         if !out.status.success() {
             return None;
