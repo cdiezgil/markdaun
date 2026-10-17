@@ -1,7 +1,7 @@
 use crate::db::NodePositionsDb;
 use crate::fs::walk_vault;
 use crate::fs::tree::{EntryKind, FileKind};
-use crate::graph::extract_links;
+use crate::graph::{extract_excerpt, extract_links, extract_tags};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
@@ -17,6 +17,12 @@ pub struct GraphNode {
     pub kind: String,
     pub x: Option<f64>,
     pub y: Option<f64>,
+    /// `#tags` found in the note body (md files only).
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Short plain-text preview of the note (md files only).
+    #[serde(default)]
+    pub excerpt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -30,6 +36,8 @@ pub struct VaultGraph {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
 }
+
+const EXCERPT_CHARS: usize = 160;
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -107,8 +115,14 @@ pub async fn get_vault_graph(
         .get_all_positions(&vault_path)
         .map_err(|e| format!("db_error: {e}"))?;
 
-    // 6. Attach positions to nodes
+    // 6. Attach positions, tags and excerpts to nodes
     for node in &mut nodes {
+        if node.kind == "md" {
+            if let Ok(content) = std::fs::read_to_string(&node.path) {
+                node.tags = extract_tags(&content);
+                node.excerpt = extract_excerpt(&content, EXCERPT_CHARS);
+            }
+        }
         if let Some(&(x, y)) = positions.get(&node.path) {
             node.x = Some(x);
             node.y = Some(y);
@@ -153,6 +167,8 @@ fn flatten_tree(entries: &[crate::fs::tree::VaultEntry], out: &mut Vec<GraphNode
                     kind,
                     x: None,
                     y: None,
+                    tags: Vec::new(),
+                    excerpt: String::new(),
                 });
             }
             EntryKind::Folder => {
