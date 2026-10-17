@@ -77,7 +77,7 @@ describe('TC-20: GraphView loads graph on mount', () => {
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('get_vault_graph', {
-        vault_path: '/vault',
+        vaultPath: '/vault',
       });
     });
   });

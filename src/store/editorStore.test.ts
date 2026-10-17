@@ -65,8 +65,8 @@ describe('TC-02: setContent debounce', () => {
     });
     // TC-35: brain_update_embedding is also called (fire-and-forget) for .md files
     expect(mockInvoke).toHaveBeenCalledWith('brain_update_embedding', {
-      file_path: '/vault/note.md',
-      vault_path: '/vault',
+      filePath: '/vault/note.md',
+      vaultPath: '/vault',
     });
   });
 

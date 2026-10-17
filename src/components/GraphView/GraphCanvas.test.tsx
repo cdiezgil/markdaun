@@ -225,8 +225,8 @@ describe('TC-21: drag stop saves position', () => {
 
     await vi.waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('save_node_position', {
-        vault_path: '/vault',
-        file_path: '/vault/a.md',
+        vaultPath: '/vault',
+        filePath: '/vault/a.md',
         x: 300,
         y: 150,
       });

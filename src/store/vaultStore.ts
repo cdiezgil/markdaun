@@ -62,7 +62,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const tree = await invoke<VaultEntry[]>('list_vault_tree', {
-        vault_path: vaultPath,
+        vaultPath: vaultPath,
       });
       set({ tree, isLoading: false });
     } catch (e) {
@@ -75,9 +75,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     set({ error: null });
     try {
       await invoke<string>('create_note', {
-        parent_path: parentPath,
+        parentPath: parentPath,
         name,
-        vault_path: vaultPath,
+        vaultPath: vaultPath,
       });
       await get().refreshTree();
     } catch (e) {
@@ -91,9 +91,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     set({ error: null });
     try {
       await invoke<string>('create_folder', {
-        parent_path: parentPath,
+        parentPath: parentPath,
         name,
-        vault_path: vaultPath,
+        vaultPath: vaultPath,
       });
       await get().refreshTree();
     } catch (e) {
@@ -108,8 +108,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     try {
       await invoke<string>('rename_entry', {
         path,
-        new_name: newName,
-        vault_path: vaultPath,
+        newName: newName,
+        vaultPath: vaultPath,
       });
       await get().refreshTree();
     } catch (e) {
@@ -124,7 +124,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     try {
       await invoke<void>('delete_entry', {
         path,
-        vault_path: vaultPath,
+        vaultPath: vaultPath,
       });
       await get().refreshTree();
     } catch (e) {
@@ -138,9 +138,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     set({ error: null });
     try {
       await invoke<string[]>('import_files', {
-        dest_folder_path: destFolderPath,
-        source_paths: sourcePaths,
-        vault_path: vaultPath,
+        destFolderPath: destFolderPath,
+        sourcePaths: sourcePaths,
+        vaultPath: vaultPath,
       });
       await get().refreshTree();
     } catch (e) {

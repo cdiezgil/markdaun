@@ -77,7 +77,7 @@ describe('refreshTree', () => {
 
     expect(useVaultStore.getState().tree).toEqual(sampleTree);
     expect(mockInvoke).toHaveBeenCalledWith('list_vault_tree', {
-      vault_path: '/vault',
+      vaultPath: '/vault',
     });
   });
 
@@ -97,9 +97,9 @@ describe('TC-09: createNote happy path', () => {
     await useVaultStore.getState().createNote('/vault', 'nueva');
 
     expect(mockInvoke).toHaveBeenCalledWith('create_note', {
-      parent_path: '/vault',
+      parentPath: '/vault',
       name: 'nueva',
-      vault_path: '/vault',
+      vaultPath: '/vault',
     });
     expect(useVaultStore.getState().tree).toEqual(sampleTree);
   });
@@ -127,9 +127,9 @@ describe('TC-10: createFolder happy path', () => {
     await useVaultStore.getState().createFolder('/vault', 'carpeta');
 
     expect(mockInvoke).toHaveBeenCalledWith('create_folder', {
-      parent_path: '/vault',
+      parentPath: '/vault',
       name: 'carpeta',
-      vault_path: '/vault',
+      vaultPath: '/vault',
     });
   });
 });
@@ -145,8 +145,8 @@ describe('TC-11: renameEntry happy path', () => {
 
     expect(mockInvoke).toHaveBeenCalledWith('rename_entry', {
       path: '/vault/nota.md',
-      new_name: 'renombrado.md',
-      vault_path: '/vault',
+      newName: 'renombrado.md',
+      vaultPath: '/vault',
     });
   });
 });
@@ -174,9 +174,9 @@ describe('TC-16: importFiles happy path', () => {
     await useVaultStore.getState().importFiles('/vault', ['/tmp/foto.png']);
 
     expect(mockInvoke).toHaveBeenCalledWith('import_files', {
-      dest_folder_path: '/vault',
-      source_paths: ['/tmp/foto.png'],
-      vault_path: '/vault',
+      destFolderPath: '/vault',
+      sourcePaths: ['/tmp/foto.png'],
+      vaultPath: '/vault',
     });
   });
 });

@@ -164,7 +164,7 @@ export const useGraphStore = create<GraphStoreState>((set) => ({
     set({ isLoading: true, error: null });
     try {
       const graph = await invoke<VaultGraph>('get_vault_graph', {
-        vault_path: vaultPath,
+        vaultPath: vaultPath,
       });
 
       const { nodes, edges } = buildReactFlowGraph(graph, vaultPath);
@@ -177,8 +177,8 @@ export const useGraphStore = create<GraphStoreState>((set) => ({
   async savePosition(vaultPath: string, filePath: string, x: number, y: number) {
     try {
       await invoke('save_node_position', {
-        vault_path: vaultPath,
-        file_path: filePath,
+        vaultPath: vaultPath,
+        filePath: filePath,
         x,
         y,
       });

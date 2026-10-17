@@ -15,8 +15,6 @@ const MOCK_CONVS = [
 beforeEach(() => {
   vi.clearAllMocks();
   useBrainStore.setState({
-    isConfigured: true,
-    config: { endpoint_url: 'https://x', model: 'm' },
     conversations: MOCK_CONVS,
     currentConversationId: null,
     messages: [],

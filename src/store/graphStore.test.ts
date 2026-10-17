@@ -119,8 +119,8 @@ describe('savePosition', () => {
     mockInvoke.mockResolvedValueOnce(undefined);
     await useGraphStore.getState().savePosition('/vault', '/vault/a.md', 300, 150);
     expect(mockInvoke).toHaveBeenCalledWith('save_node_position', {
-      vault_path: '/vault',
-      file_path: '/vault/a.md',
+      vaultPath: '/vault',
+      filePath: '/vault/a.md',
       x: 300,
       y: 150,
     });

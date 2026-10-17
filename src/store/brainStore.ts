@@ -1,13 +1,10 @@
 import { create } from 'zustand';
 import {
-  brainConfigure,
   brainDeleteConversation,
-  brainGetConfig,
   brainGetConversations,
   brainGetMessages,
   brainQuery,
   type BrainConversation,
-  type BrainConfig,
   type BrainMessage,
 } from '../lib/tauri';
 
@@ -15,13 +12,10 @@ import {
 
 export type { BrainConversation as Conversation };
 export type { BrainMessage };
-export type { BrainConfig };
 
 // ── Store state & actions ─────────────────────────────────────────────────────
 
 export interface BrainState {
-  isConfigured: boolean;
-  config: BrainConfig;
   conversations: BrainConversation[];
   currentConversationId: string | null;
   messages: BrainMessage[];
@@ -33,8 +27,6 @@ export interface BrainState {
   // Computed inline — not stored state.
   filteredConversations: () => BrainConversation[];
 
-  loadConfig(): Promise<void>;
-  configure(endpointUrl: string, apiKey: string | null, model: string): Promise<void>;
   loadConversations(vaultPath: string): Promise<void>;
   selectConversation(id: string): Promise<void>;
   startNewConversation(): void;
@@ -44,8 +36,6 @@ export interface BrainState {
 }
 
 export const useBrainStore = create<BrainState>((set, get) => ({
-  isConfigured: false,
-  config: { endpoint_url: null, model: null },
   conversations: [],
   currentConversationId: null,
   messages: [],
@@ -63,32 +53,6 @@ export const useBrainStore = create<BrainState>((set, get) => ({
   },
 
   // ── Actions ───────────────────────────────────────────────────────────────────
-
-  async loadConfig() {
-    try {
-      const config = await brainGetConfig();
-      set({
-        config,
-        isConfigured: !!(config.endpoint_url && config.model),
-      });
-    } catch (e) {
-      set({ error: String(e) });
-    }
-  },
-
-  async configure(endpointUrl, apiKey, model) {
-    set({ isLoading: true, error: null });
-    try {
-      await brainConfigure(endpointUrl, apiKey, model);
-      set({
-        config: { endpoint_url: endpointUrl, model },
-        isConfigured: true,
-        isLoading: false,
-      });
-    } catch (e) {
-      set({ error: String(e), isLoading: false });
-    }
-  },
 
   async loadConversations(vaultPath) {
     try {
