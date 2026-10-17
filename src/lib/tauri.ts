@@ -1,4 +1,13 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import type {
+  ActiveSelection,
+  CliDetection,
+  Connection,
+  Engine,
+  ProgressEvent,
+  ValidateResult,
+} from './llm/types';
 
 export { invoke, convertFileSrc } from '@tauri-apps/api/core';
 export { getCurrentWindow } from '@tauri-apps/api/window';
@@ -184,4 +193,57 @@ export async function brainUpdateEmbedding(
     file_path: filePath,
     vault_path: vaultPath,
   });
+}
+
+// ── LLM connections ────────────────────────────────────────────────────────────
+// Payload keys must be camelCase (guarded by invokeArgs.test.ts).
+
+/** Validate an unsaved connection end-to-end. Persists nothing. */
+export async function llmValidate(draft: Connection, secret: string | null): Promise<ValidateResult> {
+  return invoke<ValidateResult>('llm_validate', { draft, secret });
+}
+
+/** Test-complete one more model and add it to the validation token. */
+export async function llmVerifyModel(
+  draft: Connection,
+  secret: string | null,
+  token: string,
+  model: string,
+): Promise<void> {
+  return invoke<void>('llm_verify_model', { draft, secret, token, model });
+}
+
+/** Persist a validated connection (and its secret, in the OS keyring). */
+export async function llmSaveConnection(
+  draft: Connection,
+  secret: string | null,
+  validationToken: string,
+): Promise<Connection> {
+  return invoke<Connection>('llm_save_connection', { draft, secret, validationToken });
+}
+
+export async function llmListConnections(): Promise<Connection[]> {
+  return invoke<Connection[]>('llm_list_connections');
+}
+
+export async function llmDeleteConnection(id: string): Promise<void> {
+  return invoke<void>('llm_delete_connection', { id });
+}
+
+export async function llmSetActive(connectionId: string, model: string): Promise<ActiveSelection> {
+  return invoke<ActiveSelection>('llm_set_active', { connectionId, model });
+}
+
+export async function llmGetActive(): Promise<ActiveSelection | null> {
+  return invoke<ActiveSelection | null>('llm_get_active');
+}
+
+/** Is the claude / gemini CLI installed? (Login is checked by validation.) */
+export async function llmDetectCli(engine: Engine): Promise<CliDetection> {
+  return invoke<CliDetection>('llm_detect_cli', { engine });
+}
+
+/** Subscribe to validation progress events. Returns the unlisten function. */
+export async function onLlmValidateProgress(cb: (e: ProgressEvent) => void): Promise<() => void> {
+  return listen<ProgressEvent>('llm-validate-progress', (event) => cb(event.payload));
 }
