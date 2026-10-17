@@ -1,7 +1,6 @@
 #![allow(dead_code)] // removed in Task 17 once everything is wired
 
 pub mod auth;
-pub mod client;
 pub mod connection;
 pub mod embeddings;
 pub mod engines;
@@ -13,13 +12,16 @@ pub mod secrets;
 pub mod store;
 pub mod validate;
 
-pub use client::{chat_completion, ChatMessage, LlmConfig};
+#[cfg(test)]
+pub mod testutil;
+
 pub use embeddings::{chunk_text, embed_text, load_model};
+pub use engines::ChatMessage;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod connection_tests;
 #[cfg(test)]
 mod env_tests;
 #[cfg(test)]
@@ -29,15 +31,13 @@ mod http_tests;
 #[cfg(test)]
 mod proc_tests;
 #[cfg(test)]
-mod connection_tests;
-#[cfg(test)]
 mod secrets_tests;
 #[cfg(test)]
 mod store_tests;
 #[cfg(test)]
-pub mod testutil;
-#[cfg(test)]
 mod testutil_tests;
+#[cfg(test)]
+mod tests;
 #[cfg(test)]
 mod tls_tests;
 #[cfg(test)]

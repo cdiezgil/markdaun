@@ -34,8 +34,6 @@ fn main() {
             commands::github_push,
             commands::github_pull,
             commands::github_status,
-            commands::brain_configure,
-            commands::brain_get_config,
             commands::brain_query,
             commands::brain_get_conversations,
             commands::brain_get_messages,

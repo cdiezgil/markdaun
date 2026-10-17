@@ -1,12 +1,12 @@
 use crate::db::{Conversation, ConversationsDb, Message, VectorsDb};
-use crate::llm::{chat_completion, ChatMessage, LlmConfig};
+use crate::llm::connection::Connection;
+use crate::llm::engines;
+use crate::llm::env::LlmEnv;
+use crate::llm::store::LlmStore;
+use crate::llm::ChatMessage;
 use crate::llm::{chunk_text, embed_text, load_model};
-use crate::db::ConfigDb;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
-
-const KEYRING_SERVICE: &str = "markdaun";
-const KEYRING_USER_LLM: &str = "llm-api-key";
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -31,12 +31,6 @@ fn model_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 // ─── Public DTOs ──────────────────────────────────────────────────────────────
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct BrainConfig {
-    pub endpoint_url: Option<String>,
-    pub model: Option<String>,
-}
-
 #[derive(Debug, serde::Serialize)]
 pub struct BrainQueryResult {
     pub answer: String,
@@ -46,37 +40,6 @@ pub struct BrainQueryResult {
 }
 
 // ─── Inner helpers (testable without AppHandle) ───────────────────────────────
-
-/// Persist `endpoint_url` and `model` in `config.db`.
-/// The API key is intentionally NOT stored here — the Tauri command handles keyring.
-pub fn configure_inner(
-    db_path: &Path,
-    endpoint_url: &str,
-    model: &str,
-) -> Result<(), String> {
-    let db = ConfigDb::open(db_path).map_err(|e| e.to_string())?;
-    db.set("llm_endpoint_url", endpoint_url)
-        .map_err(|e| e.to_string())?;
-    db.set("llm_model", model).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Retrieve stored endpoint_url and model (NEVER the API key).
-pub fn get_config_inner(db_path: &Path) -> Result<BrainConfig, String> {
-    let db = ConfigDb::open(db_path).map_err(|e| e.to_string())?;
-    let endpoint_url = db
-        .get("llm_endpoint_url")
-        .map_err(|e| e.to_string())?
-        .filter(|s| !s.is_empty());
-    let model = db
-        .get("llm_model")
-        .map_err(|e| e.to_string())?
-        .filter(|s| !s.is_empty());
-    Ok(BrainConfig {
-        endpoint_url,
-        model,
-    })
-}
 
 /// Build the RAG prompt: system message with context chunks, user message with the question.
 pub fn build_rag_messages(question: &str, results: &[crate::db::vectors::SearchResult]) -> Vec<ChatMessage> {
@@ -114,13 +77,17 @@ pub fn build_rag_messages(question: &str, results: &[crate::db::vectors::SearchR
 }
 
 /// Core RAG query — takes a pre-computed `query_embedding` for testability.
+#[allow(clippy::too_many_arguments)]
 pub async fn brain_query_with_embedding(
     db_path: &Path,
     vectors_db_path: &Path,
     question: &str,
     vault_path: &str,
     conversation_id: Option<String>,
-    llm_config: &LlmConfig,
+    conn: &Connection,
+    model: &str,
+    secret: Option<&str>,
+    env: &LlmEnv,
     query_embedding: &[f32],
 ) -> Result<BrainQueryResult, String> {
     // 1. Search for similar chunks.
@@ -151,8 +118,8 @@ pub async fn brain_query_with_embedding(
         .add_message(&conv_id, "user", question, None)
         .map_err(|e| format!("db_error: {e}"))?;
 
-    // 5. Call LLM.
-    let answer = chat_completion(llm_config, messages)
+    // 5. Call the active connection's engine.
+    let answer = engines::chat(conn, model, &messages, secret, env)
         .await
         .map_err(|e| format!("llm_error: {e}"))?;
 
@@ -161,60 +128,32 @@ pub async fn brain_query_with_embedding(
         .add_message(&conv_id, "assistant", &answer, Some(&sources))
         .map_err(|e| format!("db_error: {e}"))?;
 
-    Ok(BrainQueryResult {
-        answer,
-        sources,
-        conversation_id: conv_id,
-        message_id,
-    })
+    Ok(BrainQueryResult { answer, sources, conversation_id: conv_id, message_id })
+}
+
+/// Active connection + model + its keyring secret, or `"not_configured"`.
+pub fn resolve_active(db_path: &Path, env: &LlmEnv) -> Result<(Connection, String, Option<String>), String> {
+    let store = LlmStore::open(db_path).map_err(|e| format!("db_error: {e}"))?;
+    let active = store
+        .get_active()
+        .map_err(|e| format!("db_error: {e}"))?
+        .ok_or_else(|| "not_configured".to_string())?;
+    let conn = store
+        .get(&active.connection_id)
+        .map_err(|e| format!("db_error: {e}"))?
+        .ok_or_else(|| "not_configured".to_string())?;
+    let secret = env.secret_for(&conn).map_err(|e| format!("keyring_error: {e}"))?;
+    Ok((conn, active.model, secret))
 }
 
 // ─── Tauri commands ────────────────────────────────────────────────────────────
 
-/// Validate URL starts with http:// or https://
-fn validate_url(url: &str) -> Result<(), String> {
-    if url.starts_with("https://") || url.starts_with("http://") {
-        Ok(())
-    } else {
-        Err("invalid_url".to_string())
-    }
-}
-
-/// Store LLM endpoint + model in config.db; API key in keyring (never in DB).
-#[tauri::command]
-pub async fn brain_configure(
-    app: tauri::AppHandle,
-    endpoint_url: String,
-    api_key: Option<String>,
-    model: String,
-) -> Result<(), String> {
-    validate_url(&endpoint_url)?;
-    let db_path = app_db_path(&app)?;
-    configure_inner(&db_path, &endpoint_url, &model)?;
-
-    if let Some(key) = api_key {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_LLM)
-            .map_err(|e| format!("keyring_error: {e}"))?;
-        entry
-            .set_password(&key)
-            .map_err(|e| format!("keyring_error: {e}"))?;
-    }
-
-    Ok(())
-}
-
-/// Return stored config (endpoint_url + model). NEVER returns the API key.
-#[tauri::command]
-pub async fn brain_get_config(app: tauri::AppHandle) -> Result<BrainConfig, String> {
-    let db_path = app_db_path(&app)?;
-    get_config_inner(&db_path)
-}
-
-/// RAG query: embed question, search vault, call LLM, persist conversation.
+/// RAG query: embed question, search vault, call the active LLM connection, persist conversation.
 /// If `conversation_id` is None, a new conversation is created.
 #[tauri::command]
 pub async fn brain_query(
     app: tauri::AppHandle,
+    env: tauri::State<'_, LlmEnv>,
     question: String,
     vault_path: String,
     conversation_id: Option<String>,
@@ -223,23 +162,7 @@ pub async fn brain_query(
     let vdb_path = vectors_db_path(&app)?;
     let cache_dir = model_cache_dir(&app)?;
 
-    let config = get_config_inner(&db_path)?;
-    let endpoint_url = config
-        .endpoint_url
-        .ok_or_else(|| "not_configured".to_string())?;
-    let model = config
-        .model
-        .ok_or_else(|| "not_configured".to_string())?;
-
-    let api_key = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_LLM)
-        .ok()
-        .and_then(|e| e.get_password().ok());
-
-    let llm_config = LlmConfig {
-        endpoint_url,
-        api_key,
-        model,
-    };
+    let (conn, model, secret) = resolve_active(&db_path, &env)?;
 
     // Embed question locally.
     let model_handle = load_model(&cache_dir).map_err(|e| format!("embed_error: {e}"))?;
@@ -251,7 +174,10 @@ pub async fn brain_query(
         &question,
         &vault_path,
         conversation_id,
-        &llm_config,
+        &conn,
+        &model,
+        secret.as_deref(),
+        &env,
         &query_emb,
     )
     .await
