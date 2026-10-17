@@ -2230,7 +2230,7 @@ git commit -m "feat(llm): add process runner and login-shell binary resolver"
 - Create: `src-tauri/src/llm/env.rs`, `src-tauri/src/llm/auth_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/auth_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/auth_tests.rs`:
 
 ```rust
 use super::auth::*;
@@ -2420,12 +2420,12 @@ fn production_env_builds() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - in `llm/mod.rs` add `pub mod env;` and `#[cfg(test)] mod auth_tests;`, `#[cfg(test)] mod env_tests;`.
+- [x] **Step 2: Run to verify it fails** - in `llm/mod.rs` add `pub mod env;` and `#[cfg(test)] mod auth_tests;`, `#[cfg(test)] mod env_tests;`.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::auth_tests llm::env_tests`
 Expected: FAIL to compile (`AzTokenProvider`, `FakeClock`, `env` missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `src-tauri/src/llm/auth.rs`:
 
@@ -2641,12 +2641,12 @@ pub fn test_env(resolver: FixedResolver, timeout_ms: u64) -> LlmEnv {
 
 (`Arc`, `Duration` are already imported at the top of `testutil.rs`.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::auth_tests llm::env_tests llm::http_tests`
 Expected: PASS (auth: 8 on unix incl. clock; env: 2; http still green). Note: tests that write+exec fake scripts could very rarely hit `Text file busy` under parallel `fork`; if seen, re-run (do not add sleeps).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
