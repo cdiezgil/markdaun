@@ -164,20 +164,22 @@ describe('TC-12: renameEntry carpeta', () => {
   });
 });
 
-describe('TC-16: importFiles happy path', () => {
-  it('TC-16: importa ficheros y refresca árbol', async () => {
+describe('TC-16: importFileData happy path', () => {
+  it('TC-16: importa el contenido de un fichero soltado y refresca el árbol', async () => {
     useVaultStore.setState({ vaultPath: '/vault' });
     mockInvoke
-      .mockResolvedValueOnce(['/vault/foto.png']) // import_files
+      .mockResolvedValueOnce('/vault/foto.png') // import_file_data
       .mockResolvedValueOnce(sampleTree); // list_vault_tree
 
-    await useVaultStore.getState().importFiles('/vault', ['/tmp/foto.png']);
+    await useVaultStore.getState().importFileData('/vault', 'foto.png', new Uint8Array([1, 2, 3]));
 
-    expect(mockInvoke).toHaveBeenCalledWith('import_files', {
+    expect(mockInvoke).toHaveBeenCalledWith('import_file_data', {
       destFolderPath: '/vault',
-      sourcePaths: ['/tmp/foto.png'],
+      fileName: 'foto.png',
+      contents: [1, 2, 3],
       vaultPath: '/vault',
     });
+    expect(useVaultStore.getState().tree).toEqual(sampleTree);
   });
 });
 

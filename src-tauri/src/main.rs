@@ -31,6 +31,7 @@ fn main() {
             commands::move_entry,
             commands::delete_entry,
             commands::import_files,
+            commands::import_file_data,
             commands::read_note,
             commands::write_note,
             commands::pick_image_file,

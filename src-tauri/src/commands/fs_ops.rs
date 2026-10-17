@@ -208,6 +208,60 @@ pub async fn delete_entry(path: String, vault_path: String) -> Result<(), String
     Ok(())
 }
 
+/// Picks a non-existing destination path inside `dest_dir` for `file_name`,
+/// adding a `_N` suffix on collision.
+pub(crate) fn unique_dest(dest_dir: &Path, file_name: &str) -> std::path::PathBuf {
+    let dest = dest_dir.join(file_name);
+    if !dest.exists() {
+        return dest;
+    }
+    let stem = std::path::Path::new(file_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+    let ext = std::path::Path::new(file_name)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|e| format!(".{e}"))
+        .unwrap_or_default();
+
+    let mut counter = 1u32;
+    loop {
+        let candidate = dest_dir.join(format!("{stem}_{counter}{ext}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+/// Imports dropped file bytes into the vault (HTML5 drop; no source path available).
+#[tauri::command]
+pub async fn import_file_data(
+    dest_folder_path: String,
+    file_name: String,
+    contents: Vec<u8>,
+    vault_path: String,
+) -> Result<String, String> {
+    let dest_dir = Path::new(&dest_folder_path);
+    let vault = Path::new(&vault_path);
+
+    assert_within_vault(dest_dir, vault)?;
+
+    // Browsers may report the full source path; keep only the final name.
+    let file_name = std::path::Path::new(&file_name)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| "io_error: invalid file name".to_string())?;
+
+    let dest = unique_dest(dest_dir, file_name);
+    std::fs::write(&dest, contents).map_err(|e| format!("io_error: {e}"))?;
+
+    let canonical = dest
+        .canonicalize()
+        .map_err(|e| format!("io_error: {e}"))?;
+    Ok(canonical.to_string_lossy().to_string())
+}
 #[tauri::command]
 pub async fn import_files(
     dest_folder_path: String,
@@ -225,31 +279,11 @@ pub async fn import_files(
         let src = Path::new(src_str);
         let filename = src
             .file_name()
-            .ok_or_else(|| "io_error: invalid source path".to_string())?;
+            .ok_or_else(|| "io_error: invalid source path".to_string())?
+            .to_string_lossy()
+            .to_string();
 
-        // Resolve destination with suffix if needed
-        let mut dest = dest_dir.join(filename);
-        if dest.exists() {
-            let stem = src
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("file");
-            let ext = src
-                .extension()
-                .and_then(|s| s.to_str())
-                .map(|e| format!(".{e}"))
-                .unwrap_or_default();
-
-            let mut counter = 1u32;
-            loop {
-                let candidate = dest_dir.join(format!("{stem}_{counter}{ext}"));
-                if !candidate.exists() {
-                    dest = candidate;
-                    break;
-                }
-                counter += 1;
-            }
-        }
+        let dest = unique_dest(dest_dir, &filename);
 
         std::fs::copy(src, &dest).map_err(|e| format!("io_error: {e}"))?;
 
