@@ -1150,7 +1150,7 @@ git commit -m "test(llm): add mock HTTP/TLS server and fake script helpers"
 - Create: `src-tauri/src/llm/auth.rs` (only `Credential` for now), `src-tauri/src/llm/http.rs`, `src-tauri/src/llm/http_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/http_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/http_tests.rs`:
 
 ```rust
 use super::auth::Credential;
@@ -1253,12 +1253,12 @@ fn unreadable_ca_file_is_reported() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - add to `llm/mod.rs`: `pub mod auth;`, `pub mod http;`, `#[cfg(test)] mod http_tests;`.
+- [x] **Step 2: Run to verify it fails** - add to `llm/mod.rs`: `pub mod auth;`, `pub mod http;`, `#[cfg(test)] mod http_tests;`.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::http_tests`
 Expected: FAIL to compile (`auth.rs`/`http.rs` missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src-tauri/src/llm/auth.rs` (extended in Task 11):
 
@@ -1347,12 +1347,12 @@ pub fn classify_status(status: u16, body: &str) -> LlmError {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::http_tests`
 Expected: PASS (7 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
