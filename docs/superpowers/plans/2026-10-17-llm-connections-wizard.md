@@ -8260,7 +8260,7 @@ git commit -m "feat(ui): add bottom-right model switcher"
 - Create: `src/components/Settings/AiConnections.tsx`, `src/components/Settings/AiConnections.test.tsx`
 - Modify: `src/views/SettingsView.tsx`
 
-- [ ] **Step 1: Write the failing test** - `src/components/Settings/AiConnections.test.tsx`:
+- [x] **Step 1: Write the failing test** - `src/components/Settings/AiConnections.test.tsx`:
 
 ```tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -8359,12 +8359,12 @@ describe('AiConnections', () => {
 
 Before relying on button names in the last two tests, confirm `ConfirmDialog`'s cancel label: `grep -n "Cancelar" src/components/ConfirmDialog/ConfirmDialog.tsx`; if it differs, adapt the `name` matcher.
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/Settings`
 Expected: FAIL (`./AiConnections` not found).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/components/Settings/AiConnections.tsx`:
 
@@ -8495,12 +8495,12 @@ export function AiConnections(): JSX.Element {
 
 `src/views/SettingsView.tsx`: add `import { AiConnections } from '../components/Settings/AiConnections';` and render `<AiConnections />` directly after the closing `</section>` of the GitHub Sync section (before the `{/* Overwrite confirm dialog */}` comment).
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/Settings src/views/SettingsView.test.tsx && npx tsc --noEmit`
 Expected: PASS (7 new tests + existing SettingsView tests); tsc clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/Settings src/views/SettingsView.tsx
