@@ -202,7 +202,7 @@ git commit -m "feat(llm): add typed LlmError and switch reqwest to rustls"
 - Create: `src-tauri/src/llm/connection.rs`, `src-tauri/src/llm/connection_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/connection_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/connection_tests.rs`:
 
 ```rust
 use super::connection::*;
@@ -278,12 +278,12 @@ fn validate_shape_rejects_bad_drafts() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - add to `llm/mod.rs` after `pub mod client;` the line `pub mod connection;` and after `mod error_tests;` the line `#[cfg(test)] mod connection_tests;` (on its own line pair, same style as the others).
+- [x] **Step 2: Run to verify it fails** - add to `llm/mod.rs` after `pub mod client;` the line `pub mod connection;` and after `mod error_tests;` the line `#[cfg(test)] mod connection_tests;` (on its own line pair, same style as the others).
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::connection_tests`
 Expected: FAIL to compile (`connection.rs` missing).
 
-- [ ] **Step 3: Implement** - `src-tauri/src/llm/connection.rs`:
+- [x] **Step 3: Implement** - `src-tauri/src/llm/connection.rs`:
 
 ```rust
 use super::error::LlmError;
@@ -371,12 +371,12 @@ impl Connection {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::connection_tests`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
