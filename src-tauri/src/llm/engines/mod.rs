@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 pub mod anthropic;
+pub mod cli;
 pub mod openai;
 
 #[cfg(test)]
 mod anthropic_tests;
+#[cfg(test)]
+mod cli_tests;
 #[cfg(test)]
 mod openai_tests;
 
