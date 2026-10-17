@@ -84,6 +84,28 @@ pub struct CmdOutput {
     pub stderr: String,
 }
 
+const ETXTBSY_MAX_RETRIES: u32 = 50;
+
+/// Calls `spawn`, retrying up to `max_retries` times (sleeping `delay` between
+/// attempts) while it fails with ETXTBSY (os error 26). Any other error, or the
+/// last ETXTBSY once the budget is spent, is returned as-is.
+pub(crate) fn spawn_with_retry<T>(
+    max_retries: u32,
+    delay: Duration,
+    mut spawn: impl FnMut() -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut retries = 0;
+    loop {
+        match spawn() {
+            Err(e) if e.raw_os_error() == Some(26) && retries < max_retries => {
+                retries += 1;
+                std::thread::sleep(delay);
+            }
+            other => return other,
+        }
+    }
+}
+
 /// Runs `bin` non-interactively: optional stdin, scrubbed env vars, fixed cwd,
 /// hard timeout (the child is killed when the future is dropped).
 pub async fn run(
@@ -105,22 +127,15 @@ pub async fn run(
         cmd.env_remove(key);
     }
     // Linux can refuse to exec a freshly-written script with ETXTBSY (os error 26)
-    // while its write has not fully settled; a few brief retries settle the race.
-    let mut child = loop {
-        match cmd.spawn() {
-            Ok(child) => break child,
-            Err(e) => {
-                let txtbsy = e.raw_os_error() == Some(26);
-                if txtbsy {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    continue;
-                }
-                return Err(if e.kind() == std::io::ErrorKind::NotFound {
-                    LlmError::CliMissing
-                } else {
-                    LlmError::BadResponse(format!("cannot start {}: {e}", bin.display()))
-                });
-            }
+    // while its write has not fully settled; a bounded number of brief retries settles the race.
+    let mut child = match spawn_with_retry(ETXTBSY_MAX_RETRIES, Duration::from_millis(20), || cmd.spawn()) {
+        Ok(child) => child,
+        Err(e) => {
+            return Err(if e.kind() == std::io::ErrorKind::NotFound {
+                LlmError::CliMissing
+            } else {
+                LlmError::BadResponse(format!("cannot start {}: {e}", bin.display()))
+            });
         }
     };
     if let Some(mut si) = child.stdin.take() {

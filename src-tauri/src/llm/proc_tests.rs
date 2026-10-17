@@ -82,3 +82,39 @@ fn login_shell_resolver_finds_sh_and_caches() {
     assert_eq!(r.resolve("sh"), Some(p));
     assert_eq!(r.resolve("definitely-not-a-real-binary-xyz"), None);
 }
+
+#[test]
+fn spawn_retry_gives_up_on_persistent_etxtbsy() {
+    let mut calls = 0u32;
+    let res: std::io::Result<()> = spawn_with_retry(3, Duration::ZERO, || {
+        calls += 1;
+        Err(std::io::Error::from_raw_os_error(26))
+    });
+    assert_eq!(res.unwrap_err().raw_os_error(), Some(26));
+    assert_eq!(calls, 4, "one attempt plus 3 retries");
+}
+
+#[test]
+fn spawn_retry_recovers_after_transient_etxtbsy() {
+    let mut calls = 0u32;
+    let res = spawn_with_retry(5, Duration::ZERO, || {
+        calls += 1;
+        if calls < 3 {
+            Err(std::io::Error::from_raw_os_error(26))
+        } else {
+            Ok(calls)
+        }
+    });
+    assert_eq!(res.unwrap(), 3);
+}
+
+#[test]
+fn spawn_retry_does_not_retry_other_errors() {
+    let mut calls = 0u32;
+    let res: std::io::Result<()> = spawn_with_retry(5, Duration::ZERO, || {
+        calls += 1;
+        Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+    });
+    assert!(res.is_err());
+    assert_eq!(calls, 1);
+}
