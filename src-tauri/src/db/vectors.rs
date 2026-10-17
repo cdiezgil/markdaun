@@ -30,6 +30,14 @@ pub struct SearchResult {
     pub distance: f32,
 }
 
+/// Cheap change detector for an indexed file (mtime + size, confirmed by a content hash).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fingerprint {
+    pub mtime_ns: i64,
+    pub size: i64,
+    pub hash: String,
+}
+
 impl VectorsDb {
     /// Open (or create) `vectors.db` at `db_path`, load the sqlite-vec extension,
     /// and ensure the `chunks` and `chunk_embeddings` tables exist.
@@ -47,6 +55,19 @@ impl VectorsDb {
                 chunk_index INTEGER NOT NULL,
                 content     TEXT NOT NULL,
                 UNIQUE(vault_path, file_path, chunk_index)
+            );",
+        )?;
+
+        // Per-file change detector for incremental vault sync. `IF NOT EXISTS`
+        // is the migration for databases created before this table existed.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS file_index (
+                vault_path TEXT NOT NULL,
+                file_path  TEXT NOT NULL,
+                mtime_ns   INTEGER NOT NULL,
+                size       INTEGER NOT NULL,
+                hash       TEXT NOT NULL,
+                PRIMARY KEY (vault_path, file_path)
             );",
         )?;
 
@@ -152,6 +173,70 @@ impl VectorsDb {
         Ok(results)
     }
 
+    /// Stored fingerprints of every indexed file in the vault, keyed by file path.
+    pub fn fingerprints(&self, vault_path: &str) -> Result<std::collections::HashMap<String, Fingerprint>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT file_path, mtime_ns, size, hash FROM file_index WHERE vault_path = ?1",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![vault_path], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                Fingerprint { mtime_ns: r.get(1)?, size: r.get(2)?, hash: r.get(3)? },
+            ))
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn set_fingerprint(&self, vault_path: &str, file_path: &str, fp: &Fingerprint) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT INTO file_index (vault_path, file_path, mtime_ns, size, hash)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(vault_path, file_path)
+             DO UPDATE SET mtime_ns = ?3, size = ?4, hash = ?5",
+            rusqlite::params![vault_path, file_path, fp.mtime_ns, fp.size, fp.hash],
+        )?;
+        Ok(())
+    }
+
+    /// Every file known to the index (has chunks or a fingerprint).
+    pub fn indexed_files(&self, vault_path: &str) -> Result<Vec<String>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT file_path FROM chunks WHERE vault_path = ?1
+             UNION SELECT file_path FROM file_index WHERE vault_path = ?1",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![vault_path], |r| r.get::<_, String>(0))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Drop chunks, embeddings and fingerprint of one file.
+    pub fn delete_file(&self, vault_path: &str, file_path: &str) -> Result<(), DbError> {
+        self.conn.execute(
+            "DELETE FROM chunk_embeddings WHERE chunk_id IN
+               (SELECT id FROM chunks WHERE vault_path = ?1 AND file_path = ?2)",
+            rusqlite::params![vault_path, file_path],
+        )?;
+        self.conn.execute(
+            "DELETE FROM chunks WHERE vault_path = ?1 AND file_path = ?2",
+            rusqlite::params![vault_path, file_path],
+        )?;
+        self.conn.execute(
+            "DELETE FROM file_index WHERE vault_path = ?1 AND file_path = ?2",
+            rusqlite::params![vault_path, file_path],
+        )?;
+        Ok(())
+    }
+
+    /// Drop every indexed file located under directory `dir_path`.
+    pub fn delete_tree(&self, vault_path: &str, dir_path: &str) -> Result<(), DbError> {
+        let prefix = format!("{}{}", dir_path.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+        for f in self.indexed_files(vault_path)? {
+            if f.starts_with(&prefix) {
+                self.delete_file(vault_path, &f)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Serialize a `f32` slice into a little-endian byte blob for sqlite-vec.
     fn to_blob(embedding: &[f32]) -> Vec<u8> {
         embedding.iter().flat_map(|&f| f.to_le_bytes()).collect()
@@ -162,6 +247,54 @@ impl VectorsDb {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
+
+    fn fp(h: &str) -> Fingerprint {
+        Fingerprint { mtime_ns: 1, size: 2, hash: h.into() }
+    }
+
+    #[test]
+    fn fingerprint_roundtrip_and_overwrite() {
+        let (db, _tmp) = make_db();
+        db.set_fingerprint("/v", "/v/a.md", &fp("h1")).unwrap();
+        db.set_fingerprint("/v", "/v/a.md", &fp("h2")).unwrap();
+        db.set_fingerprint("/other", "/other/a.md", &fp("x")).unwrap();
+        let m = db.fingerprints("/v").unwrap();
+        assert_eq!(m.len(), 1);
+        assert_eq!(m["/v/a.md"], fp("h2"));
+    }
+
+    #[test]
+    fn indexed_files_unions_chunks_and_fingerprints() {
+        let (db, _tmp) = make_db();
+        let e = fake_embedding(0.1);
+        db.upsert_file_chunks("/v", "/v/a.md", &[(0, "a", e.as_slice())]).unwrap();
+        db.set_fingerprint("/v", "/v/b.md", &fp("h")).unwrap();
+        let mut files = db.indexed_files("/v").unwrap();
+        files.sort();
+        assert_eq!(files, vec!["/v/a.md", "/v/b.md"]);
+    }
+
+    #[test]
+    fn delete_file_removes_chunks_embeddings_and_fingerprint() {
+        let (db, _tmp) = make_db();
+        let e = fake_embedding(0.1);
+        db.upsert_file_chunks("/v", "/v/a.md", &[(0, "a", e.as_slice())]).unwrap();
+        db.set_fingerprint("/v", "/v/a.md", &fp("h")).unwrap();
+        db.delete_file("/v", "/v/a.md").unwrap();
+        assert!(db.indexed_files("/v").unwrap().is_empty());
+        assert!(db.search_similar("/v", &e, 5).unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_tree_removes_only_descendants() {
+        let (db, _tmp) = make_db();
+        let e = fake_embedding(0.1);
+        for f in ["/v/dir/a.md", "/v/dir/sub/b.md", "/v/dir2/c.md"] {
+            db.upsert_file_chunks("/v", f, &[(0, "x", e.as_slice())]).unwrap();
+        }
+        db.delete_tree("/v", "/v/dir").unwrap();
+        assert_eq!(db.indexed_files("/v").unwrap(), vec!["/v/dir2/c.md"]);
+    }
 
     fn make_db() -> (VectorsDb, NamedTempFile) {
         let tmp = NamedTempFile::new().unwrap();

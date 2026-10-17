@@ -207,7 +207,7 @@ fn build_rag_messages_includes_context() {
         SearchResult { file_path: "/vault/nota-a.md".to_string(), content: "contenido de A".to_string(), distance: 0.1 },
         SearchResult { file_path: "/vault/nota-b.md".to_string(), content: "contenido de B".to_string(), distance: 0.2 },
     ];
-    let messages = build_rag_messages("¿qué hay en las notas?", &results);
+    let messages = build_rag_messages("¿qué hay en las notas?", &results, &[]);
     assert_eq!(messages.len(), 2, "system + user");
     assert_eq!(messages[0].role, "system");
     let system = &messages[0].content;
@@ -334,7 +334,7 @@ fn build_rag_messages_teaches_markdaun_note_blocks() {
     for results in [vec![], vec![crate::db::vectors::SearchResult {
         file_path: "/v/a.md".into(), content: "c".into(), distance: 0.1,
     }]] {
-        let system = &build_rag_messages("q", &results)[0].content;
+        let system = &build_rag_messages("q", &results, &[])[0].content;
         assert!(system.contains("```markdaun-note path="));
         assert!(system.contains("mode=\"create\""));
         assert!(system.contains("append"));
@@ -356,4 +356,28 @@ async fn with_index_progress_reports_start_and_end_even_on_failure() {
         *seen.borrow(),
         vec![IndexProgress { done: 0, total: 1 }, IndexProgress { done: 1, total: 1 }]
     );
+}
+
+// ── Vault index in the prompt ─────────────────────────────────────────────────
+
+#[test]
+fn build_rag_messages_lists_vault_notes() {
+    let notes = vec!["primera nota.md".to_string(), "dir/otra.md".to_string()];
+    let system = &build_rag_messages("¿cuántas notas tengo?", &[], &notes)[0].content;
+    assert!(system.contains("2 notas"));
+    assert!(system.contains("primera nota.md"));
+    assert!(system.contains("dir/otra.md"));
+    assert!(system.contains("```markdaun-note path="), "note instruction kept");
+}
+
+#[test]
+fn build_rag_messages_keeps_indexed_chunk_path_label_once() {
+    let results = vec![crate::db::vectors::SearchResult {
+        file_path: "/v/primera nota.md".into(),
+        content: "Nota: primera nota.md\n\nHola mundo".into(),
+        distance: 0.1,
+    }];
+    let system = &build_rag_messages("q", &results, &[])[0].content;
+    assert!(system.contains("[1] Nota: primera nota.md\n\nHola mundo"));
+    assert_eq!(system.matches("Nota: primera nota.md").count(), 1);
 }

@@ -17,8 +17,10 @@ fn main() {
         .manage(llm::env::LlmEnv::production())
         .manage(llm::validate::ValidationStore::default())
         .manage(std::sync::Arc::new(llm::EmbedderState::default()))
+        .manage(commands::vault_index::IndexLocks::default())
         .setup(|app| {
             commands::run_startup_migration(app.handle());
+            commands::sync_active_vault_index(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
