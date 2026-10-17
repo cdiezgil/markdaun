@@ -4,8 +4,9 @@ use crate::llm::engines;
 use crate::llm::env::LlmEnv;
 use crate::llm::store::LlmStore;
 use crate::llm::ChatMessage;
-use crate::llm::{chunk_text, embed_text, load_model};
+use crate::llm::{chunk_text, embed_text, load_model, EmbedderState};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::Manager;
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
@@ -37,6 +38,9 @@ pub struct BrainQueryResult {
     pub sources: Vec<String>,
     pub conversation_id: String,
     pub message_id: String,
+    /// Set when the answer was produced without notes context
+    /// (`notes_context_unavailable: <detail>`).
+    pub warning: Option<String>,
 }
 
 // ─── Inner helpers (testable without AppHandle) ───────────────────────────────
@@ -76,7 +80,8 @@ pub fn build_rag_messages(question: &str, results: &[crate::db::vectors::SearchR
     ]
 }
 
-/// Core RAG query — takes a pre-computed `query_embedding` for testability.
+/// Core RAG query — takes the (possibly failed) query embedding for testability.
+/// An embedding or vector-search failure degrades to an answer without notes context.
 #[allow(clippy::too_many_arguments)]
 pub async fn brain_query_with_embedding(
     db_path: &Path,
@@ -88,13 +93,19 @@ pub async fn brain_query_with_embedding(
     model: &str,
     secret: Option<&str>,
     env: &LlmEnv,
-    query_embedding: &[f32],
+    query_embedding: Result<Vec<f32>, String>,
 ) -> Result<BrainQueryResult, String> {
-    // 1. Search for similar chunks.
-    let vec_db = VectorsDb::open(vectors_db_path).map_err(|e| format!("db_error: {e}"))?;
-    let results = vec_db
-        .search_similar(vault_path, query_embedding, 5)
-        .map_err(|e| format!("db_error: {e}"))?;
+    // 1. Search for similar chunks; any failure degrades to "no context".
+    let search = query_embedding.and_then(|emb| {
+        let vec_db = VectorsDb::open(vectors_db_path).map_err(|e| format!("db_error: {e}"))?;
+        vec_db
+            .search_similar(vault_path, &emb, 5)
+            .map_err(|e| format!("db_error: {e}"))
+    });
+    let (results, warning) = match search {
+        Ok(r) => (r, None),
+        Err(detail) => (Vec::new(), Some(format!("notes_context_unavailable: {detail}"))),
+    };
 
     let sources: Vec<String> = results.iter().map(|r| r.file_path.clone()).collect();
 
@@ -128,7 +139,7 @@ pub async fn brain_query_with_embedding(
         .add_message(&conv_id, "assistant", &answer, Some(&sources))
         .map_err(|e| format!("db_error: {e}"))?;
 
-    Ok(BrainQueryResult { answer, sources, conversation_id: conv_id, message_id })
+    Ok(BrainQueryResult { answer, sources, conversation_id: conv_id, message_id, warning })
 }
 
 /// Active connection + model + its keyring secret, or `"not_configured"`.
@@ -148,12 +159,43 @@ pub fn resolve_active(db_path: &Path, env: &LlmEnv) -> Result<(Connection, Strin
 
 // ─── Tauri commands ────────────────────────────────────────────────────────────
 
+/// Load (once) the shared embedding model, off the async runtime.
+async fn shared_model(
+    state: &Arc<EmbedderState>,
+    cache_dir: PathBuf,
+) -> Result<Arc<fastembed::TextEmbedding>, String> {
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        state
+            .get_or_try_init(|| load_model(&cache_dir))
+            .map_err(|e| format!("embed_error: {e}"))
+    })
+    .await
+    .map_err(|e| format!("embed_error: {e}"))?
+}
+
+/// Embed `text` with the shared model on a blocking thread.
+async fn embed_query(
+    state: &Arc<EmbedderState>,
+    cache_dir: PathBuf,
+    text: String,
+) -> Result<Vec<f32>, String> {
+    let model = shared_model(state, cache_dir).await?;
+    tokio::task::spawn_blocking(move || {
+        embed_text(&model, &text).map_err(|e| format!("embed_error: {e}"))
+    })
+    .await
+    .map_err(|e| format!("embed_error: {e}"))?
+}
+
 /// RAG query: embed question, search vault, call the active LLM connection, persist conversation.
 /// If `conversation_id` is None, a new conversation is created.
+/// If the notes context cannot be built, the LLM is still called and `warning` is set.
 #[tauri::command]
 pub async fn brain_query(
     app: tauri::AppHandle,
     env: tauri::State<'_, LlmEnv>,
+    embedder: tauri::State<'_, Arc<EmbedderState>>,
     question: String,
     vault_path: String,
     conversation_id: Option<String>,
@@ -164,9 +206,8 @@ pub async fn brain_query(
 
     let (conn, model, secret) = resolve_active(&db_path, &env)?;
 
-    // Embed question locally.
-    let model_handle = load_model(&cache_dir).map_err(|e| format!("embed_error: {e}"))?;
-    let query_emb = embed_text(&model_handle, &question).map_err(|e| format!("embed_error: {e}"))?;
+    // Embed question locally; failure degrades to an answer without context.
+    let query_emb = embed_query(&embedder, cache_dir, question.clone()).await;
 
     brain_query_with_embedding(
         &db_path,
@@ -178,7 +219,7 @@ pub async fn brain_query(
         &model,
         secret.as_deref(),
         &env,
-        &query_emb,
+        query_emb,
     )
     .await
 }
@@ -224,6 +265,7 @@ pub async fn brain_delete_conversation(
 #[tauri::command]
 pub async fn brain_update_embedding(
     app: tauri::AppHandle,
+    embedder: tauri::State<'_, Arc<EmbedderState>>,
     file_path: String,
     vault_path: String,
 ) -> Result<(), String> {
@@ -243,7 +285,7 @@ pub async fn brain_update_embedding(
         }
     };
 
-    let model = match load_model(&cache_dir) {
+    let model = match shared_model(&embedder, cache_dir).await {
         Ok(m) => m,
         Err(e) => {
             eprintln!("[brain_update_embedding] load_model error: {e}");
@@ -251,14 +293,19 @@ pub async fn brain_update_embedding(
         }
     };
 
-    let chunks = chunk_text(&content, 1500, 200);
-    let mut embedded: Vec<(usize, String, Vec<f32>)> = Vec::new();
-    for (i, chunk) in chunks.iter().enumerate() {
-        match embed_text(&model, chunk) {
-            Ok(emb) => embedded.push((i, chunk.clone(), emb)),
-            Err(e) => eprintln!("[brain_update_embedding] embed error chunk {i}: {e}"),
+    let embedded = tokio::task::spawn_blocking(move || {
+        let chunks = chunk_text(&content, 1500, 200);
+        let mut embedded: Vec<(usize, String, Vec<f32>)> = Vec::new();
+        for (i, chunk) in chunks.iter().enumerate() {
+            match embed_text(&model, chunk) {
+                Ok(emb) => embedded.push((i, chunk.clone(), emb)),
+                Err(e) => eprintln!("[brain_update_embedding] embed error chunk {i}: {e}"),
+            }
         }
-    }
+        embedded
+    })
+    .await
+    .map_err(|e| format!("embed_error: {e}"))?;
 
     let chunk_refs: Vec<(usize, &str, &[f32])> = embedded
         .iter()
