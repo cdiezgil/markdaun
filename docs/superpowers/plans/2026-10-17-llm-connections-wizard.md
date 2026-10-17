@@ -5914,7 +5914,7 @@ git commit -m "feat(ui): add llmStore for connections, active selection and wiza
 - Create: `src/components/SecondBrain/SetupPrompt.tsx`, `src/components/SecondBrain/SetupPrompt.test.tsx`
 - Delete: `src/components/SecondBrain/LlmConfigPanel.tsx`, `src/components/SecondBrain/LlmConfigPanel.test.tsx`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `src/components/SecondBrain/SetupPrompt.test.tsx`:
 
@@ -6004,12 +6004,12 @@ describe('SecondBrainView', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/SecondBrain/SetupPrompt.test.tsx src/views/SecondBrainView.test.tsx`
 Expected: FAIL (`SetupPrompt` not found; view still uses `LlmConfigPanel`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 3a. `src/components/SecondBrain/SetupPrompt.tsx`:
 
@@ -6154,12 +6154,12 @@ open(p, 'w').write(s)
 EOF
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx tsc --noEmit && npx vitest run src/components/SecondBrain src/views/SecondBrainView.test.tsx src/store src/lib`
 Expected: tsc clean; all listed suites PASS (the deleted TC-18 / LlmConfigPanel tests are gone; the invoke-args guard stays green).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A src
