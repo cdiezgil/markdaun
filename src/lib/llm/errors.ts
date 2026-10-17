@@ -13,6 +13,7 @@ const KINDS: LlmErrorKind[] = [
   'CliMissing',
   'CliNotLoggedIn',
   'Timeout',
+  'VisionUnsupported',
   'BadResponse',
   'NotValidated',
   'Storage',
@@ -78,6 +79,11 @@ export function describeLlmError(err: LlmError, engine?: Engine): ErrorView {
       return {
         message: 'La petición tardó demasiado.',
         action: 'Inténtalo de nuevo; si persiste, revisa la red.',
+      };
+    case 'VisionUnsupported':
+      return {
+        message: 'Este modelo no ve imágenes.',
+        action: 'Elige otro modelo en la barra inferior.',
       };
     case 'BadResponse':
       return {

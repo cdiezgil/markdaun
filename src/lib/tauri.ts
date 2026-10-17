@@ -8,6 +8,7 @@ import type {
   ProgressEvent,
   ValidateResult,
 } from './llm/types';
+import type { AttachmentInput } from './attachments/types';
 
 export { invoke, convertFileSrc } from '@tauri-apps/api/core';
 export { getCurrentWindow } from '@tauri-apps/api/window';
@@ -136,11 +137,13 @@ export async function brainQuery(
   question: string,
   vaultPath: string,
   conversationId?: string,
+  attachments?: AttachmentInput[],
 ): Promise<BrainQueryResult> {
   return invoke<BrainQueryResult>('brain_query', {
     question,
     vaultPath: vaultPath,
     conversationId: conversationId ?? null,
+    attachments: attachments && attachments.length > 0 ? attachments : null,
   });
 }
 
@@ -216,6 +219,15 @@ export async function llmVerifyModel(
   model: string,
 ): Promise<void> {
   return invoke<void>('llm_verify_model', { draft, secret, token, model });
+}
+
+/** Does `model` actually see images? Sends a tiny generated image. Persists nothing. */
+export async function llmTestVision(
+  draft: Connection,
+  secret: string | null,
+  model: string,
+): Promise<boolean> {
+  return invoke<boolean>('llm_test_vision', { draft, secret, model });
 }
 
 /** Persist a validated connection (and its secret, in the OS keyring). */

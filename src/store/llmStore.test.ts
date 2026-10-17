@@ -17,6 +17,7 @@ const conn = (id: string): Connection => ({
   caCertPath: null,
   azureApiVersion: null,
   models: ['m1', 'm2'],
+  visionModels: [],
 });
 
 beforeEach(() => {

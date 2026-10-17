@@ -42,3 +42,18 @@ describe('describeBrainWarning', () => {
     expect(describeBrainWarning('other')).toBe('other');
   });
 });
+
+describe('attachment errors', () => {
+  it('explains vision_unsupported with the bottom-bar hint', () => {
+    expect(describeBrainError('vision_unsupported')).toBe(
+      'Este modelo no ve imágenes. Cambia de modelo en la barra inferior.',
+    );
+    expect(describeBrainError({ kind: 'VisionUnsupported' })).toMatch(/no ve imágenes/);
+  });
+
+  it('shows attachment_error details as they come (already Spanish)', () => {
+    expect(describeBrainError('attachment_error: «a.pdf» supera el límite de 20 MB para PDF.')).toBe(
+      '«a.pdf» supera el límite de 20 MB para PDF.',
+    );
+  });
+});

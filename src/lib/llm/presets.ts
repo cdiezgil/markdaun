@@ -5,6 +5,7 @@ import {
   type Connection,
   type Engine,
 } from './types';
+import { visionDefault } from './vision';
 
 export type Route = 'subscription' | 'apiKey' | 'company';
 export type PresetIcon = 'terminal' | 'key' | 'cloud' | 'building';
@@ -198,6 +199,7 @@ export function presetsForRoute(route: Route): Preset[] {
 
 /** Unsaved connection draft (id = '') pre-filled from a preset. */
 export function draftFromPreset(p: Preset): Connection {
+  const models = p.suggestedModels.slice(0, 1);
   return {
     id: '',
     name: p.name,
@@ -209,6 +211,7 @@ export function draftFromPreset(p: Preset): Connection {
     extraHeaders: [],
     caCertPath: null,
     azureApiVersion: p.azureApiVersion,
-    models: p.suggestedModels.slice(0, 1),
+    models,
+    visionModels: models.filter((m) => visionDefault(m, p.id)),
   };
 }

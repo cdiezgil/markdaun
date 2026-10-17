@@ -107,6 +107,7 @@ describe('LlmWizard', () => {
       caCertPath: null,
       azureApiVersion: null,
       models: ['opus'],
+      visionModels: [],
     };
     useLlmStore.setState({ editing: saved });
     render(<LlmWizard />);
