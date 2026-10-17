@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, CircleAlert, Loader, RefreshCw, Save } from 'lucide-react';
+import { Check, CircleAlert, Loader, RefreshCw } from 'lucide-react';
 import { useSyncStore } from '../../store/syncStore';
 import { useEditorStore } from '../../store/editorStore';
 import { onBrainIndexProgress, type IndexProgress } from '../../lib/tauri';
@@ -47,8 +47,19 @@ function SaveItem(): JSX.Element | null {
   const isDirty = useEditorStore((s) => s.isDirty);
   if (!hasNote) return null;
   return (
-    <span data-testid="save-state" style={itemStyle}>
-      <Save {...ICON} /> {isDirty ? 'Sin guardar' : 'Guardado'}
+    <span data-testid="save-state" style={{ ...itemStyle, gap: 6 }}>
+      <span
+        aria-hidden="true"
+        data-testid="save-dot"
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 'var(--radius-pill)',
+          background: isDirty ? 'var(--amber)' : 'var(--daun)',
+          flexShrink: 0,
+        }}
+      />
+      {isDirty ? 'Sin guardar' : 'Guardado'}
     </span>
   );
 }
@@ -79,11 +90,12 @@ function IndexItem(): JSX.Element | null {
   );
 }
 
-export function AppStatus(): JSX.Element {
+/** Left side of the status bar. The save state only exists in the notes view. */
+export function AppStatus({ showSave }: { showSave: boolean }): JSX.Element {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+      {showSave && <SaveItem />}
       <SyncItem />
-      <SaveItem />
       <IndexItem />
     </div>
   );

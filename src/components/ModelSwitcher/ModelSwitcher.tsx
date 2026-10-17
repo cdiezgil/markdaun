@@ -8,7 +8,7 @@ const pillStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 'var(--space-2)',
   background: 'transparent',
-  color: 'var(--ink-muted)',
+  color: 'var(--ink)',
   border: 'none',
   borderRadius: 'var(--radius-sm)',
   padding: 'var(--space-1) var(--space-2)',

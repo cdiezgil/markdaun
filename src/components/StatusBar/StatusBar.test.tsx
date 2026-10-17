@@ -7,12 +7,13 @@ import { StatusBar } from './StatusBar';
 import { useEditorStore } from '../../store/editorStore';
 import { useSyncStore } from '../../store/syncStore';
 import { useLlmStore } from '../../store/llmStore';
+import { useGraphStore } from '../../store/graphStore';
 
 const mockListen = vi.mocked(listen);
 
-function renderBar() {
+function renderBar(path = '/') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <StatusBar />
     </MemoryRouter>,
   );
@@ -56,10 +57,11 @@ describe('StatusBar', () => {
     expect(screen.getByTestId('model-switcher')).toBeInTheDocument();
   });
 
-  it('renders inside a bar with the toolbar height', () => {
+  it('renders inside a 30px bar on the sunken surface', () => {
     renderBar();
     const bar = screen.getByTestId('status-bar');
-    expect(bar.style.height).toBe('var(--toolbar-height)');
+    expect(bar.style.height).toBe('30px');
+    expect(bar.style.background).toBe('var(--surface-sunken)');
     expect(bar).toContainElement(screen.getByTestId('model-switcher'));
   });
 
@@ -99,6 +101,52 @@ describe('StatusBar', () => {
     renderBar();
     fireEvent.click(screen.getByTestId('note-path'));
     expect(writeText).toHaveBeenCalledWith('Notes/idea.md');
+  });
+
+  describe('contextual by view', () => {
+    const graphNodes = [
+      { id: 'a', position: { x: 0, y: 0 }, data: { kind: 'md', isOrphan: false } },
+      { id: 'b', position: { x: 0, y: 0 }, data: { kind: 'md', isOrphan: true } },
+    ];
+
+    it('editor: shows a status dot with the save state', () => {
+      seedNote('x');
+      renderBar('/editor/abc');
+      expect(screen.getByTestId('save-state')).toHaveTextContent('Guardado');
+      expect(screen.getByTestId('save-dot').style.width).toBe('6px');
+      expect(screen.getByTestId('save-dot').style.background).toBe('var(--daun)');
+      act(() => { useEditorStore.setState({ isDirty: true }); });
+      expect(screen.getByTestId('save-dot').style.background).toBe('var(--amber)');
+    });
+
+    it('graph: shows graph counts and the AI selector, no note data', () => {
+      seedNote('x');
+      useGraphStore.setState({
+        nodes: graphNodes,
+        edges: [{ id: 'e', source: 'a', target: 'b' }],
+      });
+      renderBar('/graph');
+      expect(screen.getByTestId('graph-stats')).toHaveTextContent('2 notas · 1 enlace · 1 huérfana');
+      expect(screen.getByTestId('model-switcher')).toBeInTheDocument();
+      expect(screen.queryByTestId('note-stats')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('save-state')).not.toBeInTheDocument();
+    });
+
+    it('brain: shows sync state and the AI selector, no note data', () => {
+      seedNote('x');
+      useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true } });
+      renderBar('/brain');
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Al día');
+      expect(screen.getByTestId('model-switcher')).toBeInTheDocument();
+      expect(screen.queryByTestId('note-stats')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('save-state')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('graph-stats')).not.toBeInTheDocument();
+    });
+
+    it('editor: does not show graph counts', () => {
+      renderBar('/');
+      expect(screen.queryByTestId('graph-stats')).not.toBeInTheDocument();
+    });
   });
 
   describe('app status', () => {

@@ -1,16 +1,33 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { AppStatus } from './AppStatus';
 import { NoteStats } from './NoteStats';
 import { ModelSwitcher } from '../ModelSwitcher/ModelSwitcher';
+import { useGraphStore } from '../../store/graphStore';
+import { graphStats, formatGraphStats } from '../../lib/graphStats';
+import { viewForPath } from '../../lib/shell';
 
-/** Bottom bar: app state on the left; note data and AI selector on the right. */
+function GraphStats(): JSX.Element {
+  const nodes = useGraphStore((s) => s.nodes);
+  const edges = useGraphStore((s) => s.edges);
+  return <span data-testid="graph-stats">{formatGraphStats(graphStats(nodes, edges))}</span>;
+}
+
+/**
+ * Bottom bar, contextual by view:
+ * notes -> save + sync (left), note data + AI selector (right);
+ * graph -> graph counts + AI selector; brain/settings -> sync + AI selector.
+ */
 export function StatusBar(): JSX.Element {
+  const view = viewForPath(useLocation().pathname);
+
   return (
     <footer
       data-testid="status-bar"
       style={{
-        height: 'var(--toolbar-height)',
+        height: 30,
         flexShrink: 0,
+        boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -21,11 +38,12 @@ export function StatusBar(): JSX.Element {
         color: 'var(--ink-muted)',
         fontFamily: 'var(--font-sans)',
         fontSize: 12,
+        lineHeight: '16px',
       }}
     >
-      <AppStatus />
+      {view === 'graph' ? <GraphStats /> : <AppStatus showSave={view === 'notes'} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', minWidth: 0 }}>
-        <NoteStats />
+        {view === 'notes' && <NoteStats />}
         <ModelSwitcher />
       </div>
     </footer>
