@@ -2663,7 +2663,7 @@ git commit -m "feat(llm): add Azure CLI token cache, credential resolution and L
 - Claude Code 2.1.212: `-p/--print`, `--output-format json` ("single result"), `--model`, `--tools ""` (disables all tools), `--no-session-persistence`, `--system-prompt`. **Do not use `--bare`** (it ignores OAuth/subscription login). Prompt goes on stdin. JSON fields parsed tolerantly: `result`, `is_error`.
 - Gemini CLI 0.57.0: `-p/--prompt`, `-m/--model`, `--approval-mode plan` ("read-only mode"), `-o/--output-format json`. The exact JSON shape of `-o json` is **not verified** (no real prompt is run in this plan); the parser accepts `response`, `result` or `text`, and falls back to raw stdout.
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/engines/cli_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/engines/cli_tests.rs`:
 
 ```rust
 use super::cli::*;
@@ -2862,12 +2862,12 @@ mod with_scripts {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - in `engines/mod.rs` add `pub mod cli;` and `#[cfg(test)] mod cli_tests;`.
+- [x] **Step 2: Run to verify it fails** - in `engines/mod.rs` add `pub mod cli;` and `#[cfg(test)] mod cli_tests;`.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::engines::cli_tests`
 Expected: FAIL to compile (`cli.rs` missing).
 
-- [ ] **Step 3: Implement** - `src-tauri/src/llm/engines/cli.rs`:
+- [x] **Step 3: Implement** - `src-tauri/src/llm/engines/cli.rs`:
 
 ```rust
 use super::ChatMessage;
@@ -3050,12 +3050,12 @@ pub async fn chat(engine: Engine, env: &LlmEnv, model: &str, messages: &[ChatMes
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::engines::cli_tests`
 Expected: PASS (7 pure tests + 8 script tests on unix).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
