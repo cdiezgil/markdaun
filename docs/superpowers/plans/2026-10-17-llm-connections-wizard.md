@@ -4808,7 +4808,7 @@ The wizard needs "Open page to create the key" (system browser) and progress eve
 - Modify: `package.json`/`package-lock.json` (npm), `src-tauri/Cargo.toml`, `src-tauri/src/main.rs`, `src-tauri/capabilities/default.json`, `src/test/setup.ts`
 - Create: `src/lib/openExternal.ts`, `src/lib/openExternal.test.ts`
 
-- [ ] **Step 1: Write the failing test** - `src/lib/openExternal.test.ts`:
+- [x] **Step 1: Write the failing test** - `src/lib/openExternal.test.ts`:
 
 ```ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -4834,12 +4834,12 @@ describe('openExternal', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/lib/openExternal.test.ts`
 Expected: FAIL (cannot resolve `./openExternal` / `@tauri-apps/plugin-opener`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 1. `cd /Users/carlosdiez/Projects/markdaun && npm view @tauri-apps/plugin-opener version && npm install @tauri-apps/plugin-opener` (expected: a 2.x version, installed).
 2. `src-tauri/Cargo.toml` `[dependencies]`: add `tauri-plugin-opener = "2"`.
@@ -4869,12 +4869,12 @@ export async function openExternal(url: string): Promise<void> {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/lib/openExternal.test.ts && cd src-tauri && ORT_STRATEGY=download cargo build`
 Expected: vitest PASS (2 tests); cargo build succeeds with no warnings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/main.rs src-tauri/capabilities/default.json src/test/setup.ts src/lib/openExternal.ts src/lib/openExternal.test.ts
