@@ -22,6 +22,7 @@ function makeEditor(overrides = {}) {
     setLink: vi.fn().mockReturnThis(),
     setImage: vi.fn().mockReturnThis(),
     insertTable: vi.fn().mockReturnThis(),
+    insertMermaid: vi.fn().mockReturnThis(),
     setHorizontalRule: vi.fn().mockReturnThis(),
     run: vi.fn(),
   };
@@ -160,6 +161,16 @@ describe('TC-04: toolbar button click actions', () => {
     const { editor } = await renderToolbar();
     fireEvent.click(screen.getByLabelText('Horizontal rule'));
     expect(editor.chain).toHaveBeenCalled();
+  });
+});
+
+describe('Mermaid diagram button', () => {
+  it('inserts a mermaid block through the editor command', async () => {
+    const { editor } = await renderToolbar();
+    fireEvent.click(screen.getByLabelText('Diagrama'));
+    const chain = (editor.chain as unknown as ReturnType<typeof vi.fn>).mock.results[0].value;
+    expect(chain.insertMermaid).toHaveBeenCalled();
+    expect(chain.run).toHaveBeenCalled();
   });
 });
 
