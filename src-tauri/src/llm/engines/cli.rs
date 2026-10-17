@@ -1,9 +1,10 @@
 use super::ChatMessage;
+use crate::llm::attachment::{self, Attachment, Part};
 use crate::llm::connection::Engine;
 use crate::llm::env::LlmEnv;
 use crate::llm::error::LlmError;
 use crate::llm::proc::{self, BinaryResolver};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::path::PathBuf;
 
 pub const CLAUDE_MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
@@ -69,6 +70,82 @@ pub fn claude_args(model: &str, system: &str) -> Vec<String> {
     a
 }
 
+/// Stream-json variant used only when the turn has attachments: content blocks
+/// travel on stdin, the answer is the `"type":"result"` line.
+pub fn claude_stream_args(model: &str, system: &str) -> Vec<String> {
+    let mut a: Vec<String> = [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--model",
+        model,
+        "--tools",
+        "",
+        "--no-session-persistence",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    if !system.is_empty() {
+        a.push("--system-prompt".into());
+        a.push(system.into());
+    }
+    a
+}
+
+/// The attachments of the last conversation turn (the only one sent with bytes).
+fn last_attachments(messages: &[ChatMessage]) -> Vec<Attachment> {
+    messages.iter().rev().find(|m| m.role != "system").map(|m| m.attachments.clone()).unwrap_or_default()
+}
+
+/// One stdin line: a user message whose content is the attachment blocks
+/// followed by the conversation prompt.
+pub fn claude_stream_input(messages: &[ChatMessage], prompt: &str) -> String {
+    let parts = attachment::expand_parts(&last_attachments(messages), prompt, true);
+    let blocks: Vec<Value> = parts.iter().filter_map(super::anthropic::part_block).collect();
+    let line = json!({ "type": "user", "message": { "role": "user", "content": blocks } });
+    format!("{line}\n")
+}
+
+fn extension(media_type: &str) -> &'static str {
+    match media_type {
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        _ => "png",
+    }
+}
+
+/// Writes image parts as temp files in `dir` and returns the Gemini prompt:
+/// each attachment as a name marker plus `@file` references and inline text.
+pub fn gemini_attachment_prompt(dir: &std::path::Path, attachments: &[Attachment], prompt: &str) -> Result<String, LlmError> {
+    use base64::Engine as _;
+    let mut out = String::new();
+    for (i, a) in attachments.iter().enumerate() {
+        out.push_str(&format!("[Archivo adjunto: {}]\n", a.name));
+        for (j, p) in a.parts_for(false).iter().enumerate() {
+            match p {
+                Part::Text(t) => out.push_str(&format!("{t}\n")),
+                Part::Image { media_type, data_b64 } => {
+                    let name = format!("attachment-{}-{}.{}", i + 1, j + 1, extension(media_type));
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(data_b64.as_bytes())
+                        .map_err(|e| LlmError::BadResponse(format!("attachment: {e}")))?;
+                    std::fs::write(dir.join(&name), bytes).map_err(|e| LlmError::BadResponse(format!("attachment: {e}")))?;
+                    out.push_str(&format!("@{name}\n"));
+                }
+                Part::Document { .. } => {}
+            }
+        }
+        out.push('\n');
+    }
+    out.push_str(prompt);
+    Ok(out)
+}
+
 pub fn gemini_args(model: &str, prompt: &str) -> Vec<String> {
     ["-p", prompt, "-m", model, "--approval-mode", "plan", "-o", "json"].iter().map(|s| s.to_string()).collect()
 }
@@ -124,6 +201,21 @@ pub fn parse_claude(stdout: &str) -> Result<String, LlmError> {
     Ok(result.to_string())
 }
 
+/// stream-json output: one JSON object per line; the answer is the last
+/// `"type":"result"` line.
+pub fn parse_claude_stream(stdout: &str) -> Result<String, LlmError> {
+    let line = stdout
+        .lines()
+        .rev()
+        .find(|l| {
+            serde_json::from_str::<Value>(l.trim())
+                .map(|v| v.get("type").and_then(Value::as_str) == Some("result"))
+                .unwrap_or(false)
+        })
+        .ok_or_else(|| LlmError::BadResponse("claude returned no result line".into()))?;
+    parse_claude(line)
+}
+
 pub fn parse_gemini(stdout: &str) -> Result<String, LlmError> {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
@@ -150,15 +242,19 @@ pub fn parse_gemini(stdout: &str) -> Result<String, LlmError> {
 pub async fn chat(engine: Engine, env: &LlmEnv, model: &str, messages: &[ChatMessage]) -> Result<String, LlmError> {
     let bin = detect(engine, env.resolver.as_ref())?;
     let (system, prompt) = split_messages(messages);
+    let dir = tempfile::tempdir().map_err(|e| LlmError::BadResponse(format!("tempdir: {e}")))?;
+    let attachments = last_attachments(messages);
+    let stream = engine == Engine::CliClaude && !attachments.is_empty();
     let (args, stdin) = match engine {
+        Engine::CliClaude if stream => (claude_stream_args(model, &system), Some(claude_stream_input(messages, &prompt))),
         Engine::CliClaude => (claude_args(model, &system), Some(prompt)),
         Engine::CliGemini => {
-            let full = if system.is_empty() { prompt } else { format!("{system}\n\n{prompt}") };
+            let body = gemini_attachment_prompt(dir.path(), &attachments, &prompt)?;
+            let full = if system.is_empty() { body } else { format!("{system}\n\n{body}") };
             (gemini_args(model, &full), None)
         }
         _ => return Err(LlmError::BadResponse("not a CLI engine".into())),
     };
-    let dir = tempfile::tempdir().map_err(|e| LlmError::BadResponse(format!("tempdir: {e}")))?;
     let out = proc::run(&bin, &args, stdin.as_deref(), env_scrub(engine), dir.path(), env.timeout).await?;
     if out.code != Some(0) {
         let combined = format!("{}\n{}", out.stdout, out.stderr);
@@ -174,6 +270,7 @@ pub async fn chat(engine: Engine, env: &LlmEnv, model: &str, messages: &[ChatMes
         )));
     }
     match engine {
+        Engine::CliClaude if stream => parse_claude_stream(&out.stdout),
         Engine::CliClaude => parse_claude(&out.stdout),
         _ => parse_gemini(&out.stdout),
     }
