@@ -52,6 +52,29 @@ describe('TC-03: App', () => {
   });
 });
 
+describe('shell layout', () => {
+  it('renders top bar, 264px sidebar, main and status bar filling the viewport', () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+    const aside = screen.getByRole('complementary');
+    expect(aside.style.width).toBe('var(--sidebar-width)');
+    expect(aside.style.borderRight).toBe('1px solid var(--line)');
+    expect(aside.style.background).toBe('var(--surface-sunken)');
+    expect(screen.getByRole('main')).toBeInTheDocument();
+    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('app-shell').style.height).toBe('100%');
+  });
+
+  it('no longer renders the old sidebar Files/Graph/Brain nav', () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+    expect(screen.queryByText('Files')).not.toBeInTheDocument();
+    expect(screen.queryByText('Graph')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Notas' })).toBeInTheDocument();
+  });
+});
+
 describe('guarda de cierre de ventana', () => {
   let closeHandler: ((event: { preventDefault(): void }) => void) | undefined;
   const mockClose = vi.fn().mockResolvedValue(undefined);
