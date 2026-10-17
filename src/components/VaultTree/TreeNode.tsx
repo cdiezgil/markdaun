@@ -15,7 +15,14 @@ import { ConfirmDialog } from '../ConfirmDialog/ConfirmDialog';
 interface TreeNodeProps {
   entry: VaultEntry;
   depth: number;
+  /** Opens the new-note dialog with this folder as parent. */
+  onCreateNote?: (parentPath: string) => void;
+  /** Opens the new-folder dialog with this folder as parent. */
+  onCreateFolder?: (parentPath: string) => void;
 }
+
+/** MIME type used to drag vault entries between tree nodes. */
+export const ENTRY_MIME = 'application/x-markdaun-entry';
 
 function getFileColor(fileType: VaultEntry['file_type']): string {
   switch (fileType) {
@@ -43,16 +50,18 @@ function FileIcon({ fileType }: { fileType: VaultEntry['file_type'] }) {
   }
 }
 
-export function TreeNode({ entry, depth }: TreeNodeProps) {
+export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState<{
     x: number;
     y: number;
   } | null>(null);
 
   const deleteEntry = useVaultStore((s) => s.deleteEntry);
+  const moveEntry = useVaultStore((s) => s.moveEntry);
   const refreshTree = useVaultStore((s) => s.refreshTree);
   const { navigateToFile } = useFileNavigation();
 
@@ -65,6 +74,36 @@ export function TreeNode({ entry, depth }: TreeNodeProps) {
     } else {
       navigateToFile(entry);
     }
+  }
+
+  function handleDragStart(e: React.DragEvent) {
+    e.dataTransfer.setData(ENTRY_MIME, entry.path);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function hasEntryPayload(e: React.DragEvent): boolean {
+    return Array.from(e.dataTransfer.types).includes(ENTRY_MIME);
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    if (entry.kind !== 'folder' || !hasEntryPayload(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropActive(true);
+  }
+
+  function handleDragLeave() {
+    setDropActive(false);
+  }
+
+  async function handleDrop(e: React.DragEvent) {
+    setDropActive(false);
+    if (entry.kind !== 'folder') return;
+    const sourcePath = e.dataTransfer.getData(ENTRY_MIME);
+    if (!sourcePath || sourcePath === entry.path) return;
+    e.preventDefault();
+    await moveEntry(sourcePath, entry.path);
+    setExpanded(true);
   }
 
   function handleDoubleClick(e: React.MouseEvent) {
@@ -101,6 +140,11 @@ export function TreeNode({ entry, depth }: TreeNodeProps) {
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        draggable
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -110,6 +154,8 @@ export function TreeNode({ entry, depth }: TreeNodeProps) {
           paddingBottom: 'var(--space-1)',
           cursor: entry.kind === 'file' && entry.file_type === 'other' ? 'default' : 'pointer',
           userSelect: 'none',
+          background: dropActive ? 'var(--mark)' : undefined,
+          outline: dropActive ? '1px dashed var(--daun)' : undefined,
         }}
         data-testid={`tree-node-${entry.name}`}
         data-file-type={entry.file_type}
@@ -132,7 +178,13 @@ export function TreeNode({ entry, depth }: TreeNodeProps) {
       </div>
 
       {entry.kind === 'folder' && expanded && entry.children?.map((child) => (
-        <TreeNode key={child.path} entry={child} depth={depth + 1} />
+        <TreeNode
+          key={child.path}
+          entry={child}
+          depth={depth + 1}
+          onCreateNote={onCreateNote}
+          onCreateFolder={onCreateFolder}
+        />
       ))}
 
       {contextMenuPos && (
@@ -151,6 +203,50 @@ export function TreeNode({ entry, depth }: TreeNodeProps) {
           data-testid="context-menu"
           onMouseLeave={closeContextMenu}
         >
+          {entry.kind === 'folder' && onCreateNote && (
+            <button
+              onClick={() => {
+                closeContextMenu();
+                onCreateNote(entry.path);
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                background: 'none',
+                border: 'none',
+                padding: 'var(--space-2) var(--space-4)',
+                fontSize: 14,
+                color: 'var(--ink)',
+                cursor: 'pointer',
+              }}
+              data-testid="context-new-note"
+            >
+              Nueva nota
+            </button>
+          )}
+          {entry.kind === 'folder' && onCreateFolder && (
+            <button
+              onClick={() => {
+                closeContextMenu();
+                onCreateFolder(entry.path);
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                background: 'none',
+                border: 'none',
+                padding: 'var(--space-2) var(--space-4)',
+                fontSize: 14,
+                color: 'var(--ink)',
+                cursor: 'pointer',
+              }}
+              data-testid="context-new-folder"
+            >
+              Nueva carpeta
+            </button>
+          )}
           <button
             onClick={() => {
               closeContextMenu();

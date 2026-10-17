@@ -21,6 +21,7 @@ interface VaultState {
   createFolder(parentPath: string, name: string): Promise<void>;
   renameEntry(path: string, newName: string): Promise<void>;
   deleteEntry(path: string): Promise<void>;
+  moveEntry(sourcePath: string, destFolderPath: string): Promise<void>;
   importFiles(destFolderPath: string, sourcePaths: string[]): Promise<void>;
 }
 
@@ -124,6 +125,22 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     try {
       await invoke<void>('delete_entry', {
         path,
+        vaultPath: vaultPath,
+      });
+      await get().refreshTree();
+    } catch (e) {
+      set({ error: typeof e === 'string' ? e : String(e) });
+      throw e;
+    }
+  },
+
+  async moveEntry(sourcePath: string, destFolderPath: string) {
+    const { vaultPath } = get();
+    set({ error: null });
+    try {
+      await invoke<string>('move_entry', {
+        sourcePath: sourcePath,
+        destFolderPath: destFolderPath,
         vaultPath: vaultPath,
       });
       await get().refreshTree();

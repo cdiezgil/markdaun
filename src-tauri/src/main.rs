@@ -28,6 +28,7 @@ fn main() {
             commands::create_note,
             commands::create_folder,
             commands::rename_entry,
+            commands::move_entry,
             commands::delete_entry,
             commands::import_files,
             commands::read_note,
