@@ -42,3 +42,8 @@ mod chat_notes_tests;
 pub mod vault_index;
 #[cfg(test)]
 mod vault_index_tests;
+
+pub mod backlinks;
+pub use backlinks::*;
+#[cfg(test)]
+mod backlinks_tests;

@@ -20,10 +20,6 @@ vi.mock('../components/editor/EditorCanvas', () => ({
   ),
 }));
 
-vi.mock('../components/editor/SaveIndicator', () => ({
-  default: () => <div data-testid="save-indicator" />,
-}));
-
 const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => {
@@ -77,11 +73,6 @@ describe('TC-01: EditorView — active note', () => {
   it('TC-01: renders canvas', () => {
     renderEditorView('/vault/note.md');
     expect(screen.getByTestId('editor-canvas')).toBeDefined();
-  });
-
-  it('TC-03: renders save indicator', () => {
-    renderEditorView('/vault/note.md');
-    expect(screen.getByTestId('save-indicator')).toBeDefined();
   });
 
   it('TC-01: layout wrapper is flex column', () => {

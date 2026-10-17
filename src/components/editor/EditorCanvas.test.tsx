@@ -5,6 +5,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../store/editorStore';
 
 // Mock TipTap to avoid full DOM editor in unit tests
+vi.mock('./BacklinksSection', () => ({ default: () => null }));
+
 vi.mock('@tiptap/react', () => ({
   useEditor: vi.fn(() => ({
     storage: {
@@ -139,5 +141,17 @@ describe('TC-22: openNote loads content into store', () => {
 
     expect(useEditorStore.getState().activeNoteContent).toBe('# Loaded content');
     expect(useEditorStore.getState().activeNotePath).toBe('/vault/note.md');
+  });
+});
+
+describe('noteCaption', () => {
+  it('shows the vault-relative path without extension', async () => {
+    const { noteCaption } = await import('./EditorCanvas');
+    expect(noteCaption('/vault/Test/Primera nota.md', '/vault', null)).toBe('Test / Primera nota');
+  });
+
+  it('appends the save time when known', async () => {
+    const { noteCaption } = await import('./EditorCanvas');
+    expect(noteCaption('/vault/a.md', '/vault', Date.now())).toMatch(/^a · guardado \d{2}:\d{2}/);
   });
 });

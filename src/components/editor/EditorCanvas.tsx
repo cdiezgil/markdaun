@@ -15,6 +15,7 @@ import { MermaidCodeBlock } from './extensions/MermaidCodeBlock';
 import { HighlightExtension } from './extensions/HighlightExtension';
 import { TagExtension } from './extensions/TagExtension';
 import { convertAssetSrc } from '../../lib/tauri';
+import BacklinksSection from './BacklinksSection';
 
 import './editor.css';
 
@@ -23,8 +24,18 @@ interface EditorCanvasProps {
   onEditorReady?: (editor: ReturnType<typeof useEditor>) => void;
 }
 
+/** "Carpeta / Nota" path (no extension) plus the last save time, when known. */
+export function noteCaption(notePath: string, vaultPath: string | null, savedAt: number | null): string {
+  const rel =
+    vaultPath && notePath.startsWith(vaultPath + '/') ? notePath.slice(vaultPath.length + 1) : notePath;
+  const path = rel.replace(/\.md$/, '').split('/').join(' / ');
+  if (savedAt === null) return path;
+  const time = new Date(savedAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+  return `${path} \u00b7 guardado ${time}`;
+}
+
 export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
-  const { activeNoteContent, activeNotePath, vaultTree, setContent, setSelectionText } =
+  const { activeNoteContent, activeNotePath, vaultPath, vaultTree, lastSavedAt, setContent, setSelectionText } =
     useEditorStore();
 
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
@@ -131,7 +142,35 @@ export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
       onDragOver={(e) => e.preventDefault()}
       data-testid="editor-canvas-container"
     >
-      <EditorContent editor={editor} />
+      <article
+        data-testid="editor-column"
+        style={{
+          width: '100%',
+          maxWidth: 'min(var(--measure), calc(100% - 2 * var(--space-8)))',
+          margin: '0 auto',
+          padding: 'var(--space-12) var(--space-8) var(--space-16)',
+          boxSizing: 'content-box',
+        }}
+      >
+        {activeNotePath && (
+          <div
+            data-testid="editor-caption"
+            style={{
+              fontFamily: 'var(--font-sans)',
+              fontSize: 12,
+              lineHeight: '16px',
+              color: 'var(--ink-muted)',
+              marginBottom: 'var(--space-3)',
+            }}
+          >
+            {noteCaption(activeNotePath, vaultPath, lastSavedAt)}
+          </div>
+        )}
+        <EditorContent editor={editor} />
+        {activeNotePath && vaultPath && (
+          <BacklinksSection notePath={activeNotePath} vaultPath={vaultPath} />
+        )}
+      </article>
     </div>
   );
 }
