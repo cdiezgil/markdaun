@@ -389,7 +389,7 @@ git commit -m "feat(llm): add Connection domain types"
 - Create: `src-tauri/src/llm/secrets.rs`, `src-tauri/src/llm/secrets_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/secrets_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/secrets_tests.rs`:
 
 ```rust
 use super::secrets::*;
@@ -414,12 +414,12 @@ fn memory_store_set_get_delete() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - add `pub mod secrets;` and `#[cfg(test)] mod secrets_tests;` to `llm/mod.rs`.
+- [x] **Step 2: Run to verify it fails** - add `pub mod secrets;` and `#[cfg(test)] mod secrets_tests;` to `llm/mod.rs`.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::secrets_tests`
 Expected: FAIL to compile (`secrets.rs` missing).
 
-- [ ] **Step 3: Implement** - `src-tauri/src/llm/secrets.rs`:
+- [x] **Step 3: Implement** - `src-tauri/src/llm/secrets.rs`:
 
 ```rust
 use super::error::LlmError;
@@ -492,12 +492,12 @@ impl SecretStore for MemorySecretStore {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::secrets_tests`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
