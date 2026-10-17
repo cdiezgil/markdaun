@@ -3068,7 +3068,7 @@ git commit -m "feat(llm): add claude and gemini CLI engines with scrubbed env"
 - Modify: `src-tauri/src/llm/engines/mod.rs` (replace)
 - Create: `src-tauri/src/llm/engines/dispatch_tests.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/engines/dispatch_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/engines/dispatch_tests.rs`:
 
 ```rust
 use super::{chat, list_models, ChatMessage};
@@ -3181,7 +3181,7 @@ async fn cli_engine_without_binary_is_cli_missing() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - replace `src-tauri/src/llm/engines/mod.rs` with the module declarations only (dispatch comes in Step 3):
+- [x] **Step 2: Run to verify it fails** - replace `src-tauri/src/llm/engines/mod.rs` with the module declarations only (dispatch comes in Step 3):
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -3209,7 +3209,7 @@ pub struct ChatMessage {
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::engines::dispatch_tests`
 Expected: FAIL to compile (`chat` / `list_models` not found in `engines`).
 
-- [ ] **Step 3: Implement** - append to `src-tauri/src/llm/engines/mod.rs` (and add the new imports at the top of the file):
+- [x] **Step 3: Implement** - append to `src-tauri/src/llm/engines/mod.rs` (and add the new imports at the top of the file):
 
 ```rust
 use super::auth;
@@ -3263,12 +3263,12 @@ pub async fn chat(
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::engines`
 Expected: PASS (all engine tests incl. 7 dispatch tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
