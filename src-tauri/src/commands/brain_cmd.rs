@@ -91,7 +91,8 @@ pub fn build_rag_messages(
     ]
 }
 
-/// Text-only RAG query (see [`brain_query_core`]).
+/// Text-only RAG query (see [`brain_query_core`]); used by the tests.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub async fn brain_query_with_embedding(
     db_path: &Path,
