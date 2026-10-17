@@ -6175,7 +6175,7 @@ git commit -m "refactor(brain): drive Second Brain setup from llmStore and remov
 **Files:**
 - Create: `src/components/LlmWizard/styles.ts`, `src/components/LlmWizard/ChooseRoute.tsx`, `src/components/LlmWizard/ChooseRoute.test.tsx`, `src/components/LlmWizard/ChooseProvider.tsx`, `src/components/LlmWizard/ChooseProvider.test.tsx`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `src/components/LlmWizard/ChooseRoute.test.tsx`:
 
@@ -6237,12 +6237,12 @@ describe('ChooseProvider', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard`
 Expected: FAIL (components not found).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/components/LlmWizard/styles.ts`:
 
@@ -6458,12 +6458,12 @@ export function ChooseProvider({ route, onSelect, onBack }: Props): JSX.Element 
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard && npx tsc --noEmit`
 Expected: PASS (4 tests); tsc clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/LlmWizard
