@@ -176,6 +176,13 @@ describe('drag & drop entre nodos', () => {
     );
   });
 
+  it('dragStart permite copiar (adjuntar al chat) además de mover', () => {
+    wrap(<TreeNode entry={mdEntry} depth={0} />);
+    const dt = makeDataTransfer('');
+    fireEvent.dragStart(screen.getByTestId('tree-node-nota.md'), { dataTransfer: dt });
+    expect(dt.effectAllowed).toBe('copyMove');
+  });
+
   it('soltar una nota sobre una carpeta invoca move_entry', async () => {
     mockInvoke
       .mockResolvedValueOnce('/vault/carpeta/nota.md') // move_entry
