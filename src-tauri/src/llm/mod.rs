@@ -20,3 +20,7 @@ mod connection_tests;
 mod secrets_tests;
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+pub mod testutil;
+#[cfg(test)]
+mod testutil_tests;
