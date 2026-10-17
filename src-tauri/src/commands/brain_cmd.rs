@@ -50,7 +50,7 @@ pub struct BrainQueryResult {
 
 /// Tells the model how to propose creating or extending a note. The app only
 /// writes after the user confirms the proposal card.
-pub(crate) const NOTE_BLOCK_INSTRUCTION: &str = "Si el usuario te pide crear o ampliar una nota, responde con uno o más bloques de código con esta forma exacta (el usuario debe confirmar cada bloque; nada se guarda sin su confirmación):\n```markdaun-note path=\"Carpeta/nombre.md\" mode=\"create\"\n# Título\ncontenido en Markdown\n```\n`path` es relativo a la bóveda y debe terminar en .md. `mode` es \"create\" (nota nueva) o \"append\" (añadir al final de una nota existente). Usa estos bloques solo cuando se te pida una nota.";
+pub(crate) const NOTE_BLOCK_INSTRUCTION: &str = "Si el usuario te pide crear o ampliar una nota, responde con uno o más bloques de código con esta forma exacta (el usuario debe confirmar cada bloque; nada se guarda sin su confirmación):\n```markdaun-note path=\"Carpeta/nombre.md\" mode=\"create\"\n# Título\ncontenido en Markdown\n```\n`path` es relativo a la bóveda y debe terminar en .md. `mode` es \"create\" (nota nueva) o \"append\" (añadir al final de una nota existente). Usa estos bloques solo cuando se te pida una nota.\n\nSi el usuario te pide un diagrama dentro de una nota, usa un bloque de código con lenguaje mermaid (```mermaid).";
 
 /// Build the RAG prompt: system message with the vault's note index and the
 /// retrieved chunks (each labelled with its note path), user message with the question.

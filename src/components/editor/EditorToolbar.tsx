@@ -17,6 +17,7 @@ import {
   Minus,
   Table,
   ScanText,
+  Workflow,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -239,6 +240,13 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         onClick={() => editor?.chain().focus().toggleOrderedList().run()}
       >
         <ListOrdered size={20} strokeWidth={1.5} />
+      </ToolbarButton>
+
+      <ToolbarButton
+        label="Diagrama"
+        onClick={() => editor?.chain().focus().insertMermaid().run()}
+      >
+        <Workflow size={20} strokeWidth={1.5} />
       </ToolbarButton>
 
       {/* Link */}

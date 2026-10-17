@@ -130,3 +130,74 @@
   float: left;
   height: 0;
 }
+
+/* Mermaid diagrams */
+.ProseMirror .mermaid-block {
+  position: relative;
+  margin: var(--space-3) 0;
+}
+
+.ProseMirror .mermaid-diagram-row {
+  position: relative;
+}
+
+.ProseMirror .mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  max-width: var(--measure);
+  margin: 0 auto;
+  cursor: pointer;
+}
+
+.ProseMirror .mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.ProseMirror .mermaid-edit-button {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 160ms cubic-bezier(.2, .7, .2, 1);
+}
+
+.ProseMirror .mermaid-block:hover .mermaid-edit-button,
+.ProseMirror .mermaid-edit-button:focus-visible,
+.ProseMirror .mermaid-edit-button[data-active='true'] {
+  opacity: 1;
+}
+
+.ProseMirror .mermaid-edit-button[data-active='true'] {
+  color: var(--daun);
+}
+
+.ProseMirror .mermaid-edit-button:focus-visible {
+  outline: 2px solid var(--focus);
+}
+
+.ProseMirror .mermaid-source {
+  margin-top: var(--space-2);
+}
+
+.ProseMirror .mermaid-source[hidden] {
+  display: none;
+}
+
+.ProseMirror .mermaid-error {
+  margin-top: var(--space-2);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre-wrap;
+}

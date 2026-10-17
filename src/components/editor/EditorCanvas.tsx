@@ -11,6 +11,7 @@ import { Markdown } from 'tiptap-markdown';
 
 import { useEditorStore } from '../../store/editorStore';
 import { createWikilinkExtension } from './extensions/WikilinkExtension';
+import { MermaidCodeBlock } from './extensions/MermaidCodeBlock';
 import { HighlightExtension } from './extensions/HighlightExtension';
 import { TagExtension } from './extensions/TagExtension';
 import { convertAssetSrc } from '../../lib/tauri';
@@ -33,13 +34,14 @@ export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         code: {},
-        codeBlock: {},
+        codeBlock: false,
         blockquote: {},
         bulletList: {},
         orderedList: {},
         horizontalRule: {},
         strike: {},
       }),
+      MermaidCodeBlock,
       Link.configure({
         openOnClick: true,
         autolink: true,
