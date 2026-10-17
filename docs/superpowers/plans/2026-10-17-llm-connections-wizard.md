@@ -4886,7 +4886,7 @@ git commit -m "feat(ui): add opener plugin for external links and event mock for
 **Files:**
 - Create: `src/lib/llm/types.ts`, `src/lib/llm/errors.ts`, `src/lib/llm/errors.test.ts`
 
-- [ ] **Step 1: Write the failing test** - `src/lib/llm/errors.test.ts`:
+- [x] **Step 1: Write the failing test** - `src/lib/llm/errors.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -4947,12 +4947,12 @@ describe('asLlmError', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/lib/llm/errors.test.ts`
 Expected: FAIL (modules not found).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/lib/llm/types.ts`:
 
@@ -5139,12 +5139,12 @@ export function describeLlmError(err: LlmError, engine?: Engine): ErrorView {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/lib/llm/errors.test.ts && npx tsc --noEmit`
 Expected: PASS (6 tests); tsc clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/llm
