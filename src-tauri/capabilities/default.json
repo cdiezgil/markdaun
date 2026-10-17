@@ -13,6 +13,7 @@
     "fs:allow-remove",
     "fs:allow-rename",
     "fs:allow-copy-file",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "opener:default"
   ]
 }
