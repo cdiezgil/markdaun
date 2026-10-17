@@ -6,6 +6,21 @@ import { useVaultStore } from '../../store/vaultStore';
 import { VaultEmpty } from './VaultEmpty';
 import { TreeNode, ENTRY_MIME } from './TreeNode';
 import { NameDialog } from './NameDialog';
+import { countVaultEntries, formatVaultCounts } from '../../lib/vaultCounts';
+
+const ICON_BUTTON: React.CSSProperties = {
+  width: 32,
+  height: 32,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  border: 'none',
+  borderRadius: 'var(--radius-sm)',
+  background: 'transparent',
+  color: 'var(--ink-muted)',
+  cursor: 'pointer',
+  padding: 0,
+};
 
 type CreateDialog = { type: 'note' | 'folder'; parentPath: string } | null;
 
@@ -70,10 +85,12 @@ export function VaultTree() {
     }
   }
 
+  const counts = formatVaultCounts(countVaultEntries(tree));
+
   return (
     <div
       style={{
-        width: 'var(--sidebar-width)',
+        width: '100%',
         background: 'var(--surface-sunken)',
         height: '100%',
         display: 'flex',
@@ -86,56 +103,45 @@ export function VaultTree() {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 'var(--space-2)',
-          padding: 'var(--space-2) var(--space-3)',
-          borderBottom: '1px solid var(--line)',
+          justifyContent: 'space-between',
+          padding: 'var(--space-4) var(--space-1) var(--space-2) var(--space-4)',
         }}
       >
-        {/* Settings icon — left side */}
-        <Link
-          to="/settings"
-          title="Ajustes"
-          data-testid="settings-link"
+        <span
           style={{
+            fontFamily: 'var(--font-sans)',
+            fontSize: 12,
+            lineHeight: '16px',
+            fontWeight: 500,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
             color: 'var(--ink-muted)',
-            display: 'flex',
-            alignItems: 'center',
           }}
         >
-          <Settings size={20} strokeWidth={1.5} />
-        </Link>
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => setDialog({ type: 'note', parentPath: vaultPath })}
-          title="Nueva nota"
-          data-testid="new-note-btn"
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: 'var(--ink-muted)',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          <FilePlus size={20} strokeWidth={1.5} />
-        </button>
-        <button
-          onClick={() => setDialog({ type: 'folder', parentPath: vaultPath })}
-          title="Nueva carpeta"
-          data-testid="new-folder-btn"
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: 'var(--ink-muted)',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          <FolderPlus size={20} strokeWidth={1.5} />
-        </button>
+          Bóveda
+        </span>
+        <div style={{ display: 'flex', gap: 2 }}>
+          <button
+            onClick={() => setDialog({ type: 'note', parentPath: vaultPath })}
+            title="Nueva nota"
+            aria-label="Nueva nota"
+            data-testid="new-note-btn"
+            className="md-hover"
+            style={ICON_BUTTON}
+          >
+            <FilePlus size={18} strokeWidth={1.5} />
+          </button>
+          <button
+            onClick={() => setDialog({ type: 'folder', parentPath: vaultPath })}
+            title="Nueva carpeta"
+            aria-label="Nueva carpeta"
+            data-testid="new-folder-btn"
+            className="md-hover"
+            style={ICON_BUTTON}
+          >
+            <FolderPlus size={18} strokeWidth={1.5} />
+          </button>
+        </div>
       </div>
       <div
         onDragOver={handleRootDragOver}
@@ -144,7 +150,7 @@ export function VaultTree() {
         style={{
           overflowY: 'auto',
           flex: 1,
-          padding: 'var(--space-2) 0',
+          padding: '0 0 var(--space-2)',
           background: rootDropActive ? 'var(--mark)' : undefined,
           outline: rootDropActive ? '1px dashed var(--daun)' : undefined,
           outlineOffset: -2,
@@ -169,6 +175,39 @@ export function VaultTree() {
         onCancel={() => setDialog(null)}
       />
       <SyncPanel />
+      <div
+        data-testid="vault-footer"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          margin: '0 var(--space-2)',
+          padding: 'var(--space-2) var(--space-1) var(--space-2) var(--space-2)',
+          borderTop: '1px solid var(--line)',
+          flexShrink: 0,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--font-sans)',
+            fontSize: 12,
+            lineHeight: '16px',
+            color: 'var(--ink-muted)',
+          }}
+        >
+          {counts}
+        </span>
+        <Link
+          to="/settings"
+          title="Ajustes"
+          aria-label="Ajustes"
+          data-testid="settings-link"
+          className="md-hover"
+          style={ICON_BUTTON}
+        >
+          <Settings size={18} strokeWidth={1.5} />
+        </Link>
+      </div>
     </div>
   );
 }

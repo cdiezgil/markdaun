@@ -39,6 +39,41 @@ describe('TC-01: VaultTree con bóveda', () => {
   });
 });
 
+describe('shell sidebar', () => {
+  const tree: VaultEntry[] = [
+    {
+      name: 'Test',
+      path: '/vault/Test',
+      kind: 'folder',
+      children: [{ name: 'a.md', path: '/vault/Test/a.md', kind: 'file', file_type: 'md' }],
+    },
+    { name: 'b.md', path: '/vault/b.md', kind: 'file', file_type: 'md' },
+    { name: 'c.md', path: '/vault/c.md', kind: 'file', file_type: 'md' },
+  ];
+
+  it('shows the BÓVEDA header label with new note / new folder buttons', () => {
+    useVaultStore.setState({ vaultPath: '/vault', tree });
+    wrap(<VaultTree />);
+    const label = screen.getByText('Bóveda');
+    expect(label.style.textTransform).toBe('uppercase');
+    expect(label.style.letterSpacing).toBe('0.04em');
+    expect(screen.getByTestId('new-note-btn')).toHaveAccessibleName('Nueva nota');
+    expect(screen.getByTestId('new-folder-btn')).toHaveAccessibleName('Nueva carpeta');
+  });
+
+  it('footer shows note and folder counts and the settings link', () => {
+    useVaultStore.setState({ vaultPath: '/vault', tree });
+    wrap(<VaultTree />);
+    const footer = screen.getByTestId('vault-footer');
+    expect(footer).toHaveTextContent('3 notas · 1 carpeta');
+    expect(footer.style.borderTop).toBe('1px solid var(--line)');
+    const settings = screen.getByTestId('settings-link');
+    expect(footer).toContainElement(settings);
+    expect(settings).toHaveAttribute('href', '/settings');
+    expect(settings).toHaveAccessibleName('Ajustes');
+  });
+});
+
 describe('TC-16: drop de ficheros externos importa al vault', () => {
   function makeFileDrop(files: File[]) {
     return {
