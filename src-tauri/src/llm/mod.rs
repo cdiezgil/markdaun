@@ -4,6 +4,7 @@ pub mod client;
 pub mod connection;
 pub mod embeddings;
 pub mod error;
+pub mod secrets;
 
 pub use client::{chat_completion, ChatMessage, LlmConfig};
 pub use embeddings::{chunk_text, embed_text, load_model};
@@ -14,3 +15,5 @@ mod tests;
 mod error_tests;
 #[cfg(test)]
 mod connection_tests;
+#[cfg(test)]
+mod secrets_tests;
