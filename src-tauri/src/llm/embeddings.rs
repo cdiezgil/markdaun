@@ -1,27 +1,138 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum EmbeddingError {
     #[error("fastembed: {0}")]
     FastEmbed(String),
+    #[error("download: {0}")]
+    Download(String),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 }
 
-/// Load the `AllMiniLML6V2` embedding model, caching ONNX artifacts in `cache_dir`.
-/// First call requires internet access (~22 MB download).
-pub fn load_model(cache_dir: &Path) -> Result<fastembed::TextEmbedding, EmbeddingError> {
-    use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-    std::fs::create_dir_all(cache_dir)?;
-    TextEmbedding::try_new(InitOptions {
-        model_name: EmbeddingModel::AllMiniLML6V2,
-        cache_dir: cache_dir.to_path_buf(),
-        show_download_progress: false,
-        ..Default::default()
-    })
-    .map_err(|e| EmbeddingError::FastEmbed(e.to_string()))
+/// Hugging Face host used in production; tests inject a local server instead.
+pub const HF_BASE_URL: &str = "https://huggingface.co";
+/// Repo path (under the base URL) holding the ONNX export of all-MiniLM-L6-v2.
+const HF_REPO_PATH: &str = "Qdrant/all-MiniLM-L6-v2-onnx/resolve/main";
+/// Sub-directory of the cache dir that holds the model files.
+pub const MODEL_DIR: &str = "all-MiniLM-L6-v2-onnx";
+/// Files fastembed needs to build the model from user-defined bytes.
+pub const MODEL_FILES: [&str; 5] = [
+    "model.onnx",
+    "tokenizer.json",
+    "config.json",
+    "special_tokens_map.json",
+    "tokenizer_config.json",
+];
+
+/// Download any missing model file from `base_url` into `<cache_dir>/MODEL_DIR`.
+///
+/// hf-hub (used by fastembed) cannot follow the relative redirects Hugging Face
+/// returns, so we fetch with reqwest, which does. Each file is written to a
+/// `.part` file and renamed, so a crash never leaves a truncated file behind.
+/// Files that already exist and are non-empty are skipped.
+pub fn download_model_files(base_url: &str, cache_dir: &Path) -> Result<PathBuf, EmbeddingError> {
+    let dir = cache_dir.join(MODEL_DIR);
+    std::fs::create_dir_all(&dir)?;
+    let client = reqwest::blocking::Client::builder()
+        .use_rustls_tls()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(600))
+        .build()
+        .map_err(|e| EmbeddingError::Download(format!("cannot build HTTP client: {e}")))?;
+    for file in MODEL_FILES {
+        let target = dir.join(file);
+        if std::fs::metadata(&target).map(|m| m.len() > 0).unwrap_or(false) {
+            continue;
+        }
+        let url = format!("{}/{HF_REPO_PATH}/{file}", base_url.trim_end_matches('/'));
+        let part = dir.join(format!("{file}.part"));
+        let result = fetch_to(&client, &url, &part, file);
+        if let Err(e) = result {
+            let _ = std::fs::remove_file(&part);
+            return Err(e);
+        }
+        std::fs::rename(&part, &target)?;
+    }
+    Ok(dir)
 }
+
+fn fetch_to(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    part: &Path,
+    file: &str,
+) -> Result<(), EmbeddingError> {
+    let mut resp = client
+        .get(url)
+        .send()
+        .map_err(|e| EmbeddingError::Download(format!("{file}: {e}")))?;
+    if !resp.status().is_success() {
+        return Err(EmbeddingError::Download(format!("{file}: HTTP {}", resp.status())));
+    }
+    let mut out = std::fs::File::create(part)?;
+    let written = resp
+        .copy_to(&mut out)
+        .map_err(|e| EmbeddingError::Download(format!("{file}: {e}")))?;
+    if written == 0 {
+        return Err(EmbeddingError::Download(format!("{file}: empty response")));
+    }
+    out.sync_all()?;
+    Ok(())
+}
+
+/// Load the `AllMiniLML6V2` embedding model, caching ONNX artifacts in `cache_dir`.
+/// First call requires internet access (~90 MB download).
+pub fn load_model(cache_dir: &Path) -> Result<fastembed::TextEmbedding, EmbeddingError> {
+    load_model_from(HF_BASE_URL, cache_dir)
+}
+
+/// Like [`load_model`] with an injectable download host.
+pub fn load_model_from(base_url: &str, cache_dir: &Path) -> Result<fastembed::TextEmbedding, EmbeddingError> {
+    use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
+    let dir = download_model_files(base_url, cache_dir)?;
+    let read = |name: &str| std::fs::read(dir.join(name));
+    let model = UserDefinedEmbeddingModel {
+        onnx_file: read("model.onnx")?,
+        tokenizer_files: TokenizerFiles {
+            tokenizer_file: read("tokenizer.json")?,
+            config_file: read("config.json")?,
+            special_tokens_map_file: read("special_tokens_map.json")?,
+            tokenizer_config_file: read("tokenizer_config.json")?,
+        },
+    };
+    TextEmbedding::try_new_from_user_defined(model, InitOptionsUserDefined::default())
+        .map_err(|e| EmbeddingError::FastEmbed(e.to_string()))
+}
+
+/// Holds a value that is expensive to build, creating it on first use and
+/// sharing it afterwards. A failed initialisation is not cached, so the next
+/// call retries.
+pub struct Lazy<T>(Mutex<Option<Arc<T>>>);
+
+impl<T> Default for Lazy<T> {
+    fn default() -> Self {
+        Self(Mutex::new(None))
+    }
+}
+
+impl<T> Lazy<T> {
+    pub fn get_or_try_init<E>(&self, init: impl FnOnce() -> Result<T, E>) -> Result<Arc<T>, E> {
+        let mut guard = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(v) = guard.as_ref() {
+            return Ok(v.clone());
+        }
+        let v = Arc::new(init()?);
+        *guard = Some(v.clone());
+        Ok(v)
+    }
+}
+
+/// Tauri managed state: the embedding model, loaded once per process.
+pub type EmbedderState = Lazy<fastembed::TextEmbedding>;
 
 /// Embed a single text string. Returns a `Vec<f32>` of dimension 384.
 pub fn embed_text(

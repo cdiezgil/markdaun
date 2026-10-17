@@ -113,6 +113,10 @@ export interface BrainMessage {
   content: string;
   sources: string[] | null;
   created_at: string;
+  /** Client-only: the question could not be answered (kept visible, not persisted state). */
+  failed?: boolean;
+  /** Client-only: answer produced without notes context. */
+  warning?: string | null;
 }
 
 export interface BrainQueryResult {
@@ -120,6 +124,8 @@ export interface BrainQueryResult {
   sources: string[];
   conversation_id: string;
   message_id: string;
+  /** e.g. `notes_context_unavailable: <detail>` when the answer has no notes context. */
+  warning?: string | null;
 }
 
 /**

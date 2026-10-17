@@ -28,11 +28,20 @@ pub struct MockResponse {
     pub status: u16,
     pub body: String,
     pub delay_ms: u64,
+    pub headers: Vec<(String, String)>,
 }
 
 impl MockResponse {
     pub fn json(status: u16, body: &str) -> Self {
-        Self { status, body: body.to_string(), delay_ms: 0 }
+        Self { status, body: body.to_string(), delay_ms: 0, headers: Vec::new() }
+    }
+    /// Redirect response; `location` may be relative (e.g. `/blob/x`).
+    pub fn redirect(status: u16, location: &str) -> Self {
+        Self::json(status, "").with_header("Location", location)
+    }
+    pub fn with_header(mut self, name: &str, value: &str) -> Self {
+        self.headers.push((name.to_string(), value.to_string()));
+        self
     }
     pub fn delayed(mut self, ms: u64) -> Self {
         self.delay_ms = ms;
@@ -103,8 +112,9 @@ fn serve<S: Read + Write>(mut stream: S, handler: &Handler, log: &Log) {
     if resp.delay_ms > 0 {
         thread::sleep(Duration::from_millis(resp.delay_ms));
     }
+    let extra: String = resp.headers.iter().map(|(k, v)| format!("{k}: {v}\r\n")).collect();
     let out = format!(
-        "HTTP/1.1 {} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {} X\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
         resp.status,
         resp.body.len(),
         resp.body

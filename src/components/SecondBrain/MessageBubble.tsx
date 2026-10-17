@@ -1,5 +1,6 @@
 import React from 'react';
 import type { BrainMessage } from '../../store/brainStore';
+import { describeBrainWarning } from '../../lib/brainErrors';
 
 export interface MessageBubbleProps {
   message: BrainMessage;
@@ -42,6 +43,34 @@ export function MessageBubble({ message, onSourceClick }: MessageBubbleProps): J
       >
         {message.content}
       </div>
+
+      {isUser && message.failed && (
+        <div
+          data-testid="msg-failed"
+          style={{
+            marginTop: 'var(--space-1)',
+            fontSize: '0.75rem',
+            color: 'var(--danger)',
+            fontFamily: 'var(--sans)',
+          }}
+        >
+          No enviado
+        </div>
+      )}
+
+      {!isUser && message.warning && (
+        <div
+          data-testid="msg-warning"
+          style={{
+            marginTop: 'var(--space-1)',
+            fontSize: '0.75rem',
+            color: 'var(--ink-muted)',
+            fontFamily: 'var(--sans)',
+          }}
+        >
+          {describeBrainWarning(message.warning)}
+        </div>
+      )}
 
       {/* Source citations — only for assistant messages with sources */}
       {!isUser && message.sources && message.sources.length > 0 && (

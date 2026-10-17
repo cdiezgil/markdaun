@@ -57,3 +57,37 @@ describe('TC-35b: ChatPanel no spinner when idle', () => {
     expect(screen.queryByTestId('chat-spinner')).not.toBeInTheDocument();
   });
 });
+
+// ── Errors are visible ────────────────────────────────────────────────────────
+
+describe('ChatPanel error display', () => {
+  it('renders a human message for the store error with the danger token', () => {
+    useBrainStore.setState({ error: 'llm_error: credentials rejected' });
+    renderChatPanel();
+    const el = screen.getByTestId('chat-error');
+    expect(el).toHaveTextContent(/credenciales/i);
+    expect(el.style.color).toBe('var(--danger)');
+  });
+
+  it('maps not_configured', () => {
+    useBrainStore.setState({ error: 'not_configured' });
+    renderChatPanel();
+    expect(screen.getByTestId('chat-error')).toHaveTextContent(/conexión/i);
+  });
+
+  it('shows no error element when there is no error', () => {
+    renderChatPanel();
+    expect(screen.queryByTestId('chat-error')).not.toBeInTheDocument();
+  });
+
+  it('keeps a failed user message visible', () => {
+    useBrainStore.setState({
+      error: 'not_configured',
+      messages: [
+        { id: 'u1', role: 'user', content: 'sigo aquí', sources: null, created_at: 'x', failed: true },
+      ],
+    });
+    renderChatPanel();
+    expect(screen.getByText('sigo aquí')).toBeInTheDocument();
+  });
+});

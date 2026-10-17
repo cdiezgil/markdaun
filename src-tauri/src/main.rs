@@ -16,6 +16,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .manage(llm::env::LlmEnv::production())
         .manage(llm::validate::ValidationStore::default())
+        .manage(std::sync::Arc::new(llm::EmbedderState::default()))
         .setup(|app| {
             commands::run_startup_migration(app.handle());
             Ok(())

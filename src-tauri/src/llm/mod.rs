@@ -13,13 +13,15 @@ pub mod validate;
 #[cfg(test)]
 pub mod testutil;
 
-pub use embeddings::{chunk_text, embed_text, load_model};
+pub use embeddings::{chunk_text, embed_text, load_model, EmbedderState};
 pub use engines::ChatMessage;
 
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
 mod connection_tests;
+#[cfg(test)]
+mod embeddings_tests;
 #[cfg(test)]
 mod env_tests;
 #[cfg(test)]

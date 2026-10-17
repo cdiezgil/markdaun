@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBrainStore } from '../../store/brainStore';
 import { MessageBubble } from './MessageBubble';
+import { describeBrainError } from '../../lib/brainErrors';
 
 interface ChatPanelProps {
   vaultPath: string;
@@ -10,6 +11,7 @@ interface ChatPanelProps {
 export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
   const messages = useBrainStore((s) => s.messages);
   const isLoading = useBrainStore((s) => s.isLoading);
+  const error = useBrainStore((s) => s.error);
   const query = useBrainStore((s) => s.query);
 
   const [input, setInput] = useState('');
@@ -98,6 +100,24 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
               }}
             />
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
+
+        {error && (
+          <div
+            data-testid="chat-error"
+            role="alert"
+            style={{
+              color: 'var(--danger)',
+              fontFamily: 'var(--sans)',
+              fontSize: '0.875rem',
+              padding: 'var(--space-2) var(--space-3)',
+              border: '1px solid var(--danger)',
+              borderRadius: 'var(--radius-sm)',
+              marginBottom: 'var(--space-3)',
+            }}
+          >
+            {describeBrainError(error)}
           </div>
         )}
 

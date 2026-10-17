@@ -71,7 +71,7 @@ async fn brain_query_builds_prompt_with_context() {
         "test-model",
         None,
         &env,
-        &emb,
+        Ok(emb.clone()),
     )
     .await
     .unwrap();
@@ -103,7 +103,7 @@ async fn brain_query_creates_conversation_when_none() {
         "m",
         None,
         &env,
-        &emb,
+        Ok(emb.clone()),
     )
     .await
     .unwrap();
@@ -139,7 +139,7 @@ async fn brain_query_continues_existing_conversation() {
         "m",
         None,
         &env,
-        &emb,
+        Ok(emb.clone()),
     )
     .await
     .unwrap();
@@ -169,7 +169,7 @@ async fn brain_query_reports_llm_errors() {
         "m",
         None,
         &env,
-        &fake_embedding(),
+        Ok(fake_embedding()),
     )
     .await
     .unwrap_err();
@@ -216,4 +216,113 @@ fn build_rag_messages_includes_context() {
     assert!(system.contains("nota-b.md"), "system includes file name B");
     assert_eq!(messages[1].role, "user");
     assert!(messages[1].content.contains("¿qué hay en las notas?"));
+}
+
+// ── Degradation: notes context is optional, the LLM answer is not ─────────────
+
+#[tokio::test]
+async fn brain_query_answers_without_context_when_embedding_fails() {
+    let cfg_file = make_config_db();
+    let (_vec_db, vec_file) = make_vectors_db();
+    let server = mock_llm();
+    let env = test_env(FixedResolver::default(), 3000);
+    let result = brain_query_with_embedding(
+        cfg_file.path(),
+        vec_file.path(),
+        "¿hola?",
+        "/vault",
+        None,
+        &conn_for(&server.url),
+        "m",
+        None,
+        &env,
+        Err("embed_error: model missing".to_string()),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.answer, "respuesta de prueba");
+    assert!(result.sources.is_empty());
+    let warning = result.warning.expect("a warning must explain the missing context");
+    assert!(warning.starts_with("notes_context_unavailable:"), "got {warning}");
+    assert!(warning.contains("model missing"), "got {warning}");
+    let conv_db = ConversationsDb::open(cfg_file.path()).unwrap();
+    assert_eq!(conv_db.get_messages(&result.conversation_id).unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn brain_query_has_no_warning_when_context_is_available() {
+    let cfg_file = make_config_db();
+    let (_vec_db, vec_file) = make_vectors_db();
+    let server = mock_llm();
+    let env = test_env(FixedResolver::default(), 3000);
+    let result = brain_query_with_embedding(
+        cfg_file.path(),
+        vec_file.path(),
+        "q",
+        "/vault",
+        None,
+        &conn_for(&server.url),
+        "m",
+        None,
+        &env,
+        Ok(fake_embedding()),
+    )
+    .await
+    .unwrap();
+    assert!(result.warning.is_none());
+}
+
+#[tokio::test]
+async fn brain_query_degrades_when_vector_search_fails() {
+    let cfg_file = make_config_db();
+    let dir = tempfile::tempdir().unwrap();
+    // A directory is not a valid SQLite file: opening the vector store fails.
+    let server = mock_llm();
+    let env = test_env(FixedResolver::default(), 3000);
+    let result = brain_query_with_embedding(
+        cfg_file.path(),
+        dir.path(),
+        "q",
+        "/vault",
+        None,
+        &conn_for(&server.url),
+        "m",
+        None,
+        &env,
+        Ok(fake_embedding()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.answer, "respuesta de prueba");
+    assert!(result.warning.unwrap().starts_with("notes_context_unavailable:"));
+}
+
+#[tokio::test]
+async fn brain_query_keeps_user_message_when_llm_fails() {
+    let cfg_file = make_config_db();
+    let (_vec_db, vec_file) = make_vectors_db();
+    let conv_db = ConversationsDb::open(cfg_file.path()).unwrap();
+    let conv_id = conv_db.create_conversation("/vault", "t").unwrap();
+    let server = spawn(|_| MockResponse::json(500, "{}"));
+    let env = test_env(FixedResolver::default(), 3000);
+    let err = brain_query_with_embedding(
+        cfg_file.path(),
+        vec_file.path(),
+        "pregunta perdida",
+        "/vault",
+        Some(conv_id.clone()),
+        &conn_for(&server.url),
+        "m",
+        None,
+        &env,
+        Ok(fake_embedding()),
+    )
+    .await
+    .unwrap_err();
+    assert!(err.starts_with("llm_error:"), "got {err}");
+    let messages = conv_db.get_messages(&conv_id).unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].role, "user");
+    assert_eq!(messages[0].content, "pregunta perdida");
 }
