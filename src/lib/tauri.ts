@@ -175,6 +175,31 @@ export async function brainUpdateEmbedding(
   });
 }
 
+// ── Notes from chat ────────────────────────────────────────────────────────────
+
+/** Create or append a note (path relative to the vault). Returns the absolute path. */
+export async function chatWriteNote(
+  path: string,
+  content: string,
+  mode: 'create' | 'append',
+  vaultPath: string,
+): Promise<string> {
+  return invoke<string>('chat_write_note', { path, content, mode, vaultPath });
+}
+
+export async function noteExists(path: string, vaultPath: string): Promise<boolean> {
+  return invoke<boolean>('note_exists', { path, vaultPath });
+}
+
+/** Last `lines` lines of an existing note (append preview). */
+export async function readNoteTail(
+  path: string,
+  vaultPath: string,
+  lines: number,
+): Promise<string> {
+  return invoke<string>('read_note_tail', { path, vaultPath, lines });
+}
+
 // ── LLM connections ────────────────────────────────────────────────────────────
 // Payload keys must be camelCase (guarded by invokeArgs.test.ts).
 
@@ -226,4 +251,14 @@ export async function llmDetectCli(engine: Engine): Promise<CliDetection> {
 /** Subscribe to validation progress events. Returns the unlisten function. */
 export async function onLlmValidateProgress(cb: (e: ProgressEvent) => void): Promise<() => void> {
   return listen<ProgressEvent>('llm-validate-progress', (event) => cb(event.payload));
+}
+
+export interface IndexProgress {
+  done: number;
+  total: number;
+}
+
+/** Subscribe to Second Brain indexing progress (`brain-index-progress`). */
+export async function onBrainIndexProgress(cb: (p: IndexProgress) => void): Promise<() => void> {
+  return listen<IndexProgress>('brain-index-progress', (event) => cb(event.payload));
 }

@@ -19,10 +19,15 @@ export interface EditorState {
   vaultPath: string | null;
   vaultTree: VaultEntry[];
   saveStatus: SaveStatus;
+  /** True while the editor holds edits that are not yet persisted to disk. */
+  isDirty: boolean;
+  /** Plain text currently selected in the editor ('' when none). */
+  selectionText: string;
 
   // Actions
   openNote(absolutePath: string): Promise<void>;
   setContent(markdown: string): void;
+  setSelectionText(text: string): void;
   saveNow(): Promise<void>;
   initVault(): Promise<void>;
 }
@@ -73,6 +78,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vaultPath: null,
   vaultTree: [],
   saveStatus: 'idle',
+  isDirty: false,
+  selectionText: '',
 
   async openNote(absolutePath: string) {
     // Cancel any pending debounced save for the previous note
@@ -93,11 +100,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       activeNotePath: absolutePath,
       activeNoteContent: processedMarkdown,
       saveStatus: 'idle',
+      isDirty: false,
+      selectionText: '',
     });
   },
 
+  setSelectionText(text: string) {
+    set({ selectionText: text });
+  },
+
   setContent(markdown: string) {
-    set({ activeNoteContent: markdown, saveStatus: 'saving' });
+    set({ activeNoteContent: markdown, saveStatus: 'saving', isDirty: true });
 
     if (debounceTimer !== null) {
       clearTimeout(debounceTimer);
@@ -116,7 +129,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     try {
       await writeNote(activeNotePath, processedMarkdown, vaultPath);
-      set({ saveStatus: 'saved' });
+      // Edits made while the write was in flight keep the note dirty.
+      if (get().activeNoteContent === activeNoteContent && get().activeNotePath === activeNotePath) {
+        set({ saveStatus: 'saved', isDirty: false });
+      }
       // Fire-and-forget: update embeddings after successful save (TC-35)
       if (activeNotePath.endsWith('.md')) {
         brainUpdateEmbedding(activeNotePath, vaultPath).catch(() => {});

@@ -60,15 +60,21 @@ beforeEach(() => {
 });
 
 describe('ModelSwitcher', () => {
-  it('shows the active selection as "<connection> · <model>", fixed bottom-right', () => {
+  it('shows the active selection as "<connection> · <model>", rendered in flow (not floating)', () => {
     seed();
     renderSwitcher();
     const pill = screen.getByTestId('model-pill');
     expect(pill).toHaveTextContent('Casa · opus');
     const wrapper = screen.getByTestId('model-switcher');
-    expect(wrapper.style.position).toBe('fixed');
-    expect(wrapper.style.right).not.toBe('');
-    expect(wrapper.style.bottom).not.toBe('');
+    expect(wrapper.style.position).toBe('relative');
+  });
+
+  it('opens the popover upwards (anchored above the pill)', () => {
+    seed();
+    renderSwitcher();
+    fireEvent.click(screen.getByTestId('model-pill'));
+    expect(screen.getByTestId('model-popover').style.bottom).toContain('100%');
+    expect(screen.getByTestId('model-popover').style.top).toBe('');
   });
 
   it('opens a popover with connections grouped and their models', () => {

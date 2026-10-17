@@ -180,3 +180,52 @@ describe('initVault', () => {
     expect(useEditorStore.getState().vaultTree).toEqual([]);
   });
 });
+
+// ── isDirty: unsaved edits signal ─────────────────────────────────────────────
+describe('isDirty', () => {
+  const seedNote = () =>
+    useEditorStore.setState({
+      activeNotePath: '/vault/note.md',
+      activeNoteContent: '# A',
+      vaultPath: '/vault',
+      saveStatus: 'idle',
+      isDirty: false,
+    });
+
+  it('is false after opening a note', async () => {
+    mockInvoke.mockResolvedValueOnce('# Hola');
+    await useEditorStore.getState().openNote('/vault/note.md');
+    expect(useEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it('becomes true on edit and false once the save succeeds', async () => {
+    seedNote();
+    mockInvoke.mockResolvedValue(undefined);
+    useEditorStore.getState().setContent('# B');
+    expect(useEditorStore.getState().isDirty).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(useEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it('stays true when the save fails', async () => {
+    seedNote();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockInvoke.mockRejectedValue('io_error');
+    useEditorStore.getState().setContent('# B');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(useEditorStore.getState().isDirty).toBe(true);
+  });
+
+  it('stays true when the user edits while a save is in flight', async () => {
+    seedNote();
+    let release: () => void = () => {};
+    mockInvoke.mockImplementation((() => new Promise<void>((r) => { release = r; })) as never);
+    useEditorStore.getState().setContent('# B');
+    await vi.advanceTimersByTimeAsync(1000); // save starts, write pending
+    useEditorStore.getState().setContent('# C');
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useEditorStore.getState().isDirty).toBe(true);
+    expect(useEditorStore.getState().saveStatus).toBe('saving');
+  });
+});
