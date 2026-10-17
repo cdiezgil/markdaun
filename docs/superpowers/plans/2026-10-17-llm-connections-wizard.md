@@ -5511,7 +5511,7 @@ git commit -m "feat(ui): add LLM provider preset catalog"
 - Modify: `src/lib/tauri.ts`
 - Create: `src/lib/tauri.llm.test.ts`
 
-- [ ] **Step 1: Write the failing test** - `src/lib/tauri.llm.test.ts`:
+- [x] **Step 1: Write the failing test** - `src/lib/tauri.llm.test.ts`:
 
 ```ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -5607,12 +5607,12 @@ describe('onLlmValidateProgress', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/lib/tauri.llm.test.ts`
 Expected: FAIL (`llmValidate` etc. are not exported).
 
-- [ ] **Step 3: Implement** - in `src/lib/tauri.ts`, add imports at the top (below the existing imports):
+- [x] **Step 3: Implement** - in `src/lib/tauri.ts`, add imports at the top (below the existing imports):
 
 ```ts
 import { listen } from '@tauri-apps/api/event';
@@ -5683,12 +5683,12 @@ export async function onLlmValidateProgress(cb: (e: ProgressEvent) => void): Pro
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/lib/tauri.llm.test.ts src/lib/invokeArgs.test.ts && npx tsc --noEmit`
 Expected: PASS (both files); tsc clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/tauri.ts src/lib/tauri.llm.test.ts
