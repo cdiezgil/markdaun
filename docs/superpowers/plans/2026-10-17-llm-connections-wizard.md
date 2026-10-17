@@ -7568,7 +7568,7 @@ git commit -m "feat(ui): add wizard models-and-name step with per-model verifica
 - Create: `src/components/LlmWizard/LlmWizard.tsx`, `src/components/LlmWizard/LlmWizard.test.tsx`
 - Modify: `src/App.tsx`
 
-- [ ] **Step 1: Write the failing test** - `src/components/LlmWizard/LlmWizard.test.tsx`:
+- [x] **Step 1: Write the failing test** - `src/components/LlmWizard/LlmWizard.test.tsx`:
 
 ```tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -7707,12 +7707,12 @@ describe('LlmWizard', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard/LlmWizard.test.tsx`
 Expected: FAIL (`./LlmWizard` not found).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/components/LlmWizard/LlmWizard.tsx`:
 
@@ -7869,12 +7869,12 @@ Inside `AppLayout`, after the `useState` lines add `const wizardOpen = useLlmSto
       {wizardOpen && <LlmWizard />}
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard src/App.test.tsx && npx tsc --noEmit`
 Expected: PASS (all wizard suites, App tests unchanged); tsc clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/LlmWizard src/App.tsx
