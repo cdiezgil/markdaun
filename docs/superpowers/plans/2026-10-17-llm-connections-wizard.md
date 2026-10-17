@@ -7246,7 +7246,7 @@ git commit -m "feat(ui): add wizard validation step with live checklist and type
 **Files:**
 - Create: `src/components/LlmWizard/ModelsAndName.tsx`, `src/components/LlmWizard/ModelsAndName.test.tsx`
 
-- [ ] **Step 1: Write the failing test** - `src/components/LlmWizard/ModelsAndName.test.tsx`:
+- [x] **Step 1: Write the failing test** - `src/components/LlmWizard/ModelsAndName.test.tsx`:
 
 ```tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -7372,12 +7372,12 @@ describe('ModelsAndName', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard/ModelsAndName.test.tsx`
 Expected: FAIL (`./ModelsAndName` not found).
 
-- [ ] **Step 3: Implement** - `src/components/LlmWizard/ModelsAndName.tsx`:
+- [x] **Step 3: Implement** - `src/components/LlmWizard/ModelsAndName.tsx`:
 
 ```tsx
 import React, { useMemo, useState } from 'react';
@@ -7550,12 +7550,12 @@ export function ModelsAndName({ draft, result, secret, suggested, onSaved, onBac
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard/ModelsAndName.test.tsx && npx tsc --noEmit`
 Expected: PASS (8 tests); tsc clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/LlmWizard
