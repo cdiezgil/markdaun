@@ -29,3 +29,5 @@ mod store_tests;
 pub mod testutil;
 #[cfg(test)]
 mod testutil_tests;
+#[cfg(test)]
+mod tls_tests;
