@@ -1,174 +1,95 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { Edge } from '@xyflow/react';
-import type { Node } from '@xyflow/react';
+import type { Edge, Node } from '@xyflow/react';
+import {
+  buildGraphModel,
+  type BackendGraph,
+  type GraphModel,
+  type NodeKind,
+  type TagNodeModel,
+} from '../lib/graph/graphModel';
+import { layoutGraph, type LayoutNode } from '../lib/graph/graphLayout';
 
-// ── Backend types ─────────────────────────────────────────────────────────────
-
-interface BackendGraphNode {
-  path: string;
-  name: string;
-  kind: 'md' | 'image' | 'pdf' | 'other';
-  x: number | null;
-  y: number | null;
-}
-
-interface BackendGraphEdge {
-  source: string;
-  target: string;
-}
-
-interface VaultGraph {
-  nodes: BackendGraphNode[];
-  edges: BackendGraphEdge[];
-}
-
-// ── Frontend node data ────────────────────────────────────────────────────────
+// ── Node data ─────────────────────────────────────────────────────────────────
 
 export interface GraphNodeData extends Record<string, unknown> {
   path: string;
   label: string;
-  kind: 'md' | 'image' | 'pdf' | 'other';
+  kind: NodeKind;
   isOrphan: boolean;
+  diameter: number;
+  backlinks: number;
+  links: number;
+  folder: string;
+  tags: string[];
+  excerpt: string;
 }
 
-export interface OrphanGroupData extends Record<string, unknown> {
-  /** Relative subfolder path (relative to vault root), or "root" for vault-root files. */
-  folderName: string;
+export interface TagNodeData extends Record<string, unknown> {
+  label: string;
+  count: number;
 }
 
-// ── computeInitialLayout ──────────────────────────────────────────────────────
+type Pos = { x: number; y: number };
 
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ≈ 137.5°
-const LAYOUT_RADIUS = 400;
-const REPULSION_K = 5000;
-const ATTRACTION_K = 0.05;
-const GRAVITY_K = 0.01;
-const ITERATIONS = 50;
+const LABEL_ROOM = 34; // collision breathing room for the label under a node
 
-/**
- * Assign (x, y) positions to nodes that don't have saved positions.
- * Uses a golden-angle circular seed + 50 iterations of force simulation.
- */
-export function computeInitialLayout(
-  nodes: Array<{ path: string }>,
-  edges: Array<{ source: string; target: string }>,
-): Map<string, { x: number; y: number }> {
-  const positions = new Map<string, { x: number; y: number }>();
-
-  if (nodes.length === 0) return positions;
-
-  // Seed positions with golden-angle spiral
-  nodes.forEach((node, i) => {
-    const angle = i * GOLDEN_ANGLE;
-    const r = LAYOUT_RADIUS * Math.sqrt((i + 1) / nodes.length);
-    positions.set(node.path, {
-      x: r * Math.cos(angle),
-      y: r * Math.sin(angle),
-    });
-  });
-
-  // Build adjacency set for attraction
-  const edgePairs = edges.map((e) => ({ source: e.source, target: e.target }));
-
-  // Force iterations
-  for (let iter = 0; iter < ITERATIONS; iter++) {
-    const forces = new Map<string, { fx: number; fy: number }>();
-    nodes.forEach((n) => forces.set(n.path, { fx: 0, fy: 0 }));
-
-    // Repulsion between all pairs
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const pi = positions.get(nodes[i].path)!;
-        const pj = positions.get(nodes[j].path)!;
-        const dx = pi.x - pj.x;
-        const dy = pi.y - pj.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-        const force = REPULSION_K / (dist * dist);
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        forces.get(nodes[i].path)!.fx += fx;
-        forces.get(nodes[i].path)!.fy += fy;
-        forces.get(nodes[j].path)!.fx -= fx;
-        forces.get(nodes[j].path)!.fy -= fy;
-      }
-    }
-
-    // Attraction along edges
-    for (const edge of edgePairs) {
-      const ps = positions.get(edge.source);
-      const pt = positions.get(edge.target);
-      if (!ps || !pt) continue;
-      const dx = pt.x - ps.x;
-      const dy = pt.y - ps.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-      const force = ATTRACTION_K * dist;
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      const fs = forces.get(edge.source)!;
-      const ft = forces.get(edge.target)!;
-      fs.fx += fx;
-      fs.fy += fy;
-      ft.fx -= fx;
-      ft.fy -= fy;
-    }
-
-    // Gravity toward origin
-    for (const node of nodes) {
-      const p = positions.get(node.path)!;
-      const f = forces.get(node.path)!;
-      f.fx -= GRAVITY_K * p.x;
-      f.fy -= GRAVITY_K * p.y;
-    }
-
-    // Apply forces
-    for (const node of nodes) {
-      const p = positions.get(node.path)!;
-      const f = forces.get(node.path)!;
-      positions.set(node.path, {
-        x: p.x + f.fx,
-        y: p.y + f.fy,
-      });
-    }
-  }
-
-  return positions;
+function noteRadius(diameter: number): number {
+  return diameter / 2 + LABEL_ROOM;
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 interface GraphStoreState {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  nodes: Node<any>[];
+  model: GraphModel | null;
+  /** Note nodes (graphNode), laid out. */
+  nodes: Node<GraphNodeData>[];
+  /** Link edges between notes. */
   edges: Edge[];
+  /** Tag nodes (tagNode), shown only when the Etiquetas filter is on. */
+  tagNodes: Node<TagNodeData>[];
+  tagEdges: Edge[];
+  /** Bumped on every (re)load so the canvas can re-fit the view. */
+  loadId: number;
   isLoading: boolean;
   error: string | null;
+  showLinks: boolean;
+  showTags: boolean;
   showOrphans: boolean;
   searchQuery: string;
+  selectedPath: string | null;
 
   loadGraph(vaultPath: string): Promise<void>;
   savePosition(vaultPath: string, filePath: string, x: number, y: number): Promise<void>;
+  moveNode(id: string, x: number, y: number): void;
+  selectNode(path: string | null): void;
+  setShowLinks(v: boolean): void;
+  setShowTags(v: boolean): void;
   setShowOrphans(v: boolean): void;
   setSearchQuery(q: string): void;
 }
 
 export const useGraphStore = create<GraphStoreState>((set) => ({
+  model: null,
   nodes: [],
   edges: [],
+  tagNodes: [],
+  tagEdges: [],
+  loadId: 0,
   isLoading: false,
   error: null,
+  showLinks: true,
+  showTags: false,
   showOrphans: true,
   searchQuery: '',
+  selectedPath: null,
 
   async loadGraph(vaultPath: string) {
     set({ isLoading: true, error: null });
     try {
-      const graph = await invoke<VaultGraph>('get_vault_graph', {
-        vaultPath: vaultPath,
-      });
-
-      const { nodes, edges } = buildReactFlowGraph(graph, vaultPath);
-      set({ nodes, edges, isLoading: false });
+      const graph = await invoke<BackendGraph>('get_vault_graph', { vaultPath });
+      const built = buildFlow(buildGraphModel(graph, vaultPath));
+      set((s) => ({ ...built, loadId: s.loadId + 1, isLoading: false }));
     } catch (e) {
       set({ error: typeof e === 'string' ? e : String(e), isLoading: false });
     }
@@ -176,109 +97,80 @@ export const useGraphStore = create<GraphStoreState>((set) => ({
 
   async savePosition(vaultPath: string, filePath: string, x: number, y: number) {
     try {
-      await invoke('save_node_position', {
-        vaultPath: vaultPath,
-        filePath: filePath,
-        x,
-        y,
-      });
+      await invoke('save_node_position', { vaultPath, filePath, x, y });
     } catch (e) {
       console.error('savePosition failed:', e);
     }
   },
 
-  setShowOrphans(v: boolean) {
-    set({ showOrphans: v });
+  moveNode(id, x, y) {
+    set((s) => ({
+      nodes: s.nodes.map((n) => (n.id === id ? { ...n, position: { x, y } } : n)),
+      tagNodes: s.tagNodes.map((n) => (n.id === id ? { ...n, position: { x, y } } : n)),
+    }));
   },
 
-  setSearchQuery(q: string) {
-    set({ searchQuery: q });
-  },
+  selectNode: (path) => set({ selectedPath: path }),
+  setShowLinks: (v) => set({ showLinks: v }),
+  setShowTags: (v) => set({ showTags: v }),
+  setShowOrphans: (v) => set({ showOrphans: v }),
+  setSearchQuery: (q) => set({ searchQuery: q }),
 }));
 
-// ── Graph builder ─────────────────────────────────────────────────────────────
+// ── Flow builder ──────────────────────────────────────────────────────────────
 
-function buildReactFlowGraph(
-  graph: VaultGraph,
-  vaultPath: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): { nodes: Node<any>[]; edges: Edge[] } {
-  const { nodes: backendNodes, edges: backendEdges } = graph;
+const edgeId = (s: string, t: string) => `${s}→${t}`;
 
-  // Determine connected paths (have at least one edge)
-  const connected = new Set<string>();
-  for (const edge of backendEdges) {
-    connected.add(edge.source);
-    connected.add(edge.target);
-  }
+function buildFlow(model: GraphModel) {
+  const layoutNodes: LayoutNode[] = [
+    ...model.nodes.map((n) => ({
+      id: n.path,
+      radius: noteRadius(n.diameter),
+      folder: n.folder,
+      fixed: n.saved ? { x: n.saved.x + n.diameter / 2, y: n.saved.y + n.diameter / 2 } : null,
+    })),
+    ...model.tagNodes.map((t) => ({ id: t.id, radius: 40, folder: '', fixed: null })),
+  ];
+  const positions = layoutGraph(layoutNodes, [...model.edges, ...model.tagEdges]);
+  const at = (id: string): Pos => positions.get(id) ?? { x: 0, y: 0 };
 
-  // Nodes without saved positions need layout
-  const nodesNeedingLayout = backendNodes
-    .filter((n) => n.x === null)
-    .map((n) => ({ path: n.path }));
-
-  const layoutPositions = computeInitialLayout(nodesNeedingLayout, backendEdges);
-
-  // Build orphan groups: keyed by relative folder path
-  const orphanGroupMap = new Map<string, string>(); // folderKey → RF groupId
-  const rfNodes: Node<GraphNodeData | OrphanGroupData>[] = [];
-  const rfEdges: Edge[] = backendEdges.map((e) => ({
-    id: `${e.source}→${e.target}`,
-    source: e.source,
-    target: e.target,
+  const nodes: Node<GraphNodeData>[] = model.nodes.map((n) => ({
+    id: n.path,
+    type: 'graphNode',
+    // React Flow positions by top-left; the layout works with centres.
+    position: n.saved ?? { x: at(n.path).x - n.diameter / 2, y: at(n.path).y - n.diameter / 2 },
+    data: {
+      path: n.path,
+      label: n.label,
+      kind: n.kind,
+      isOrphan: n.isOrphan,
+      diameter: n.diameter,
+      backlinks: n.backlinks,
+      links: n.links,
+      folder: n.folder,
+      tags: n.tags,
+      excerpt: n.excerpt,
+    },
   }));
 
-  // Vault path normalised (without trailing slash)
-  const vaultPrefix = vaultPath.endsWith('/') ? vaultPath : vaultPath + '/';
+  const tagNodes: Node<TagNodeData>[] = model.tagNodes.map((t: TagNodeModel) => ({
+    id: t.id,
+    type: 'tagNode',
+    position: at(t.id),
+    data: { label: t.label, count: t.count },
+  }));
 
-  for (const bn of backendNodes) {
-    const isOrphan = !connected.has(bn.path);
-    const label =
-      bn.kind === 'md' ? bn.name.replace(/\.md$/i, '') : bn.name;
+  const mkEdge = (e: { source: string; target: string }): Edge => ({
+    id: edgeId(e.source, e.target),
+    source: e.source,
+    target: e.target,
+  });
 
-    const savedPos =
-      bn.x !== null && bn.y !== null ? { x: bn.x, y: bn.y } : null;
-    const computedPos = layoutPositions.get(bn.path);
-    const position = savedPos ?? computedPos ?? { x: 0, y: 0 };
-
-    if (isOrphan) {
-      // Determine folder key relative to vault root
-      const relPath = bn.path.startsWith(vaultPrefix)
-        ? bn.path.slice(vaultPrefix.length)
-        : bn.path;
-      const parts = relPath.split('/');
-      const folderKey = parts.length > 1 ? parts.slice(0, -1).join('/') : 'root';
-
-      if (!orphanGroupMap.has(folderKey)) {
-        const groupId = `orphanGroup_${folderKey}`;
-        orphanGroupMap.set(folderKey, groupId);
-        rfNodes.push({
-          id: groupId,
-          type: 'orphanGroup',
-          position: { x: 0, y: 0 },
-          data: { folderName: folderKey } as OrphanGroupData,
-          style: { width: 200, height: 150 },
-        });
-      }
-
-      const groupId = orphanGroupMap.get(folderKey)!;
-      rfNodes.push({
-        id: bn.path,
-        type: bn.kind === 'md' ? 'graphNode' : 'default',
-        position,
-        data: { path: bn.path, label, kind: bn.kind, isOrphan } as GraphNodeData,
-        parentId: groupId,
-        extent: 'parent',
-      });
-    } else {
-      rfNodes.push({
-        id: bn.path,
-        type: bn.kind === 'md' ? 'graphNode' : 'default',
-        position,
-        data: { path: bn.path, label, kind: bn.kind, isOrphan } as GraphNodeData,
-      });
-    }
-  }
-
-  return { nodes: rfNodes, edges: rfEdges };
+  return {
+    model,
+    nodes,
+    edges: model.edges.map(mkEdge),
+    tagNodes,
+    tagEdges: model.tagEdges.map(mkEdge),
+  };
 }

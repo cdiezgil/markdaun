@@ -92,3 +92,47 @@ fn non_md_file_returns_empty() {
     let links = extract_links(&img, vault.path(), &all_files);
     assert!(links.is_empty(), "TC-06: non-.md file should return empty vec");
 }
+
+// ── Slice 5: tags and excerpts ───────────────────────────────────────────────
+
+use crate::graph::{extract_excerpt, extract_tags};
+
+#[test]
+fn tags_are_extracted_without_hash_and_deduplicated() {
+    let tags = extract_tags("Intro #ideas and #Work\n\nlater #ideas again");
+    assert_eq!(tags, vec!["ideas".to_string(), "Work".to_string()]);
+}
+
+#[test]
+fn tags_ignore_headings_urls_and_mid_word_hashes() {
+    let tags = extract_tags("# Title\n## Sub\nsee http://x.com/#anchor and a#b and C# code");
+    assert!(tags.is_empty(), "got {tags:?}");
+}
+
+#[test]
+fn tags_ignore_fenced_code() {
+    let tags = extract_tags("```\n#notatag\n```\nreal #yes");
+    assert_eq!(tags, vec!["yes".to_string()]);
+}
+
+#[test]
+fn tags_can_start_a_line() {
+    assert_eq!(extract_tags("#solo"), vec!["solo".to_string()]);
+}
+
+#[test]
+fn excerpt_skips_headings_and_blank_lines() {
+    let e = extract_excerpt("# Title\n\nFirst line.\nSecond line.\n", 100);
+    assert_eq!(e, "First line. Second line.");
+}
+
+#[test]
+fn excerpt_is_truncated_with_ellipsis() {
+    let e = extract_excerpt("abcdefghij klmnop", 10);
+    assert_eq!(e, "abcdefghij…");
+}
+
+#[test]
+fn excerpt_of_empty_note_is_empty() {
+    assert_eq!(extract_excerpt("# Only title\n", 100), "");
+}

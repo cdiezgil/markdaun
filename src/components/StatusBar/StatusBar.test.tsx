@@ -122,7 +122,7 @@ describe('StatusBar', () => {
     it('graph: shows graph counts and the AI selector, no note data', () => {
       seedNote('x');
       useGraphStore.setState({
-        nodes: graphNodes,
+        nodes: graphNodes as never,
         edges: [{ id: 'e', source: 'a', target: 'b' }],
       });
       renderBar('/graph');
