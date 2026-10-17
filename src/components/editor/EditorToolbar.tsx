@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import type { Editor } from '@tiptap/react';
 import {
   Heading1,
@@ -20,6 +20,7 @@ import {
 
 import { useEditorStore } from '../../store/editorStore';
 import { pickImageFile, convertAssetSrc } from '../../lib/tauri';
+import { TableSizePicker } from './TableSizePicker';
 
 // ── ToolbarButton ─────────────────────────────────────────────────────────────
 
@@ -65,6 +66,8 @@ interface EditorToolbarProps {
 
 export default function EditorToolbar({ editor }: EditorToolbarProps) {
   const { activeNotePath } = useEditorStore();
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const tableButtonRef = useRef<HTMLDivElement>(null);
 
   const handleInsertImage = async () => {
     if (!editor || !activeNotePath) return;
@@ -96,7 +99,13 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
   const handleInsertTable = () => {
     if (!editor) return;
-    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+    setTablePickerOpen((open) => !open);
+  };
+
+  const handleTableSizeSelect = (rows: number, cols: number) => {
+    if (!editor) return;
+    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+    setTablePickerOpen(false);
   };
 
   return (
@@ -223,9 +232,23 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       </ToolbarButton>
 
       {/* Table */}
-      <ToolbarButton label="Insert table" onClick={handleInsertTable}>
-        <Table size={20} strokeWidth={1.5} />
-      </ToolbarButton>
+      <div ref={tableButtonRef} style={{ position: 'relative', display: 'inline-flex' }}>
+        <ToolbarButton label="Insert table" onClick={handleInsertTable}>
+          <Table size={20} strokeWidth={1.5} />
+        </ToolbarButton>
+      </div>
+      {tablePickerOpen &&
+        tableButtonRef.current &&
+        (() => {
+          const rect = tableButtonRef.current!.getBoundingClientRect();
+          return (
+            <TableSizePicker
+              anchorRect={{ left: rect.left, bottom: rect.bottom }}
+              onSelect={handleTableSizeSelect}
+              onClose={() => setTablePickerOpen(false)}
+            />
+          );
+        })()}
 
       {/* Horizontal rule */}
       <ToolbarButton
