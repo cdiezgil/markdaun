@@ -891,7 +891,7 @@ git commit -m "feat(llm): add connection store with active selection and legacy 
 - Create: `src-tauri/src/llm/testutil.rs`, `src-tauri/src/llm/testutil_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/testutil_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/testutil_tests.rs`:
 
 ```rust
 use super::testutil::*;
@@ -928,12 +928,12 @@ async fn mock_server_records_requests_and_replies() {
 
 (The `FakeClock` helper and its test are added in Task 11 because it implements the `Clock` trait defined there.)
 
-- [ ] **Step 2: Run to verify it fails** - add to `llm/mod.rs`: `#[cfg(test)] pub mod testutil;` and `#[cfg(test)] mod testutil_tests;`.
+- [x] **Step 2: Run to verify it fails** - add to `llm/mod.rs`: `#[cfg(test)] pub mod testutil;` and `#[cfg(test)] mod testutil_tests;`.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::testutil_tests`
 Expected: FAIL to compile (`testutil.rs` missing).
 
-- [ ] **Step 3: Implement** - `src-tauri/src/llm/testutil.rs`:
+- [x] **Step 3: Implement** - `src-tauri/src/llm/testutil.rs`:
 
 ```rust
 //! Test-only helpers: scriptable HTTP/TLS mock server and fake executables.
@@ -1132,12 +1132,12 @@ pub fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::testutil_tests`
 Expected: PASS (1 test). If `rcgen`/`rustls` API names differ for the installed versions, fix `spawn_tls` here (run `cargo doc -p rcgen --no-deps` or read the compiler error); nothing else depends on its internals.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
