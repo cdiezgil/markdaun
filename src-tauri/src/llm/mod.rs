@@ -7,6 +7,7 @@ pub mod embeddings;
 pub mod engines;
 pub mod error;
 pub mod http;
+pub mod proc;
 pub mod secrets;
 pub mod store;
 
@@ -19,6 +20,8 @@ mod tests;
 mod error_tests;
 #[cfg(test)]
 mod http_tests;
+#[cfg(test)]
+mod proc_tests;
 #[cfg(test)]
 mod connection_tests;
 #[cfg(test)]
