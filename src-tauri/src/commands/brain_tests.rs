@@ -462,3 +462,9 @@ async fn brain_query_reports_invalid_attachments_before_calling_the_model() {
     assert!(r.unwrap_err().starts_with("attachment_error:"));
     assert!(server.requests().is_empty());
 }
+
+#[test]
+fn build_rag_messages_teaches_mermaid_diagrams() {
+    let messages = build_rag_messages("haz un diagrama", &[], &[]);
+    assert!(messages[0].content.contains("```mermaid"));
+}
