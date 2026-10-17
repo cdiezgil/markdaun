@@ -80,8 +80,16 @@ describe('pending attachments', () => {
     expect(s.pendingAttachments.map((a) => a.name)).toEqual(['new.png']);
     expect(s.pendingPrompt).toMatchObject({ text: 'hola', send: false });
     expect(s.currentConversationId).toBeNull();
+    expect(s.notices).toEqual([]);
     useBrainStore.getState().consumePendingPrompt();
     expect(useBrainStore.getState().pendingPrompt).toBeNull();
+  });
+});
+
+describe('askWithAttachments notices', () => {
+  it('keeps the notices handed over by the caller', () => {
+    useBrainStore.getState().askWithAttachments([att('a.png')], { text: 'x', send: false }, ['n1']);
+    expect(useBrainStore.getState().notices).toEqual(['n1']);
   });
 });
 

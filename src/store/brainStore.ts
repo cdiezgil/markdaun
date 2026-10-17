@@ -53,7 +53,11 @@ export interface BrainState {
   clearAttachments(): void;
   setNotices(notices: string[]): void;
   /** Replace the queue and hand a prompt to the chat panel. */
-  askWithAttachments(attachments: ChatAttachment[], prompt: { text: string; send: boolean }): void;
+  askWithAttachments(
+    attachments: ChatAttachment[],
+    prompt: { text: string; send: boolean },
+    notices?: string[],
+  ): void;
   consumePendingPrompt(): void;
 
   // Derived: conversations filtered by filterQuery (on title).
@@ -101,8 +105,9 @@ export const useBrainStore = create<BrainState>((set, get) => ({
     set({ notices });
   },
 
-  askWithAttachments(attachments, prompt) {
+  askWithAttachments(attachments, prompt, notices = []) {
     set({
+      notices,
       pendingAttachments: attachments.slice(0, MAX_ATTACHMENTS),
       currentConversationId: null,
       messages: [],

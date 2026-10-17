@@ -52,7 +52,7 @@ function processImagesOnLoad(markdown: string, noteDir: string): string {
   });
 }
 
-function processImagesOnSave(markdown: string, noteDir: string): string {
+export function processImagesOnSave(markdown: string, noteDir: string): string {
   return markdown.replace(IMAGE_RE, (match, alt: string, src: string) => {
     if (!src.startsWith('tauri://') && !src.startsWith('asset://')) return match;
     try {
