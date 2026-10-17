@@ -147,3 +147,107 @@ describe('TC-05: carpeta toggle', () => {
     expect(screen.getByTestId('tree-node-nota.md')).toBeInTheDocument();
   });
 });
+
+const folderEntry: VaultEntry = {
+  name: 'carpeta',
+  path: '/vault/carpeta',
+  kind: 'folder',
+  children: [],
+};
+
+describe('drag & drop entre nodos', () => {
+  function makeDataTransfer(getDataValue: string) {
+    return {
+      types: ['application/x-markdaun-entry'],
+      setData: vi.fn(),
+      getData: vi.fn().mockReturnValue(getDataValue),
+      effectAllowed: '',
+      dropEffect: '',
+    };
+  }
+
+  it('dragStart guarda la ruta de la entrada en el dataTransfer', () => {
+    wrap(<TreeNode entry={mdEntry} depth={0} />);
+    const dt = makeDataTransfer('');
+    fireEvent.dragStart(screen.getByTestId('tree-node-nota.md'), { dataTransfer: dt });
+    expect(dt.setData).toHaveBeenCalledWith(
+      'application/x-markdaun-entry',
+      '/vault/nota.md',
+    );
+  });
+
+  it('soltar una nota sobre una carpeta invoca move_entry', async () => {
+    mockInvoke
+      .mockResolvedValueOnce('/vault/carpeta/nota.md') // move_entry
+      .mockResolvedValueOnce([]); // list_vault_tree
+
+    wrap(<TreeNode entry={folderEntry} depth={0} />);
+    fireEvent.drop(screen.getByTestId('tree-node-carpeta'), {
+      dataTransfer: makeDataTransfer('/vault/nota.md'),
+    });
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        'move_entry',
+        expect.objectContaining({
+          sourcePath: '/vault/nota.md',
+          destFolderPath: '/vault/carpeta',
+        }),
+      ),
+    );
+  });
+
+  it('no hace nada al soltar una carpeta sobre sí misma', () => {
+    wrap(<TreeNode entry={folderEntry} depth={0} />);
+    fireEvent.drop(screen.getByTestId('tree-node-carpeta'), {
+      dataTransfer: makeDataTransfer('/vault/carpeta'),
+    });
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it('ignora drops sin payload de entrada', () => {
+    wrap(<TreeNode entry={folderEntry} depth={0} />);
+    fireEvent.drop(screen.getByTestId('tree-node-carpeta'), {
+      dataTransfer: { types: ['Files'], getData: vi.fn() },
+    });
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it('un fichero no acepta drops', () => {
+    wrap(<TreeNode entry={mdEntry} depth={0} />);
+    fireEvent.drop(screen.getByTestId('tree-node-nota.md'), {
+      dataTransfer: makeDataTransfer('/vault/otra.md'),
+    });
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('menú contextual de carpeta', () => {
+  it('muestra Nueva nota y Nueva carpeta solo en carpetas', async () => {
+    const onCreateNote = vi.fn();
+    const onCreateFolder = vi.fn();
+    wrap(
+      <TreeNode
+        entry={folderEntry}
+        depth={0}
+        onCreateNote={onCreateNote}
+        onCreateFolder={onCreateFolder}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('tree-node-carpeta'));
+    fireEvent.click(await screen.findByTestId('context-new-note'));
+    expect(onCreateNote).toHaveBeenCalledWith('/vault/carpeta');
+
+    fireEvent.contextMenu(screen.getByTestId('tree-node-carpeta'));
+    fireEvent.click(await screen.findByTestId('context-new-folder'));
+    expect(onCreateFolder).toHaveBeenCalledWith('/vault/carpeta');
+  });
+
+  it('no muestra opciones de creación en ficheros', () => {
+    wrap(<TreeNode entry={mdEntry} depth={0} onCreateNote={vi.fn()} onCreateFolder={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByTestId('tree-node-nota.md'));
+    expect(screen.queryByTestId('context-new-note')).toBeNull();
+    expect(screen.queryByTestId('context-new-folder')).toBeNull();
+  });
+});

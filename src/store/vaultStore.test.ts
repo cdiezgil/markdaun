@@ -193,3 +193,31 @@ describe('TC-19: openVault reemplaza bóveda activa', () => {
     expect(useVaultStore.getState().vaultPath).toBe('/B');
   });
 });
+
+describe('moveEntry', () => {
+  it('invoca move_entry con sourcePath, destFolderPath y vaultPath, y refresca', async () => {
+    useVaultStore.setState({ vaultPath: '/vault' });
+    mockInvoke
+      .mockResolvedValueOnce('/vault/carpeta/nota.md') // move_entry
+      .mockResolvedValueOnce(sampleTree); // list_vault_tree
+
+    await useVaultStore.getState().moveEntry('/vault/nota.md', '/vault/carpeta');
+
+    expect(mockInvoke).toHaveBeenCalledWith('move_entry', {
+      sourcePath: '/vault/nota.md',
+      destFolderPath: '/vault/carpeta',
+      vaultPath: '/vault',
+    });
+    expect(useVaultStore.getState().tree).toEqual(sampleTree);
+  });
+
+  it('propaga el error del backend y no refresca', async () => {
+    useVaultStore.setState({ vaultPath: '/vault' });
+    mockInvoke.mockRejectedValueOnce('already_exists');
+
+    await expect(
+      useVaultStore.getState().moveEntry('/vault/a.md', '/vault/carpeta'),
+    ).rejects.toBe('already_exists');
+    expect(useVaultStore.getState().error).toBe('already_exists');
+  });
+});
