@@ -1,25 +1,93 @@
 import { Node, mergeAttributes, InputRule } from '@tiptap/core';
+import type MarkdownIt from 'markdown-it';
 import type { VaultEntry } from '../../../lib/tauri';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     wikilink: {
-      insertWikilink: (label: string, exists: boolean) => ReturnType;
+      insertWikilink: (label: string, exists?: boolean) => ReturnType;
     };
   }
 }
 
 /**
+ * Where the extension reads the vault from. Everything is optional-by-design
+ * so the extension has no dependency on the editor or on any store.
+ */
+export interface WikilinkOptions {
+  /** Current vault tree; called at render time so `exists` is never stale. */
+  getVaultTree: () => VaultEntry[];
+  /** Notified when the vault tree may have changed; returns an unsubscribe. */
+  subscribe?: (listener: () => void) => () => void;
+  /** Called when an existing note's link is clicked. Omit for no navigation. */
+  onOpen?: (entry: VaultEntry) => void;
+}
+
+const EXISTS_STYLE = 'color:var(--daun);text-decoration:underline;cursor:pointer';
+const MISSING_STYLE = 'color:var(--amber);text-decoration:underline dashed;cursor:default';
+
+/** Splits the inside of `[[...]]` into target and optional alias (verbatim). */
+export function parseWikilinkBody(body: string): { label: string; alias: string | null } | null {
+  const bar = body.indexOf('|');
+  const label = bar === -1 ? body : body.slice(0, bar);
+  const alias = bar === -1 ? null : body.slice(bar + 1);
+  if (label.trim() === '' || /[[\]\n]/.test(body)) return null;
+  return { label, alias };
+}
+
+/** The exact Markdown source for a wikilink. */
+export function wikilinkToMarkdown(label: string, alias: string | null): string {
+  return alias === null ? `[[${label}]]` : `[[${label}|${alias}]]`;
+}
+
+const patched = new WeakSet<MarkdownIt>();
+
+/** markdown-it inline rule: `[[label]]` / `[[label|alias]]` -> span[data-wikilink]. */
+function installWikilinkRule(md: MarkdownIt): void {
+  if (patched.has(md)) return;
+  patched.add(md);
+  md.inline.ruler.before('link', 'wikilink', (state, silent) => {
+    const { src, pos, posMax } = state;
+    if (src.charCodeAt(pos) !== 0x5b || src.charCodeAt(pos + 1) !== 0x5b) return false;
+    const end = src.indexOf(']]', pos + 2);
+    if (end < 0 || end >= posMax) return false;
+    const parsed = parseWikilinkBody(src.slice(pos + 2, end));
+    if (!parsed) return false;
+    if (!silent) {
+      const esc = md.utils.escapeHtml;
+      const token = state.push('html_inline', '', 0);
+      token.content =
+        `<span data-wikilink="${esc(parsed.label)}"` +
+        (parsed.alias !== null ? ` data-alias="${esc(parsed.alias)}"` : '') +
+        `>${esc(wikilinkToMarkdown(parsed.label, parsed.alias))}</span>`;
+    }
+    state.pos = end + 2;
+    return true;
+  });
+}
+
+/**
  * WikilinkExtension — TC-11, TC-12
  *
- * Recognises [[note-name]] syntax (inline atom node).
- * - Existing note → var(--daun) colour, solid underline, clickable (calls openNote).
- * - Missing note  → var(--amber) colour, dashed underline, no navigation.
+ * Inline atom node for `[[note]]` / `[[note|alias]]`.
+ * - Existing note → var(--daun), solid underline, clickable (`onOpen`).
+ * - Missing note  → var(--amber), dashed underline, no navigation.
+ * `exists` is resolved against `getVaultTree()` at render time and re-resolved
+ * whenever `subscribe` fires, so it never goes stale.
  *
- * The node is atom (no editable content). tiptap-markdown serialises it via
- * the `renderText` fallback which outputs the atom's text content.
+ * Markdown: parsed by a markdown-it inline rule (so loading a note yields
+ * nodes) and serialised back to the exact original syntax.
+ *
+ * Read-only / outside the editor (e.g. rendering assistant Markdown):
+ *   const ext = createWikilinkExtension({ getVaultTree, subscribe, onOpen });
+ *   new Editor({ editable: false, extensions: [StarterKit, Markdown, TagExtension, ext], content });
+ * No store or editor-only context is required; pass a plain `VaultEntry[]`
+ * for a static tree.
  */
-export function createWikilinkExtension(vaultTree: VaultEntry[]) {
+export function createWikilinkExtension(source: VaultEntry[] | WikilinkOptions) {
+  const options: WikilinkOptions = Array.isArray(source) ? { getVaultTree: () => source } : source;
+  const exists = (label: string) => findInTree(options.getVaultTree(), label) !== null;
+
   return Node.create({
     name: 'wikilink',
     group: 'inline',
@@ -28,97 +96,128 @@ export function createWikilinkExtension(vaultTree: VaultEntry[]) {
 
     addAttributes() {
       return {
-        label: { default: '' },
-        exists: { default: false },
+        label: { default: '', rendered: false },
+        alias: { default: null, rendered: false },
+        // Legacy hint only; the rendered state always comes from the live vault.
+        exists: { default: false, rendered: false },
+      };
+    },
+
+    addStorage() {
+      return {
+        markdown: {
+          serialize(state: { write: (s: string) => void }, node: { attrs: Record<string, unknown> }) {
+            state.write(
+              wikilinkToMarkdown(
+                node.attrs['label'] as string,
+                (node.attrs['alias'] as string | null) ?? null,
+              ),
+            );
+          },
+          parse: { setup: installWikilinkRule },
+        },
       };
     },
 
     addCommands() {
       return {
         insertWikilink:
-          (label: string, exists: boolean) =>
-          ({ commands }) => {
-            return commands.insertContent({
-              type: this.name,
-              attrs: { label, exists },
-            });
-          },
+          (label: string) =>
+          ({ commands }) =>
+            commands.insertContent({ type: this.name, attrs: { label, alias: null } }),
       };
     },
 
     addInputRules() {
       return [
         new InputRule({
-          find: /(?:^|\s)\[\[([^\]]+)\]\]$/,
+          find: /(?:^|\s)\[\[([^[\]]+)\]\]$/,
           handler: ({ state, range, match }) => {
-            const label = match[1] ?? '';
-            const exists = findInTree(vaultTree, label) !== null;
+            const parsed = parseWikilinkBody(match[1] ?? '');
             const nodeType = state.schema.nodes['wikilink'];
-            if (!nodeType) return;
-            const wikilinkNode = nodeType.create({ label, exists });
-            state.tr.replaceWith(range.from, range.to, wikilinkNode);
+            if (!parsed || !nodeType) return;
+            // Keep the whitespace that preceded the brackets.
+            const lead = (match[0] ?? '').length - (match[0] ?? '').trimStart().length;
+            state.tr.replaceWith(
+              range.from + lead,
+              range.to,
+              nodeType.create({ label: parsed.label, alias: parsed.alias }),
+            );
           },
         }),
       ];
     },
 
     parseHTML() {
-      return [{ tag: 'span[data-wikilink]' }];
+      return [
+        {
+          tag: 'span[data-wikilink]',
+          getAttrs: (el) => {
+            const dom = el as HTMLElement;
+            return {
+              label: dom.getAttribute('data-wikilink') ?? '',
+              alias: dom.getAttribute('data-alias'),
+            };
+          },
+        },
+      ];
     },
 
     renderHTML({ node, HTMLAttributes }) {
       const label = node.attrs['label'] as string;
-      const exists = node.attrs['exists'] as boolean;
-
-      const style = exists
-        ? 'color:var(--daun);text-decoration:underline;cursor:pointer'
-        : 'color:var(--amber);text-decoration:underline dashed;cursor:default';
-
+      const alias = (node.attrs['alias'] as string | null) ?? null;
+      const found = exists(label);
       return [
         'span',
         mergeAttributes(HTMLAttributes, {
           'data-wikilink': label,
-          'data-exists': exists ? 'true' : 'false',
-          style,
+          ...(alias !== null ? { 'data-alias': alias } : {}),
+          'data-exists': found ? 'true' : 'false',
+          style: found ? EXISTS_STYLE : MISSING_STYLE,
           contenteditable: 'false',
         }),
-        `[[${label}]]`,
+        wikilinkToMarkdown(label, alias),
       ];
     },
 
     addNodeView() {
-      return ({ node }) => {
-        const label = node.attrs['label'] as string;
-        const exists = node.attrs['exists'] as boolean;
-
+      return ({ node: initial }) => {
+        let node = initial;
         const dom = document.createElement('span');
-        dom.dataset['wikilink'] = label;
-        dom.dataset['exists'] = exists ? 'true' : 'false';
-        dom.textContent = `[[${label}]]`;
         dom.setAttribute('contenteditable', 'false');
 
-        if (exists) {
-          dom.style.cssText =
-            'color:var(--daun);text-decoration:underline;cursor:pointer';
-          dom.addEventListener('click', () => {
-            import('../../../store/editorStore')
-              .then(({ useEditorStore }) => {
-                const match = findInTree(
-                  useEditorStore.getState().vaultTree,
-                  label,
-                );
-                if (match) {
-                  useEditorStore.getState().openNote(match.path).catch(console.error);
-                }
-              })
-              .catch(console.error);
-          });
-        } else {
-          dom.style.cssText =
-            'color:var(--amber);text-decoration:underline dashed;cursor:default';
-        }
+        const paint = () => {
+          const label = node.attrs['label'] as string;
+          const alias = (node.attrs['alias'] as string | null) ?? null;
+          const found = exists(label);
+          dom.dataset['wikilink'] = label;
+          if (alias !== null) dom.dataset['alias'] = alias;
+          else delete dom.dataset['alias'];
+          dom.dataset['exists'] = found ? 'true' : 'false';
+          dom.textContent = wikilinkToMarkdown(label, alias);
+          dom.style.cssText = found ? EXISTS_STYLE : MISSING_STYLE;
+        };
+        paint();
 
-        return { dom };
+        dom.addEventListener('click', () => {
+          const entry = findInTree(options.getVaultTree(), node.attrs['label'] as string);
+          if (entry) options.onOpen?.(entry);
+        });
+
+        const unsubscribe = options.subscribe?.(paint);
+
+        return {
+          dom,
+          update(next) {
+            if (next.type !== node.type) return false;
+            node = next;
+            paint();
+            return true;
+          },
+          destroy() {
+            unsubscribe?.();
+          },
+        };
       };
     },
   });
