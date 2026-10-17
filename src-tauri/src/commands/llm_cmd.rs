@@ -64,6 +64,17 @@ pub async fn verify_model_inner(
     vs.add_verified(token, fingerprint(draft, secret.as_deref()), model)
 }
 
+/// Probes whether `model` sees images. Persists nothing.
+pub async fn test_vision_inner(
+    env: &LlmEnv,
+    draft: &Connection,
+    typed_secret: Option<String>,
+    model: &str,
+) -> Result<bool, LlmError> {
+    let secret = effective_secret(env, draft, typed_secret)?;
+    validate::test_vision(draft, model, secret.as_deref(), env).await
+}
+
 pub fn save_inner(
     db_path: &Path,
     env: &LlmEnv,
@@ -157,6 +168,16 @@ pub async fn llm_verify_model(
     model: String,
 ) -> Result<(), LlmError> {
     verify_model_inner(&env, &vs, &draft, secret, &token, &model).await
+}
+
+#[tauri::command]
+pub async fn llm_test_vision(
+    env: tauri::State<'_, LlmEnv>,
+    draft: Connection,
+    secret: Option<String>,
+    model: String,
+) -> Result<bool, LlmError> {
+    test_vision_inner(&env, &draft, secret, &model).await
 }
 
 #[tauri::command]

@@ -56,6 +56,7 @@ fn main() {
             commands::read_note_tail,
             commands::llm_validate,
             commands::llm_verify_model,
+            commands::llm_test_vision,
             commands::llm_save_connection,
             commands::llm_list_connections,
             commands::llm_delete_connection,

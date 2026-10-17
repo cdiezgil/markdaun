@@ -242,3 +242,34 @@ fn add_verified_extends_the_token() {
     store.add_verified(&token, 7, "b").unwrap();
     assert_eq!(store.consume(&token, 7, &["a".to_string(), "b".to_string()]), Ok(()));
 }
+
+mod vision {
+    use super::*;
+
+    #[tokio::test]
+    async fn sends_a_generated_image_and_passes_when_the_model_names_the_colour() {
+        let s = spawn(|_| MockResponse::json(200, r#"{"choices":[{"message":{"content":"Red."}}]}"#));
+        let c = conn(&s.url);
+        assert!(test_vision(&c, "gpt-4.1", Some("k"), &env()).await.unwrap());
+        let body = &s.requests()[0].body;
+        assert!(body.contains("data:image/png;base64,"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn fails_softly_when_the_model_does_not_see_it() {
+        let s = spawn(|_| MockResponse::json(200, r#"{"choices":[{"message":{"content":"I cannot see any image."}}]}"#));
+        assert!(!test_vision(&conn(&s.url), "gpt-4.1", Some("k"), &env()).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_rejecting_endpoint_means_no_vision_not_an_error() {
+        let s = spawn(|_| MockResponse::json(400, r#"{"error":"image input not supported"}"#));
+        assert!(!test_vision(&conn(&s.url), "gpt-4.1", Some("k"), &env()).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn auth_and_reachability_errors_still_propagate() {
+        let s = spawn(|_| MockResponse::json(401, "{}"));
+        assert_eq!(test_vision(&conn(&s.url), "gpt-4.1", Some("k"), &env()).await.unwrap_err(), LlmError::Unauthorized);
+    }
+}

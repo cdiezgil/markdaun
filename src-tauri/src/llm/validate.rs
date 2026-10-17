@@ -1,3 +1,4 @@
+use super::attachment::{Attachment, AttachmentKind, Part};
 use super::connection::{AuthSource, Connection};
 use super::engines::{self, ChatMessage};
 use super::env::LlmEnv;
@@ -63,6 +64,42 @@ pub async fn test_completion(conn: &Connection, model: &str, secret: Option<&str
         return Err(LlmError::BadResponse("empty completion".into()));
     }
     Ok(())
+}
+
+pub const VISION_PROMPT: &str = "What colour fills this image? Answer with one word.";
+
+fn probe_attachment() -> Result<Attachment, LlmError> {
+    use base64::Engine as _;
+    let img = image::RgbaImage::from_pixel(64, 64, image::Rgba([220, 20, 20, 255]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut out, image::ImageFormat::Png)
+        .map_err(|e| LlmError::BadResponse(format!("probe image: {e}")))?;
+    Ok(Attachment {
+        name: "probe.png".into(),
+        vault_path: "probe.png".into(),
+        kind: AttachmentKind::Image,
+        parts: vec![Part::Image {
+            media_type: "image/png".into(),
+            data_b64: base64::engine::general_purpose::STANDARD.encode(out.into_inner()),
+        }],
+        fallback: vec![],
+    })
+}
+
+/// Sends a tiny generated red square and checks the model names the colour.
+/// A model/endpoint that rejects the request or answers wrongly is simply "no
+/// vision"; credential, reachability and timeout failures still propagate.
+pub async fn test_vision(conn: &Connection, model: &str, secret: Option<&str>, env: &LlmEnv) -> Result<bool, LlmError> {
+    let msg = ChatMessage { attachments: vec![probe_attachment()?], ..ChatMessage::text("user", VISION_PROMPT) };
+    match engines::chat_unchecked(conn, model, &[msg], secret, env).await {
+        Ok(answer) => {
+            let a = answer.to_lowercase();
+            Ok(a.contains("red") || a.contains("rojo"))
+        }
+        Err(LlmError::BadResponse(_)) | Err(LlmError::ModelNotFound) => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 /// reach -> credential -> models -> completion. Stops at the first failure.
