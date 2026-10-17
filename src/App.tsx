@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { Brain, FolderOpen, Network } from 'lucide-react';
 import { useVaultStore } from './store/vaultStore';
@@ -21,6 +21,9 @@ function AppLayout() {
   const [showExitDialog, setShowExitDialog] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const wizardOpen = useLlmStore((s) => s.wizardOpen);
+  // Programmatic closes from the exit dialog must bypass the close guard,
+  // otherwise window.close() re-triggers onCloseRequested and loops forever.
+  const forceCloseRef = useRef(false);
 
   useEffect(() => {
     useVaultStore.getState().loadVault();
@@ -31,6 +34,7 @@ function AppLayout() {
     let unlisten: (() => void) | undefined;
     getCurrentWindow()
       .onCloseRequested(async (event: { preventDefault(): void }) => {
+        if (forceCloseRef.current) return;
         const { config, status } = useSyncStore.getState();
         if (config.isConnected && status.hasChanges) {
           event.preventDefault();
@@ -145,9 +149,12 @@ function AppLayout() {
           const { push } = useSyncStore.getState();
           const vaultPath = useVaultStore.getState().vaultPath;
           if (vaultPath) await push(vaultPath).catch(() => {});
+          forceCloseRef.current = true;
           await getCurrentWindow().close();
         }}
         onQuit={async () => {
+          setShowExitDialog(false);
+          forceCloseRef.current = true;
           await getCurrentWindow().close();
         }}
         onCancel={() => setShowExitDialog(false)}

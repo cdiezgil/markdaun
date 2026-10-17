@@ -51,3 +51,79 @@ describe('TC-03: App', () => {
     expect(screen.getByText(/nada por aquí todavía/i)).toBeInTheDocument();
   });
 });
+
+describe('guarda de cierre de ventana', () => {
+  let closeHandler: ((event: { preventDefault(): void }) => void) | undefined;
+  const mockClose = vi.fn().mockResolvedValue(undefined);
+
+  beforeEach(() => {
+    closeHandler = undefined;
+    mockGetCurrentWindow.mockReturnValue({
+      onCloseRequested: vi.fn((cb: (event: { preventDefault(): void }) => void) => {
+        closeHandler = cb;
+        return Promise.resolve(() => {});
+      }),
+      close: mockClose,
+    } as unknown as ReturnType<typeof getCurrentWindow>);
+  });
+
+  function triggerClose() {
+    const event = { preventDefault: vi.fn() };
+    closeHandler!(event);
+    return event;
+  }
+
+  it('con sync conectado y cambios pendientes, el cierre se intercepta y muestra el diálogo', async () => {
+    const { useSyncStore } = await import('./store/syncStore');
+    useSyncStore.setState({
+      config: { repoUrl: 'https://github.com/x/y', isConnected: true },
+      status: { hasChanges: true },
+    });
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+
+    await waitFor(() => expect(closeHandler).toBeDefined());
+    const event = triggerClose();
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(await screen.findByTestId('exit-dialog')).toBeInTheDocument();
+  });
+
+  it('"Salir sin sincronizar" cierra la ventana sin re-interceptar el cierre', async () => {
+    const { useSyncStore } = await import('./store/syncStore');
+    useSyncStore.setState({
+      config: { repoUrl: 'https://github.com/x/y', isConnected: true },
+      status: { hasChanges: true },
+    });
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+
+    await waitFor(() => expect(closeHandler).toBeDefined());
+    triggerClose();
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    const quitButton = await screen.findByRole('button', { name: /salir sin sincronizar/i });
+    await user.click(quitButton);
+
+    await waitFor(() => expect(mockClose).toHaveBeenCalled());
+    // La segunda pasada por el guarda (la de window.close()) no debe re-abrir el diálogo
+    triggerClose();
+    expect(screen.queryByTestId('exit-dialog')).toBeNull();
+  });
+
+  it('sin cambios pendientes, el cierre no se intercepta', async () => {
+    const { useSyncStore } = await import('./store/syncStore');
+    useSyncStore.setState({
+      config: { repoUrl: 'https://github.com/x/y', isConnected: true },
+      status: { hasChanges: false },
+    });
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+
+    await waitFor(() => expect(closeHandler).toBeDefined());
+    const event = triggerClose();
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('exit-dialog')).toBeNull();
+  });
+});
