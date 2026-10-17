@@ -76,11 +76,14 @@ El backend expone comandos Tauri al frontend. Sin servidor externo: todo corre e
 
 ### 2.6 LLM — Second Brain
 
-- **Endpoint configurable:** cualquier API compatible con OpenAI (`/v1/chat/completions`, `/v1/embeddings`). Soporta de serie: OpenAI, Azure OpenAI, Anthropic (via proxy), Ollama (local).
-- **Modelo configurable** por el usuario en Settings.
-- **Retrieval:** al preguntar, se generan embeddings de la query con `fastembed` y se recuperan los fragmentos más relevantes del vault vía `sqlite-vec`. El contexto se inyecta en el prompt (RAG).
-- **Embeddings del vault:** se regeneran de forma incremental al guardar un fichero (background task Rust).
-- La API key del LLM se guarda en el llavero del SO, igual que el PAT de GitHub.
+- **Conexiones múltiples:** el usuario guarda varias conexiones LLM (`config.db`, tabla `llm_connections`) mediante un asistente que valida de extremo a extremo (alcanzabilidad, credencial, modelos, completion de prueba) y **no persiste nada hasta que todo pasa** (token de validación de un solo uso). Un selector fijo abajo a la derecha elige conexión + modelo activos (`llm_set_active`). Ajustes → *Conexiones de IA* las gestiona.
+- **Motores** (`src-tauri/src/llm/engines/`): `OpenAiCompat` (OpenAI, Gemini API, Kimi, z.ai, Azure OpenAI con `api-version`, LiteLLM y proxies corporativos), `AnthropicMessages` (Anthropic API, Anthropic en Azure Foundry) y puentes CLI `claude -p` / `gemini -p` para usar la suscripción del usuario con las CLI oficiales. **No hay OAuth directo con ningún proveedor** (Anthropic lo prohíbe a terceros).
+- **Autenticación:** API key en el llavero del SO (servicio `markdaun`, cuenta `llm-connection:<id>`), token Entra ID vía `az account get-access-token` (caché en memoria, refresco con < 5 min de vida) o ninguna. Cabecera de auth configurable (`Authorization: Bearer`, `api-key`, `x-api-key`), cabeceras extra y CA raíz propia para proxies que interceptan TLS.
+- **Puente CLI:** binarios resueltos con el shell de login (`zsh -lc 'command -v'` / `where`) porque las apps lanzadas desde el Dock no heredan `PATH`; ejecución en un directorio temporal vacío, un solo turno, sin herramientas, con `ANTHROPIC_API_KEY`/`GEMINI_API_KEY` eliminadas del entorno del hijo y timeout de 120 s.
+- **Errores tipados** (`LlmError`: `Unreachable`, `Unauthorized`, `TlsUntrusted`, `ModelNotFound`, `CliMissing`, `CliNotLoggedIn`, `Timeout`, `BadResponse`…) serializados como `{kind, detail}`; el frontend los traduce a mensaje + acción.
+- **Retrieval:** al preguntar, se generan embeddings de la query con `fastembed` y se recuperan los fragmentos más relevantes del vault vía `sqlite-vec`. El contexto se inyecta en el prompt (RAG) y `brain_query` lo envía a la conexión activa.
+- **Embeddings del vault:** locales (`fastembed`), regenerados de forma incremental al guardar un fichero (background task Rust). Este diseño solo cubre el chat.
+- Todos los secretos viven solo en el llavero del SO; el webview ve un secreto una única vez, al pegarlo en el asistente. Sin streaming por ahora.
 
 ---
 
