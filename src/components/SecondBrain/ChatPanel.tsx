@@ -1,7 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBrainStore } from '../../store/brainStore';
-import { MessageBubble } from './MessageBubble';
+import { MessageBubble, type NoteContext } from './MessageBubble';
+import { useVaultStore } from '../../store/vaultStore';
+import { useEditorStore } from '../../store/editorStore';
+import { vaultFolders } from '../../lib/vaultFolders';
 import { describeBrainError } from '../../lib/brainErrors';
 
 interface ChatPanelProps {
@@ -55,6 +58,21 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
     navigate(`/editor/${encodeURIComponent(path)}`);
   };
 
+  const tree = useVaultStore((s) => s.tree);
+  const conversationTitle = useBrainStore(
+    (s) => s.conversations.find((c) => c.id === s.currentConversationId)?.title ?? 'nota',
+  );
+  const noteContext: NoteContext = {
+    vaultPath,
+    conversationTitle,
+    folders: vaultFolders(tree, vaultPath),
+    onOpenNote: handleSourceClick,
+    onNoteWritten: () => {
+      void useVaultStore.getState().refreshTree();
+      void useEditorStore.getState().initVault().catch(() => {});
+    },
+  };
+
   return (
     <div
       data-testid="chat-panel"
@@ -77,7 +95,12 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
         }}
       >
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onSourceClick={handleSourceClick} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            onSourceClick={handleSourceClick}
+            noteContext={noteContext}
+          />
         ))}
 
         {isLoading && (

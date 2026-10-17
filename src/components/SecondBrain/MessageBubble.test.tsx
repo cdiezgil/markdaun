@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MessageBubble } from './MessageBubble';
 import type { BrainMessage } from '../../store/brainStore';
@@ -82,5 +82,95 @@ describe('MessageBubble warning and failure', () => {
   it('marks a failed user message', () => {
     render(<MessageBubble message={makeMsg({ role: 'user', failed: true })} onSourceClick={vi.fn()} />);
     expect(screen.getByTestId('msg-failed')).toBeInTheDocument();
+  });
+});
+
+// ── Phase B: note proposals and Save as note ──────────────────────────────────
+import { waitFor } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
+import { useNoteProposalStore } from '../../store/noteProposalStore';
+
+const NOTE_MD =
+  'Aquí tienes:\n```markdaun-note path="Ideas/nueva.md" mode="create"\n# Nueva\ncuerpo\n```\nHecho.';
+
+function noteCtx(over = {}) {
+  return {
+    vaultPath: '/vault',
+    conversationTitle: 'Mi charla',
+    folders: ['', 'Ideas'],
+    onOpenNote: vi.fn(),
+    onNoteWritten: vi.fn(),
+    ...over,
+  };
+}
+
+describe('MessageBubble note proposals', () => {
+  beforeEach(() => {
+    useNoteProposalStore.setState({ states: {} });
+    vi.mocked(invoke).mockImplementation((async (cmd: string) => {
+      if (cmd === 'note_exists') return false;
+      if (cmd === 'chat_write_note') return '/vault/Ideas/nueva.md';
+      return undefined;
+    }) as never);
+  });
+
+  it('renders text around the block and a card for the proposal', () => {
+    render(
+      <MessageBubble message={makeMsg({ id: 'a1', role: 'assistant', content: NOTE_MD })}
+        onSourceClick={vi.fn()} noteContext={noteCtx()} />,
+    );
+    expect(screen.getByTestId('msg-bubble-assistant')).toHaveTextContent('Aquí tienes:');
+    expect(screen.getByTestId('msg-bubble-assistant')).toHaveTextContent('Hecho.');
+    expect(screen.getByTestId('msg-bubble-assistant')).not.toHaveTextContent('markdaun-note');
+    expect(screen.getByTestId('proposal-path')).toHaveValue('Ideas/nueva.md');
+  });
+
+  it('keeps card state across re-renders and remounts', async () => {
+    const msg = makeMsg({ id: 'a2', role: 'assistant', content: NOTE_MD });
+    const ctx = noteCtx();
+    const { unmount } = render(<MessageBubble message={msg} onSourceClick={vi.fn()} noteContext={ctx} />);
+    fireEvent.click(screen.getByTestId('proposal-accept'));
+    await waitFor(() => expect(screen.getByTestId('proposal-done')).toHaveTextContent('Creada'));
+    expect(ctx.onNoteWritten).toHaveBeenCalled();
+    unmount();
+    render(<MessageBubble message={msg} onSourceClick={vi.fn()} noteContext={ctx} />);
+    expect(screen.getByTestId('proposal-done')).toHaveTextContent('Creada');
+    fireEvent.click(screen.getByText('Abrir'));
+    expect(ctx.onOpenNote).toHaveBeenCalledWith('/vault/Ideas/nueva.md');
+  });
+
+  it('does not render cards without a note context (plain text)', () => {
+    render(<MessageBubble message={makeMsg({ role: 'assistant', content: NOTE_MD })} onSourceClick={vi.fn()} />);
+    expect(screen.queryByTestId('proposal-path')).not.toBeInTheDocument();
+    expect(screen.getByTestId('msg-bubble-assistant')).toHaveTextContent('markdaun-note');
+  });
+
+  it('still shows the warning on assistant messages', () => {
+    render(
+      <MessageBubble message={makeMsg({ role: 'assistant', content: 'x', warning: 'embedding_failed' } as never)}
+        onSourceClick={vi.fn()} noteContext={noteCtx()} />,
+    );
+    expect(screen.getByTestId('msg-warning')).toBeInTheDocument();
+  });
+
+  it('offers Guardar como nota on assistant messages only and saves via the dialog', async () => {
+    const ctx = noteCtx();
+    render(
+      <MessageBubble message={makeMsg({ id: 'a3', role: 'assistant', content: 'Respuesta' })}
+        onSourceClick={vi.fn()} noteContext={ctx} />,
+    );
+    fireEvent.click(screen.getByTestId('msg-save-as-note'));
+    expect(screen.getByTestId('save-note-name')).toHaveValue('mi-charla.md');
+    fireEvent.click(screen.getByTestId('save-note-submit'));
+    await waitFor(() => expect(ctx.onNoteWritten).toHaveBeenCalled());
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith('chat_write_note', {
+      path: 'mi-charla.md', content: 'Respuesta', mode: 'create', vaultPath: '/vault',
+    });
+    expect(screen.queryByTestId('save-note-name')).not.toBeInTheDocument();
+  });
+
+  it('shows no Save as note action on user messages', () => {
+    render(<MessageBubble message={makeMsg({ role: 'user' })} onSourceClick={vi.fn()} noteContext={noteCtx()} />);
+    expect(screen.queryByTestId('msg-save-as-note')).not.toBeInTheDocument();
   });
 });
