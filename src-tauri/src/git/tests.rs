@@ -377,3 +377,13 @@ fn connect_creates_gitignore_entry_cloned() {
         "TC-11: .gitignore should contain .markdaun/ after clone"
     );
 }
+
+/// Regression: libgit2 was built without the `https` feature, so every
+/// GitHub remote failed with "there is no TLS stream available".
+#[test]
+fn libgit2_is_built_with_https_support() {
+    assert!(
+        git2::Version::get().https(),
+        "git2 must be compiled with the `https` feature to reach GitHub remotes"
+    );
+}
