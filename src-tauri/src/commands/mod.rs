@@ -28,3 +28,9 @@ pub mod brain_cmd;
 pub use brain_cmd::*;
 #[cfg(test)]
 mod brain_tests;
+
+pub mod llm_cmd;
+#[allow(unused_imports)] // used once Task 17 registers the commands in the handler
+pub use llm_cmd::*;
+#[cfg(test)]
+mod llm_tests;
