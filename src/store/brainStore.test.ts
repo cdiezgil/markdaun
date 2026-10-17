@@ -125,3 +125,44 @@ describe('TC-24: startNewConversation', () => {
     expect(useBrainStore.getState().messages).toHaveLength(0);
   });
 });
+
+// ── Failure keeps the user's message, marked failed ───────────────────────────
+
+describe('query failure', () => {
+  it('keeps the user message marked as failed and exposes the error', async () => {
+    mockInvoke.mockRejectedValueOnce('llm_error: credentials rejected');
+
+    await useBrainStore.getState().query('mi pregunta', '/vault');
+
+    const { messages, error, isLoading } = useBrainStore.getState();
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ role: 'user', content: 'mi pregunta', failed: true });
+    expect(error).toBe('llm_error: credentials rejected');
+    expect(isLoading).toBe(false);
+  });
+
+  it('clears the error on the next successful query', async () => {
+    mockInvoke.mockRejectedValueOnce('not_configured');
+    await useBrainStore.getState().query('uno', '/vault');
+    mockInvoke
+      .mockResolvedValueOnce({ answer: 'ok', sources: [], conversation_id: 'c', message_id: 'm' })
+      .mockResolvedValueOnce([]);
+    await useBrainStore.getState().query('dos', '/vault');
+    expect(useBrainStore.getState().error).toBeNull();
+  });
+
+  it('stores the warning on the assistant message', async () => {
+    mockInvoke
+      .mockResolvedValueOnce({
+        answer: 'ok',
+        sources: [],
+        conversation_id: 'c',
+        message_id: 'm',
+        warning: 'notes_context_unavailable: x',
+      })
+      .mockResolvedValueOnce([]);
+    await useBrainStore.getState().query('q', '/vault');
+    const assistant = useBrainStore.getState().messages.find((m) => m.role === 'assistant');
+    expect(assistant?.warning).toBe('notes_context_unavailable: x');
+  });
+});

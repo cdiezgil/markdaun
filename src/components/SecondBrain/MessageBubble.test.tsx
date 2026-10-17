@@ -60,3 +60,27 @@ describe('TC-32: MessageBubble source click', () => {
     expect(onSourceClick).toHaveBeenCalledWith('/vault/nota.md');
   });
 });
+
+describe('MessageBubble warning and failure', () => {
+  it('renders the warning note under an assistant answer with the muted token', () => {
+    render(
+      <MessageBubble
+        message={makeMsg({ role: 'assistant', warning: 'notes_context_unavailable: boom' })}
+        onSourceClick={vi.fn()}
+      />,
+    );
+    const note = screen.getByTestId('msg-warning');
+    expect(note).toHaveTextContent(/boom/);
+    expect(note.style.color).toBe('var(--ink-muted)');
+  });
+
+  it('renders no warning when absent', () => {
+    render(<MessageBubble message={makeMsg({ role: 'assistant' })} onSourceClick={vi.fn()} />);
+    expect(screen.queryByTestId('msg-warning')).not.toBeInTheDocument();
+  });
+
+  it('marks a failed user message', () => {
+    render(<MessageBubble message={makeMsg({ role: 'user', failed: true })} onSourceClick={vi.fn()} />);
+    expect(screen.getByTestId('msg-failed')).toBeInTheDocument();
+  });
+});

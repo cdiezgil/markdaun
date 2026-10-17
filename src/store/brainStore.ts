@@ -103,6 +103,7 @@ export const useBrainStore = create<BrainState>((set, get) => ({
         content: result.answer,
         sources: result.sources.length > 0 ? result.sources : null,
         created_at: new Date().toISOString(),
+        warning: result.warning ?? null,
       };
 
       // Replace optimistic user message with real one from the result (same content).
@@ -122,9 +123,11 @@ export const useBrainStore = create<BrainState>((set, get) => ({
       const convs = await brainGetConversations(vaultPath).catch(() => get().conversations);
       set({ conversations: convs });
     } catch (e) {
-      // Remove optimistic message on failure.
-      const prevMessages = get().messages.filter((m) => m.id !== optimisticUser.id);
-      set({ messages: prevMessages, error: String(e), isLoading: false });
+      // Keep the question visible, marked as failed, so the user sees what went wrong.
+      const messagesNow = get().messages.map((m) =>
+        m.id === optimisticUser.id ? { ...m, failed: true } : m,
+      );
+      set({ messages: messagesNow, error: String(e), isLoading: false });
     }
   },
 
