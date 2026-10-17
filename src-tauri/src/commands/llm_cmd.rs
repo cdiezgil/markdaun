@@ -125,7 +125,7 @@ pub fn run_startup_migration(app: &tauri::AppHandle) {
     let result = app_db_path(app)
         .map_err(LlmError::Storage)
         .and_then(|p| LlmStore::open(&p))
-        .and_then(|s| s.migrate_legacy(&KeyringStore));
+        .and_then(|s| s.migrate_legacy(&KeyringStore).and_then(|_| s.migrate_vision()));
     if let Err(e) = result {
         eprintln!("[llm] legacy migration skipped: {e}");
     }

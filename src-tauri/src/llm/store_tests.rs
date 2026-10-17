@@ -18,6 +18,7 @@ fn conn(name: &str, models: &[&str]) -> Connection {
         ca_cert_path: None,
         azure_api_version: None,
         models: models.iter().map(|m| m.to_string()).collect(),
+        vision_models: vec![],
     }
 }
 
@@ -134,4 +135,20 @@ fn migration_without_key_uses_auth_none() {
     let c = &s.list().unwrap()[0];
     assert_eq!(c.auth, AuthSource::None);
     assert_eq!(c.base_url.as_deref(), Some("http://localhost:11434/v1"));
+}
+
+#[test]
+fn vision_migration_fills_preset_defaults_once() {
+    let (s, _f) = open();
+    let c = s.upsert(conn("A", &["claude-sonnet-4-5", "kimi-k2"])).unwrap();
+    assert!(c.vision_models.is_empty());
+    assert!(s.migrate_vision().unwrap());
+    assert_eq!(s.get(&c.id).unwrap().unwrap().vision_models, vec!["claude-sonnet-4-5"]);
+
+    // idempotent: later user choices are not overwritten
+    let mut edited = s.get(&c.id).unwrap().unwrap();
+    edited.vision_models = vec!["kimi-k2".into()];
+    s.upsert(edited).unwrap();
+    assert!(!s.migrate_vision().unwrap());
+    assert_eq!(s.get(&c.id).unwrap().unwrap().vision_models, vec!["kimi-k2"]);
 }

@@ -24,3 +24,9 @@ fn display_is_human_readable() {
     assert_eq!(LlmError::Timeout.to_string(), "timed out");
     assert_eq!(LlmError::BadResponse("x".into()).to_string(), "bad response: x");
 }
+
+#[test]
+fn vision_unsupported_serializes_with_its_kind() {
+    let v = serde_json::to_value(LlmError::VisionUnsupported).unwrap();
+    assert_eq!(v, serde_json::json!({ "kind": "VisionUnsupported" }));
+}

@@ -17,11 +17,12 @@ fn conn(engine: Engine, url: &str, auth: AuthSource, header: AuthHeader) -> Conn
         ca_cert_path: None,
         azure_api_version: None,
         models: vec!["m".into()],
+        vision_models: vec![],
     }
 }
 
 fn user(text: &str) -> Vec<ChatMessage> {
-    vec![ChatMessage { role: "user".into(), content: text.into() }]
+    vec![ChatMessage::text("user", text)]
 }
 
 #[tokio::test]
@@ -105,4 +106,38 @@ async fn cli_engine_without_binary_is_cli_missing() {
     let mut c = conn(Engine::CliGemini, "", AuthSource::None, AuthHeader::Bearer);
     c.base_url = None;
     assert_eq!(list_models(&c, None, &env).await.unwrap_err(), LlmError::CliMissing);
+}
+
+fn image_message() -> Vec<ChatMessage> {
+    use crate::llm::attachment::*;
+    let a = Attachment {
+        name: "a.png".into(),
+        vault_path: "a.png".into(),
+        kind: AttachmentKind::Image,
+        parts: vec![Part::Image { media_type: "image/png".into(), data_b64: "QUJD".into() }],
+        fallback: vec![],
+    };
+    vec![ChatMessage { attachments: vec![a], ..ChatMessage::text("user", "mira") }]
+}
+
+#[tokio::test]
+async fn attachments_with_a_non_vision_model_are_rejected_before_any_call() {
+    let s = spawn(|_| MockResponse::json(200, r#"{"choices":[{"message":{"content":"yo"}}]}"#));
+    let env = test_env(FixedResolver::default(), 2000);
+    let c = conn(Engine::OpenAiCompat, &s.url, AuthSource::None, AuthHeader::Bearer);
+    assert_eq!(
+        chat(&c, "m", &image_message(), None, &env).await.unwrap_err(),
+        LlmError::VisionUnsupported
+    );
+    assert!(s.requests().is_empty());
+}
+
+#[tokio::test]
+async fn attachments_with_a_vision_model_go_through() {
+    let s = spawn(|_| MockResponse::json(200, r#"{"choices":[{"message":{"content":"yo"}}]}"#));
+    let env = test_env(FixedResolver::default(), 2000);
+    let mut c = conn(Engine::OpenAiCompat, &s.url, AuthSource::None, AuthHeader::Bearer);
+    c.vision_models = vec!["m".into()];
+    assert_eq!(chat(&c, "m", &image_message(), None, &env).await.unwrap(), "yo");
+    assert!(s.requests()[0].body.contains("data:image/png;base64,QUJD"));
 }

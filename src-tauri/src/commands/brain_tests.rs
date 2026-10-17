@@ -29,6 +29,7 @@ fn conn_for(url: &str) -> Connection {
         ca_cert_path: None,
         azure_api_version: None,
         models: vec!["test-model".into()],
+        vision_models: vec![],
     }
 }
 

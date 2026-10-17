@@ -128,6 +128,7 @@ fn conn(auth: AuthSource) -> Connection {
         ca_cert_path: None,
         azure_api_version: None,
         models: vec![],
+        vision_models: vec![],
     }
 }
 

@@ -21,6 +21,7 @@ fn conn(url: &str) -> Connection {
         ca_cert_path: None,
         azure_api_version: None,
         models: vec!["gpt-4.1".into()],
+        vision_models: vec![],
     }
 }
 
@@ -162,6 +163,7 @@ mod cli {
             ca_cert_path: None,
             azure_api_version: None,
             models: vec!["sonnet".into()],
+            vision_models: vec![],
         }
     }
 

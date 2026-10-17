@@ -57,7 +57,7 @@ fn fail(emit: Emit<'_>, s: Step, e: LlmError) -> LlmError {
 
 /// One real round trip with the given model. Never persists anything.
 pub async fn test_completion(conn: &Connection, model: &str, secret: Option<&str>, env: &LlmEnv) -> Result<(), LlmError> {
-    let msgs = [ChatMessage { role: "user".into(), content: TEST_PROMPT.into() }];
+    let msgs = [ChatMessage::text("user", TEST_PROMPT)];
     let answer = engines::chat(conn, model, &msgs, secret, env).await?;
     if answer.trim().is_empty() {
         return Err(LlmError::BadResponse("empty completion".into()));

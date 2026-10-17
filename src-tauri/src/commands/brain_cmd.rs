@@ -84,14 +84,8 @@ pub fn build_rag_messages(
     };
 
     vec![
-        ChatMessage {
-            role: "system".to_string(),
-            content: system,
-        },
-        ChatMessage {
-            role: "user".to_string(),
-            content: question.to_string(),
-        },
+        ChatMessage::text("system", system),
+        ChatMessage::text("user", question),
     ]
 }
 

@@ -14,6 +14,7 @@ fn sample() -> Connection {
         ca_cert_path: None,
         azure_api_version: Some("2024-10-21".into()),
         models: vec!["gpt-4.1".into()],
+        vision_models: vec![],
     }
 }
 
@@ -68,4 +69,31 @@ fn validate_shape_rejects_bad_drafts() {
     let mut c = sample();
     c.base_url = Some("ftp://x".into());
     assert!(matches!(c.validate_shape(), Err(LlmError::BadResponse(_))));
+}
+
+#[test]
+fn vision_defaults_by_model_family() {
+    for m in ["claude-sonnet-4-5", "sonnet", "gpt-4o", "gpt-4.1-mini", "gpt-5", "gemini-2.5-pro", "o4-mini", "gemini-2.5-flash"] {
+        assert!(vision_default(m), "{m}");
+    }
+    for m in ["kimi-k2", "glm-4.6", "llama3", "gpt-3.5-turbo", "deepseek-chat", "unknown"] {
+        assert!(!vision_default(m), "{m}");
+    }
+}
+
+#[test]
+fn supports_vision_reads_the_per_model_flag() {
+    let mut c = sample();
+    assert!(!c.supports_vision("gpt-4.1"));
+    c.vision_models = vec!["gpt-4.1".into()];
+    assert!(c.supports_vision("gpt-4.1"));
+    assert!(!c.supports_vision("other"));
+}
+
+#[test]
+fn legacy_json_without_vision_models_deserializes_empty() {
+    let mut v = serde_json::to_value(sample()).unwrap();
+    v.as_object_mut().unwrap().remove("visionModels");
+    let c: Connection = serde_json::from_value(v).unwrap();
+    assert!(c.vision_models.is_empty());
 }

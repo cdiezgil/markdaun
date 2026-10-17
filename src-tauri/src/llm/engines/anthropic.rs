@@ -1,4 +1,5 @@
 use super::ChatMessage;
+use crate::llm::attachment::Part;
 use crate::llm::auth::Credential;
 use crate::llm::connection::Connection;
 use crate::llm::error::LlmError;
@@ -40,6 +41,19 @@ pub async fn list_models(conn: &Connection, cred: &Credential, client: &Client) 
     Ok(data.iter().filter_map(|m| m.get("id").and_then(Value::as_str)).map(String::from).collect())
 }
 
+/// Anthropic content block for one part.
+pub(crate) fn part_block(p: &Part) -> Option<Value> {
+    Some(match p {
+        Part::Text(t) => json!({ "type": "text", "text": t }),
+        Part::Image { media_type, data_b64 } => {
+            json!({ "type": "image", "source": { "type": "base64", "media_type": media_type, "data": data_b64 } })
+        }
+        Part::Document { media_type, data_b64 } => {
+            json!({ "type": "document", "source": { "type": "base64", "media_type": media_type, "data": data_b64 } })
+        }
+    })
+}
+
 /// `POST /v1/messages`. System messages are lifted into the `system` field.
 pub async fn chat(
     conn: &Connection,
@@ -54,7 +68,12 @@ pub async fn chat(
         .filter(|m| m.role != "system")
         .map(|m| {
             let role = if m.role == "assistant" { "assistant" } else { "user" };
-            json!({ "role": role, "content": m.content })
+            if m.attachments.is_empty() {
+                json!({ "role": role, "content": m.content })
+            } else {
+                let blocks: Vec<Value> = m.expand(true).iter().filter_map(part_block).collect();
+                json!({ "role": role, "content": blocks })
+            }
         })
         .collect();
     let mut body = json!({ "model": model, "max_tokens": MAX_TOKENS, "messages": turns });

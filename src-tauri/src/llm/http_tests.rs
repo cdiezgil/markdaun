@@ -18,6 +18,7 @@ fn conn(url: &str, header: AuthHeader) -> Connection {
         ca_cert_path: None,
         azure_api_version: None,
         models: vec!["m".into()],
+        vision_models: vec![],
     }
 }
 
