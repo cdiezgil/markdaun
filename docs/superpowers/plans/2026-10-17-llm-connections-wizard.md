@@ -6475,7 +6475,7 @@ git commit -m "feat(ui): add wizard route and provider steps"
 **Files:**
 - Create: `src/components/LlmWizard/Credentials.tsx`, `src/components/LlmWizard/Credentials.test.tsx`
 
-- [ ] **Step 1: Write the failing test** - `src/components/LlmWizard/Credentials.test.tsx`:
+- [x] **Step 1: Write the failing test** - `src/components/LlmWizard/Credentials.test.tsx`:
 
 ```tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -6644,12 +6644,12 @@ describe('Credentials — company', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard/Credentials.test.tsx`
 Expected: FAIL (`./Credentials` not found).
 
-- [ ] **Step 3: Implement** - `src/components/LlmWizard/Credentials.tsx`:
+- [x] **Step 3: Implement** - `src/components/LlmWizard/Credentials.tsx`:
 
 ```tsx
 import React, { useCallback, useEffect, useState } from 'react';
@@ -6929,12 +6929,12 @@ export function Credentials({ preset, draft, secret, onChange, onSecret, onBack,
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/components/LlmWizard/Credentials.test.tsx && npx tsc --noEmit`
 Expected: PASS (9 tests); tsc clean. (`@tauri-apps/plugin-dialog` is globally mocked in `src/test/setup.ts` with an `open` mock.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/LlmWizard
