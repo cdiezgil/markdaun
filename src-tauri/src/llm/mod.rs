@@ -1,6 +1,7 @@
 #![allow(dead_code)] // removed in Task 17 once everything is wired
 
 pub mod client;
+pub mod connection;
 pub mod embeddings;
 pub mod error;
 
@@ -11,3 +12,5 @@ pub use embeddings::{chunk_text, embed_text, load_model};
 mod tests;
 #[cfg(test)]
 mod error_tests;
+#[cfg(test)]
+mod connection_tests;
