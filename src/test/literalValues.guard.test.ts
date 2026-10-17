@@ -18,6 +18,9 @@ const SRC = join(process.cwd(), 'src');
  */
 const ALLOWLIST: readonly string[] = ['src/components/editor/'];
 
+const isProduction = (path: string) =>
+  !/\.test\.(ts|tsx)$/.test(path) && !path.startsWith('src/test/');
+
 export interface Violation {
   line: number;
   rule: string;
@@ -37,7 +40,7 @@ const RULES: Array<{ rule: string; test: (line: string) => boolean }> = [
     rule: 'font-family literal',
     test: (l) => {
       const m = /(?:font-family\s*:|fontFamily\s*:)\s*(.*)/.exec(l);
-      return !!m && !/^['"]?\s*var\(--/.test(m[1].trim());
+      return !!m && !/^['"]?\s*(?:var\(--|inherit\b)/.test(m[1].trim());
     },
   },
   {
@@ -63,12 +66,9 @@ export function findViolations(source: string): Violation[] {
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) return name === 'test' ? [] : walk(full);
-    return [full];
+    return statSync(full).isDirectory() ? walk(full) : [full];
   });
 }
-
-const isSource = (f: string) => /\.(ts|tsx|css)$/.test(f) && !/\.test\.(ts|tsx)$/.test(f);
 
 describe('findViolations (scanner)', () => {
   it('flags hex, rgba, font-family and px radius literals', () => {
@@ -85,6 +85,7 @@ describe('findViolations (scanner)', () => {
   it('accepts token variables and non-px radii', () => {
     expect(findViolations("fontFamily: 'var(--font-mono)'")).toHaveLength(0);
     expect(findViolations('font-family: var(--font-sans);')).toHaveLength(0);
+    expect(findViolations('font-family: inherit;')).toHaveLength(0);
     expect(findViolations("borderRadius: 'var(--radius-md)'")).toHaveLength(0);
     expect(findViolations("borderRadius: '50%'")).toHaveLength(0);
     expect(findViolations('border-radius: 0;')).toHaveLength(0);
@@ -98,18 +99,21 @@ describe('findViolations (scanner)', () => {
 
 describe('design-token guard', () => {
   const files = walk(SRC)
-    .filter(isSource)
-    .map((f) => ({ file: f, rel: relative(process.cwd(), f).split(sep).join('/') }));
+    .filter((f) => /\.(ts|tsx|css)$/.test(f))
+    .map((f) => ({ rel: relative(process.cwd(), f).split(sep).join('/'), text: readFileSync(f, 'utf8') }))
+    .filter(({ rel }) => isProduction(rel));
 
   it('scans production sources', () => {
     expect(files.length).toBeGreaterThan(20);
+    expect(files.some((f) => f.rel === 'src/App.tsx')).toBe(true);
+    expect(files.some((f) => f.rel === 'src/styles/global.css')).toBe(true);
   });
 
   it('has no literal colours, fonts or radii outside the allowlist', () => {
     const report: string[] = [];
-    for (const { file, rel } of files) {
+    for (const { rel, text } of files) {
       if (ALLOWLIST.some((prefix) => rel.startsWith(prefix))) continue;
-      for (const v of findViolations(readFileSync(file, 'utf8'))) {
+      for (const v of findViolations(text)) {
         report.push(`${rel}:${v.line} [${v.rule}] ${v.text}`);
       }
     }

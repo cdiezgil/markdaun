@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** WCAG 2.x contrast of the design tokens' text pairs, per theme. */
-
 const css = readFileSync(join(process.cwd(), 'design', 'tokens.css'), 'utf8');
+
+/** WCAG 2.x contrast of the design tokens' text pairs, per theme. */
 
 function themeTokens(selector: RegExp): Record<string, string> {
   const block = selector.exec(css)?.[1] ?? '';
