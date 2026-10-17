@@ -23,7 +23,8 @@ interface EditorCanvasProps {
 }
 
 export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
-  const { activeNoteContent, activeNotePath, vaultTree, setContent } = useEditorStore();
+  const { activeNoteContent, activeNotePath, vaultTree, setContent, setSelectionText } =
+    useEditorStore();
 
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
 
@@ -67,6 +68,10 @@ export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
       const md: string = (ed.storage as { markdown?: { getMarkdown?: () => string } })
         .markdown?.getMarkdown?.() ?? ed.getText();
       setContent(md);
+    },
+    onSelectionUpdate: ({ editor: ed }) => {
+      const { from, to, empty } = ed.state.selection;
+      setSelectionText(empty ? '' : ed.state.doc.textBetween(from, to, ' '));
     },
     editorProps: {
       attributes: {

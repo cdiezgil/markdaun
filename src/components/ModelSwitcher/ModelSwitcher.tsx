@@ -7,14 +7,13 @@ const pillStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 'var(--space-2)',
-  background: 'var(--surface)',
-  color: 'var(--ink)',
-  border: '1px solid var(--line-strong)',
-  borderRadius: 'var(--radius-pill)',
-  boxShadow: 'var(--shadow-pop)',
-  padding: 'var(--space-1) var(--space-3)',
+  background: 'transparent',
+  color: 'var(--ink-muted)',
+  border: 'none',
+  borderRadius: 'var(--radius-sm)',
+  padding: 'var(--space-1) var(--space-2)',
   fontFamily: 'var(--font-sans)',
-  fontSize: 13,
+  fontSize: 12,
   fontWeight: 500,
   cursor: 'pointer',
 };
@@ -35,7 +34,7 @@ const rowStyle: React.CSSProperties = {
   textAlign: 'left',
 };
 
-/** Fixed bottom-right pill: "<connection> · <model>" + popover to switch. */
+/** Status-bar item: "<connection> · <model>" + popover (opens upwards) to switch. */
 export function ModelSwitcher(): JSX.Element | null {
   const connections = useLlmStore((s) => s.connections);
   const active = useLlmStore((s) => s.active);
@@ -77,7 +76,7 @@ export function ModelSwitcher(): JSX.Element | null {
     <div
       ref={ref}
       data-testid="model-switcher"
-      style={{ position: 'fixed', right: 'var(--space-4)', bottom: 'var(--space-4)', zIndex: 40 }}
+      style={{ position: 'relative' }}
     >
       {connections.length === 0 ? (
         <button data-testid="model-pill" style={pillStyle} onClick={() => openWizard()}>
@@ -93,6 +92,7 @@ export function ModelSwitcher(): JSX.Element | null {
               style={{
                 position: 'absolute',
                 right: 0,
+                zIndex: 40,
                 bottom: 'calc(100% + var(--space-2))',
                 minWidth: 240,
                 maxHeight: '60vh',

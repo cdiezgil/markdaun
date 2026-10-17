@@ -14,7 +14,7 @@ import { ExitDialog } from './components/Sync/ExitDialog';
 import { getCurrentWindow } from './lib/tauri';
 import { SecondBrainView } from './views/SecondBrainView';
 import { LlmWizard } from './components/LlmWizard/LlmWizard';
-import { ModelSwitcher } from './components/ModelSwitcher/ModelSwitcher';
+import { StatusBar } from './components/StatusBar/StatusBar';
 import { useLlmStore } from './store/llmStore';
 
 function AppLayout() {
@@ -47,7 +47,8 @@ function AppLayout() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
       <aside
         style={{
           width: 'var(--sidebar-width)',
@@ -141,6 +142,8 @@ function AppLayout() {
           <Route path="/brain" element={<SecondBrainView />} />
         </Routes>
       </main>
+      </div>
+      <StatusBar />
       <ExitDialog
         open={showExitDialog}
         isSyncing={isSyncing}
@@ -159,7 +162,6 @@ function AppLayout() {
         }}
         onCancel={() => setShowExitDialog(false)}
       />
-      <ModelSwitcher />
       {wizardOpen && <LlmWizard />}
     </div>
   );

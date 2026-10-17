@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { chatWriteNote, noteExists, readNoteTail } from './tauri';
 
 const mockInvoke = vi.mocked(invoke);
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); });
 
 describe('chat note wrappers', () => {
   it('chatWriteNote sends camelCase args', async () => {

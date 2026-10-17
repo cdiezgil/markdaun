@@ -19,10 +19,13 @@ export interface EditorState {
   vaultPath: string | null;
   vaultTree: VaultEntry[];
   saveStatus: SaveStatus;
+  /** Plain text currently selected in the editor ('' when none). */
+  selectionText: string;
 
   // Actions
   openNote(absolutePath: string): Promise<void>;
   setContent(markdown: string): void;
+  setSelectionText(text: string): void;
   saveNow(): Promise<void>;
   initVault(): Promise<void>;
 }
@@ -73,6 +76,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vaultPath: null,
   vaultTree: [],
   saveStatus: 'idle',
+  selectionText: '',
 
   async openNote(absolutePath: string) {
     // Cancel any pending debounced save for the previous note
@@ -93,7 +97,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       activeNotePath: absolutePath,
       activeNoteContent: processedMarkdown,
       saveStatus: 'idle',
+      selectionText: '',
     });
+  },
+
+  setSelectionText(text: string) {
+    set({ selectionText: text });
   },
 
   setContent(markdown: string) {
