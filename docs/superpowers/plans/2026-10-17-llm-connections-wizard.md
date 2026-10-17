@@ -1676,7 +1676,7 @@ git commit -m "feat(llm): add OpenAI-compatible engine with Azure variant"
 - Create: `src-tauri/src/llm/engines/anthropic.rs`, `src-tauri/src/llm/engines/anthropic_tests.rs`
 - Modify: `src-tauri/src/llm/engines/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/engines/anthropic_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/engines/anthropic_tests.rs`:
 
 ```rust
 use super::{anthropic, ChatMessage};
@@ -1790,12 +1790,12 @@ async fn list_models_404_means_unlisted() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - in `engines/mod.rs` add `pub mod anthropic;` after `pub mod openai;` and `#[cfg(test)] mod anthropic_tests;` after the openai one.
+- [x] **Step 2: Run to verify it fails** - in `engines/mod.rs` add `pub mod anthropic;` after `pub mod openai;` and `#[cfg(test)] mod anthropic_tests;` after the openai one.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::engines::anthropic_tests`
 Expected: FAIL to compile (`anthropic.rs` missing).
 
-- [ ] **Step 3: Implement** - `src-tauri/src/llm/engines/anthropic.rs`:
+- [x] **Step 3: Implement** - `src-tauri/src/llm/engines/anthropic.rs`:
 
 ```rust
 use super::ChatMessage;
@@ -1889,12 +1889,12 @@ pub async fn chat(
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::engines::anthropic_tests`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
