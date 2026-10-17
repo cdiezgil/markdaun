@@ -23,32 +23,32 @@ function SyncItem(): JSX.Element | null {
   if (error) {
     return (
       <span data-testid="sync-status" title={error} style={{ ...itemStyle, color: 'var(--danger)' }}>
-        <CircleAlert {...ICON} /> Sync error
+        <CircleAlert {...ICON} /> Error de sincronización
       </span>
     );
   }
   if (isLoading) {
     return (
       <span data-testid="sync-status" style={itemStyle}>
-        <Loader {...ICON} /> Syncing
+        <Loader {...ICON} /> Sincronizando
       </span>
     );
   }
   return (
     <span data-testid="sync-status" style={itemStyle}>
       {hasChanges ? <RefreshCw {...ICON} /> : <Check {...ICON} />}
-      {hasChanges ? 'Changes pending' : 'Up to date'}
+      {hasChanges ? 'Cambios pendientes' : 'Al día'}
     </span>
   );
 }
 
 function SaveItem(): JSX.Element | null {
   const hasNote = useEditorStore((s) => s.activeNotePath !== null);
-  const saveStatus = useEditorStore((s) => s.saveStatus);
+  const isDirty = useEditorStore((s) => s.isDirty);
   if (!hasNote) return null;
   return (
     <span data-testid="save-state" style={itemStyle}>
-      <Save {...ICON} /> {saveStatus === 'saving' ? 'Unsaved' : 'Saved'}
+      <Save {...ICON} /> {isDirty ? 'Sin guardar' : 'Guardado'}
     </span>
   );
 }
@@ -74,7 +74,7 @@ function IndexItem(): JSX.Element | null {
   if (!progress) return null;
   return (
     <span data-testid="index-status" style={itemStyle}>
-      <Loader {...ICON} /> Indexing {progress.done}/{progress.total}
+      <Loader {...ICON} /> Indexando {progress.done}/{progress.total}
     </span>
   );
 }

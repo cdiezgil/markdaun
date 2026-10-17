@@ -74,7 +74,7 @@ describe('SaveAsNoteDialog', () => {
     fireEvent.click(screen.getByTestId('save-note-sources'));
     fireEvent.click(screen.getByTestId('save-note-submit'));
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('chat_write_note',
-      expect.objectContaining({ content: 'Answer body\n\n## Sources\n\n- [[a]]\n- [[b]]\n' })));
+      expect.objectContaining({ content: 'Answer body\n\n## Fuentes\n\n- [[a]]\n- [[b]]\n' })));
   });
 
   it('on already_exists shows an inline error and Append instead', async () => {
@@ -84,8 +84,8 @@ describe('SaveAsNoteDialog', () => {
       return '/vault/mi-conversacion-util.md';
     }) as never);
     fireEvent.click(screen.getByTestId('save-note-submit'));
-    expect(await screen.findByRole('alert')).toHaveTextContent('already exists');
-    fireEvent.click(screen.getByText('Append instead'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe');
+    fireEvent.click(screen.getByText('Añadir al final en su lugar'));
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('chat_write_note',
       expect.objectContaining({ mode: 'append' })));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());

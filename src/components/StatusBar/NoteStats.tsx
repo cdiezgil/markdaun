@@ -52,7 +52,7 @@ export function NoteStats(): JSX.Element | null {
   const lines = countLines(md);
 
   const wordsLabel = selWords > 0 ? `${selWords} / ${words}` : `${words}`;
-  const wordsNoun = plural(words, 'word', 'words');
+  const wordsNoun = plural(words, 'palabra', 'palabras');
 
   return (
     <div data-testid="note-stats" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
@@ -73,7 +73,7 @@ export function NoteStats(): JSX.Element | null {
       </button>
       <span data-testid="stat-words">{wordsLabel} {wordsNoun}</span>
       <span data-testid="stat-bytes" title={`${bytes} bytes`}>{formatBytes(bytes)}</span>
-      <span data-testid="stat-lines">{lines} {plural(lines, 'line', 'lines')}</span>
+      <span data-testid="stat-lines">{lines} {plural(lines, 'línea', 'líneas')}</span>
       <span data-testid="stat-reading">{readingTime(words)}</span>
     </div>
   );

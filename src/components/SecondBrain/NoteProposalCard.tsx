@@ -140,12 +140,12 @@ export function NoteProposalCard({
     return (
       <div data-testid="proposal-done" style={{ ...cardStyle, color: 'var(--ink-muted)' }}>
         {status === 'discarded' ? (
-          'Discarded'
+          'Descartada'
         ) : (
           <>
-            ✓ {status === 'created' ? 'Created' : 'Appended'} ·{' '}
+            ✓ {status === 'created' ? 'Creada' : 'Añadida'} ·{' '}
             <button style={linkBtn} onClick={() => absPath && onOpen(absPath)}>
-              Open
+              Abrir
             </button>
           </>
         )}
@@ -167,7 +167,7 @@ export function NoteProposalCard({
         <input
           ref={pathRef}
           data-testid="proposal-path"
-          aria-label="Note path"
+          aria-label="Ruta de la nota"
           value={path}
           readOnly={mode === 'append'}
           onChange={(e) => {
@@ -205,20 +205,20 @@ export function NoteProposalCard({
 
       {createExists && (
         <p style={{ margin: 'var(--space-2) 0', color: 'var(--amber)' }}>
-          Already exists{' '}
+          Ya existe{' '}
           <button style={linkBtn} onClick={() => pathRef.current?.focus()}>
-            Rename
+            Renombrar
           </button>{' '}
           <button style={linkBtn} onClick={() => setMode('append')}>
-            Append instead
+            Añadir al final en su lugar
           </button>
         </p>
       )}
       {appendMissing && (
         <p style={{ margin: 'var(--space-2) 0', color: 'var(--amber)' }}>
-          Note not found{' '}
+          La nota no existe{' '}
           <button style={linkBtn} onClick={() => setMode('create')}>
-            Create instead
+            Crear en su lugar
           </button>
         </p>
       )}
@@ -236,11 +236,11 @@ export function NoteProposalCard({
             disabled={busy || !validPath}
             onClick={() => void accept()}
           >
-            {mode === 'create' ? 'Create' : 'Append'}
+            {mode === 'create' ? 'Crear' : 'Añadir al final'}
           </button>
         )}
         <button data-testid="proposal-discard" style={btn(false)} onClick={() => finish('discarded')}>
-          Discard
+          Descartar
         </button>
       </div>
     </div>

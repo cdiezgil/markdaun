@@ -87,12 +87,12 @@ export function SaveAsNoteDialog({
   const relPath = folder ? `${folder}/${fileName}` : fileName;
   const body =
     includeSources && sources.length > 0
-      ? `${content}\n\n## Sources\n\n${sources.map((s) => `- ${wikilink(s)}`).join('\n')}\n`
+      ? `${content}\n\n## Fuentes\n\n${sources.map((s) => `- ${wikilink(s)}`).join('\n')}\n`
       : content;
 
   const save = async (mode: 'create' | 'append') => {
     if (!name.trim()) {
-      setError('The file name is required.');
+      setError('El nombre del archivo es obligatorio.');
       return;
     }
     setBusy(true);
@@ -140,10 +140,10 @@ export function SaveAsNoteDialog({
         }}
       >
         <p id="save-note-title" style={{ fontSize: 15, fontWeight: 600, marginBottom: 'var(--space-3)' }}>
-          Save as note
+          Guardar como nota
         </p>
         <label style={{ fontSize: 13, color: 'var(--ink-muted)' }}>
-          File name
+          Nombre del archivo
           <input
             data-testid="save-note-name"
             value={name}
@@ -156,7 +156,7 @@ export function SaveAsNoteDialog({
           />
         </label>
         <label style={{ fontSize: 13, color: 'var(--ink-muted)' }}>
-          Folder
+          Carpeta
           <select
             data-testid="save-note-folder"
             value={folder}
@@ -165,7 +165,7 @@ export function SaveAsNoteDialog({
           >
             {folders.map((f) => (
               <option key={f} value={f}>
-                {f === '' ? '/ (vault root)' : f}
+                {f === '' ? '/ (raíz de la bóveda)' : f}
               </option>
             ))}
           </select>
@@ -178,7 +178,7 @@ export function SaveAsNoteDialog({
               checked={includeSources}
               onChange={(e) => setIncludeSources(e.target.checked)}
             />
-            Include sources
+            Incluir fuentes
           </label>
         )}
         {error && (
@@ -190,7 +190,7 @@ export function SaveAsNoteDialog({
                 onClick={() => void save('append')}
                 style={{ background: 'transparent', border: 'none', color: 'var(--daun)', textDecoration: 'underline', cursor: 'pointer', font: 'inherit', padding: 0 }}
               >
-                Append instead
+                Añadir al final en su lugar
               </button>
             )}
           </p>
@@ -202,7 +202,7 @@ export function SaveAsNoteDialog({
             onClick={onClose}
             style={{ background: 'transparent', border: 'none', color: 'var(--ink)', cursor: 'pointer', padding: 'var(--space-2) var(--space-4)', fontSize: 14 }}
           >
-            Cancel
+            Cancelar
           </button>
           <button
             type="submit"
@@ -210,7 +210,7 @@ export function SaveAsNoteDialog({
             disabled={busy}
             style={{ background: 'var(--daun)', color: 'var(--on-daun)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: 'var(--space-2) var(--space-4)', fontSize: 14, fontWeight: 500 }}
           >
-            Save
+            Guardar
           </button>
         </div>
       </form>

@@ -40,12 +40,12 @@ describe('NoteProposalCard', () => {
     expect(screen.getByTestId('proposal-preview')).toHaveTextContent('# New');
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('note_exists', { path: 'Folder/new.md', vaultPath: '/vault' }));
     fireEvent.click(screen.getByTestId('proposal-accept'));
-    await waitFor(() => expect(screen.getByTestId('proposal-done')).toHaveTextContent('Created'));
+    await waitFor(() => expect(screen.getByTestId('proposal-done')).toHaveTextContent('Creada'));
     expect(mockInvoke).toHaveBeenCalledWith('chat_write_note', {
       path: 'Folder/new.md', content: '# New\nbody', mode: 'create', vaultPath: '/vault',
     });
     expect(onWritten).toHaveBeenCalledWith('/vault/Folder/new.md', 'create');
-    fireEvent.click(screen.getByText('Open'));
+    fireEvent.click(screen.getByText('Abrir'));
     expect(onOpen).toHaveBeenCalledWith('/vault/Folder/new.md');
   });
 
@@ -70,12 +70,12 @@ describe('NoteProposalCard', () => {
   it('create when the file exists: shows Already exists and offers Append instead', async () => {
     backend({ exists: true, tail: 'last line' });
     setup();
-    expect(await screen.findByText('Already exists')).toBeInTheDocument();
+    expect(await screen.findByText('Ya existe')).toBeInTheDocument();
     expect(screen.queryByTestId('proposal-accept')).not.toBeInTheDocument();
-    expect(screen.getByText('Rename')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Append instead'));
+    expect(screen.getByText('Renombrar')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Añadir al final en su lugar'));
     expect(await screen.findByTestId('proposal-tail')).toHaveTextContent('last line');
-    expect(screen.getByTestId('proposal-accept')).toHaveTextContent('Append');
+    expect(screen.getByTestId('proposal-accept')).toHaveTextContent('Añadir al final');
   });
 
   it('append: shows the tail muted and the new content highlighted', async () => {
@@ -85,7 +85,7 @@ describe('NoteProposalCard', () => {
     expect(mockInvoke).toHaveBeenCalledWith('read_note_tail', { path: 'old.md', vaultPath: '/vault', lines: 8 });
     expect(screen.getByTestId('proposal-preview').style.background).toBe('var(--mark)');
     fireEvent.click(screen.getByTestId('proposal-accept'));
-    await waitFor(() => expect(screen.getByTestId('proposal-done')).toHaveTextContent('Appended'));
+    await waitFor(() => expect(screen.getByTestId('proposal-done')).toHaveTextContent('Añadida'));
     expect(mockInvoke).toHaveBeenCalledWith('chat_write_note', {
       path: 'old.md', content: 'more text', mode: 'append', vaultPath: '/vault',
     });
@@ -94,15 +94,15 @@ describe('NoteProposalCard', () => {
   it('append to a missing note offers Create instead', async () => {
     backend({ exists: false });
     setup(append);
-    fireEvent.click(await screen.findByText('Create instead'));
-    expect(screen.getByTestId('proposal-accept')).toHaveTextContent('Create');
+    fireEvent.click(await screen.findByText('Crear en su lugar'));
+    expect(screen.getByTestId('proposal-accept')).toHaveTextContent('Crear');
   });
 
   it('discard collapses the card', async () => {
     backend();
     setup();
     fireEvent.click(screen.getByTestId('proposal-discard'));
-    expect(screen.getByTestId('proposal-done')).toHaveTextContent('Discarded');
+    expect(screen.getByTestId('proposal-done')).toHaveTextContent('Descartada');
     expect(mockInvoke).not.toHaveBeenCalledWith('chat_write_note', expect.anything());
   });
 
@@ -110,7 +110,7 @@ describe('NoteProposalCard', () => {
     backend({ writeError: 'already_exists' });
     setup();
     fireEvent.click(screen.getByTestId('proposal-accept'));
-    expect(await screen.findByRole('alert')).toHaveTextContent('already exists');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe');
     expect(screen.getByTestId('proposal-accept')).toBeInTheDocument();
   });
 });
