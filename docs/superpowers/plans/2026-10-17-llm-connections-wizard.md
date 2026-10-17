@@ -3285,7 +3285,7 @@ git commit -m "feat(llm): dispatch chat and model listing by engine"
 - Create: `src-tauri/src/llm/validate.rs`, `src-tauri/src/llm/validate_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/validate_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/validate_tests.rs`:
 
 ```rust
 use super::connection::*;
@@ -3532,12 +3532,12 @@ fn add_verified_extends_the_token() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - add `pub mod validate;` and `#[cfg(test)] mod validate_tests;` to `llm/mod.rs`.
+- [x] **Step 2: Run to verify it fails** - add `pub mod validate;` and `#[cfg(test)] mod validate_tests;` to `llm/mod.rs`.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::validate_tests`
 Expected: FAIL to compile (`validate.rs` missing).
 
-- [ ] **Step 3: Implement** - `src-tauri/src/llm/validate.rs`:
+- [x] **Step 3: Implement** - `src-tauri/src/llm/validate.rs`:
 
 ```rust
 use super::connection::{AuthSource, Connection};
@@ -3738,12 +3738,12 @@ impl ValidationStore {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::validate_tests`
 Expected: PASS (13 tests on unix: 9 pipeline + 3 cli + 3 token/fingerprint... counts may vary by platform; all green).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/llm
