@@ -23,9 +23,8 @@ pub fn extract_tags(content: &str) -> Vec<String> {
             continue;
         }
         let mut prev: Option<char> = None;
-        let mut chars = line.char_indices().peekable();
-        while let Some((i, c)) = chars.next() {
-            if c == '#' && prev.map_or(true, |p| p.is_whitespace()) {
+        for (i, c) in line.char_indices() {
+            if c == '#' && prev.is_none_or(|p| p.is_whitespace()) {
                 let rest = &line[i + 1..];
                 let word: String = rest.chars().take_while(|&ch| is_tag_char(ch)).collect();
                 if !word.is_empty() && seen.insert(word.clone()) {
@@ -49,7 +48,7 @@ pub fn extract_excerpt(content: &str, max: usize) -> String {
             in_fence = !in_fence;
             continue;
         }
-        if in_fence || t.is_empty() || t.starts_with('#') && t.chars().nth(1).map_or(true, |c| c == '#' || c == ' ') {
+        if in_fence || t.is_empty() || t.starts_with('#') && t.chars().nth(1).is_none_or(|c| c == '#' || c == ' ') {
             continue;
         }
         parts.push(t);
