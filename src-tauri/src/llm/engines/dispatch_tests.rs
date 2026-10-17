@@ -68,7 +68,7 @@ async fn azure_cli_auth_puts_the_az_token_in_the_bearer_header() {
     let c = conn(
         Engine::OpenAiCompat,
         &s.url,
-        AuthSource::AzureCli { scope: DEFAULT_AZURE_SCOPE.into() },
+        AuthSource::AzureCli { scope: "https://cognitiveservices.azure.com/.default".into() },
         AuthHeader::Bearer,
     );
     assert_eq!(chat(&c, "m", &user("hi"), None, &env).await.unwrap(), "ok");
@@ -81,7 +81,7 @@ async fn azure_cli_auth_without_az_is_cli_missing() {
     let c = conn(
         Engine::OpenAiCompat,
         "http://127.0.0.1:1",
-        AuthSource::AzureCli { scope: DEFAULT_AZURE_SCOPE.into() },
+        AuthSource::AzureCli { scope: "https://cognitiveservices.azure.com/.default".into() },
         AuthHeader::Bearer,
     );
     assert_eq!(chat(&c, "m", &user("hi"), None, &env).await.unwrap_err(), LlmError::CliMissing);

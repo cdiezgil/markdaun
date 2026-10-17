@@ -1,8 +1,6 @@
 use super::error::LlmError;
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_AZURE_SCOPE: &str = "https://cognitiveservices.azure.com/.default";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Engine {

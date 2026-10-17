@@ -1,5 +1,3 @@
-#![allow(dead_code)] // removed in Task 17 once everything is wired
-
 pub mod auth;
 pub mod connection;
 pub mod embeddings;

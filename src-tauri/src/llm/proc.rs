@@ -12,9 +12,11 @@ pub trait BinaryResolver: Send + Sync {
 }
 
 /// Test resolver: a fixed name -> path table.
+#[cfg(test)]
 #[derive(Default)]
 pub struct FixedResolver(pub HashMap<String, PathBuf>);
 
+#[cfg(test)]
 impl FixedResolver {
     pub fn with(mut self, name: &str, path: impl Into<PathBuf>) -> Self {
         self.0.insert(name.to_string(), path.into());
@@ -22,6 +24,7 @@ impl FixedResolver {
     }
 }
 
+#[cfg(test)]
 impl BinaryResolver for FixedResolver {
     fn resolve(&self, name: &str) -> Option<PathBuf> {
         self.0.get(name).cloned()

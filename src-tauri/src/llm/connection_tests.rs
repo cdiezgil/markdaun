@@ -8,7 +8,7 @@ fn sample() -> Connection {
         preset_id: Some("azure-openai".into()),
         engine: Engine::OpenAiCompat,
         base_url: Some("https://x.openai.azure.com".into()),
-        auth: AuthSource::AzureCli { scope: DEFAULT_AZURE_SCOPE.into() },
+        auth: AuthSource::AzureCli { scope: "https://cognitiveservices.azure.com/.default".into() },
         auth_header: AuthHeader::Bearer,
         extra_headers: vec![("X-Team".into(), "md".into())],
         ca_cert_path: None,
@@ -24,7 +24,7 @@ fn serializes_camel_case_with_tagged_auth() {
     assert_eq!(v["authHeader"], "bearer");
     assert_eq!(v["baseUrl"], "https://x.openai.azure.com");
     assert_eq!(v["auth"]["type"], "azureCli");
-    assert_eq!(v["auth"]["scope"], DEFAULT_AZURE_SCOPE);
+    assert_eq!(v["auth"]["scope"], "https://cognitiveservices.azure.com/.default");
     assert_eq!(v["extraHeaders"][0][0], "X-Team");
     assert_eq!(v["azureApiVersion"], "2024-10-21");
 }

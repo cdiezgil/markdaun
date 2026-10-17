@@ -1,5 +1,3 @@
-#![allow(dead_code)] // removed in Task 17 once the commands are wired into the handler
-
 use crate::commands::brain_cmd::app_db_path;
 use crate::llm::connection::{AuthSource, Connection, Engine};
 use crate::llm::engines::cli;

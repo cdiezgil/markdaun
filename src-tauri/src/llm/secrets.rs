@@ -1,5 +1,7 @@
 use super::error::LlmError;
+#[cfg(test)]
 use std::collections::HashMap;
+#[cfg(test)]
 use std::sync::Mutex;
 
 pub const KEYRING_SERVICE: &str = "markdaun";
@@ -48,11 +50,13 @@ impl SecretStore for KeyringStore {
 }
 
 /// In-memory store for tests.
+#[cfg(test)]
 #[derive(Default)]
 pub struct MemorySecretStore {
     inner: Mutex<HashMap<String, String>>,
 }
 
+#[cfg(test)]
 impl SecretStore for MemorySecretStore {
     fn get(&self, account: &str) -> Result<Option<String>, LlmError> {
         Ok(self.inner.lock().unwrap().get(account).cloned())
