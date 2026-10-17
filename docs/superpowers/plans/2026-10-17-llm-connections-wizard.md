@@ -8516,12 +8516,12 @@ git commit -m "feat(ui): add AI connections section to Settings"
 **Files:**
 - Modify: `AGENTS.md`
 
-- [ ] **Step 1: Write the check (docs "test")** - confirm the old text is present and the new keywords are absent:
+- [x] **Step 1: Write the check (docs "test")** - confirm the old text is present and the new keywords are absent:
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && grep -c "Endpoint configurable" AGENTS.md; grep -c "AnthropicMessages" AGENTS.md`
 Expected: `1` then `0`.
 
-- [ ] **Step 2: Implement** - replace section 2.6 (from the `### 2.6 LLM — Second Brain` heading through the line `- La API key del LLM se guarda en el llavero del SO, igual que el PAT de GitHub.`) with:
+- [x] **Step 2: Implement** - replace section 2.6 (from the `### 2.6 LLM — Second Brain` heading through the line `- La API key del LLM se guarda en el llavero del SO, igual que el PAT de GitHub.`) with:
 
 ```bash
 python3 -I - <<'EOF'
@@ -8546,12 +8546,12 @@ open(p, 'w').write(s)
 EOF
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && grep -c "Endpoint configurable" AGENTS.md; grep -c "AnthropicMessages" AGENTS.md; sed -n '/### 2.6/,/^---/p' AGENTS.md | head -20`
 Expected: `0`, then `1`, then the new section followed by `---`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add AGENTS.md
@@ -8562,22 +8562,22 @@ git commit -m "docs: describe LLM connections, engines and CLI/Azure auth in AGE
 
 **Files:** none (verification only; fix forward in the task that owns any regression).
 
-- [ ] **Step 1: Rust suite**
+- [x] **Step 1: Rust suite**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test`
 Expected: all tests pass, zero warnings. The only acceptable failures are the pre-existing flaky `git::tests::pull_fast_forward` and `git::tests::pull_reset_hard_on_divergence` (re-run once to confirm they are flaky; do not fix them here).
 
-- [ ] **Step 2: Type-check and frontend suite with coverage**
+- [x] **Step 2: Type-check and frontend suite with coverage**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx tsc --noEmit && npx vitest run --coverage`
 Expected: tsc clean; all tests pass; line coverage >= 80% (project threshold, enforced by `vite.config.ts`). If a new file is under-covered, add the missing tests in the owning task's test file.
 
-- [ ] **Step 3: Guard checks**
+- [x] **Step 3: Guard checks**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/lib/invokeArgs.test.ts && grep -rn "brain_configure\|brain_get_config\|LlmConfigPanel\|brainConfigure\|brainGetConfig" src src-tauri/src; echo "exit=$?"`
 Expected: invokeArgs PASS; the grep prints nothing and `exit=1` (no leftovers).
 
-- [ ] **Step 4: Release bundle builds**
+- [x] **Step 4: Release bundle builds**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && ORT_STRATEGY=download npx tauri build --bundles app`
 Expected: build finishes and prints the path to `MarkDaun.app` under `src-tauri/target/release/bundle/macos/`.
@@ -8592,7 +8592,7 @@ Launch the built app and check, noting any deviation:
 5. Settings: edit (re-validates), duplicate, delete (confirmation; key removed).
 6. (If available) Azure Foundry with `az login`, and a proxy with a corporate root CA under Avanzado.
 
-- [ ] **Step 6: Commit (only if verification required fixes)**
+- [x] **Step 6: Commit (only if verification required fixes)**
 
 ```bash
 git add -A
