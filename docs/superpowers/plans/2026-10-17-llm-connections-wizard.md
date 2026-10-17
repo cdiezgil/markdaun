@@ -74,7 +74,7 @@ Deviation from the spec layout: the spec's `trait ChatEngine` becomes plain enum
 - Modify: `src-tauri/src/llm/mod.rs`
 - Create: `src-tauri/src/llm/error.rs`, `src-tauri/src/llm/error_tests.rs`
 
-- [ ] **Step 1: Write the failing test** - create `src-tauri/src/llm/error_tests.rs`:
+- [x] **Step 1: Write the failing test** - create `src-tauri/src/llm/error_tests.rs`:
 
 ```rust
 use super::error::LlmError;
@@ -105,7 +105,7 @@ fn display_is_human_readable() {
 }
 ```
 
-- [ ] **Step 2: Wire the module and run to see it fail** - replace `src-tauri/src/llm/mod.rs` with:
+- [x] **Step 2: Wire the module and run to see it fail** - replace `src-tauri/src/llm/mod.rs` with:
 
 ```rust
 #![allow(dead_code)] // removed in Task 17 once everything is wired
@@ -126,7 +126,7 @@ mod error_tests;
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::error_tests`
 Expected: FAIL to compile (`file not found for module error` / unresolved import).
 
-- [ ] **Step 3: Implement** - edit `src-tauri/Cargo.toml`. Replace the `reqwest` line and add dependencies; move `tempfile` into `[dependencies]` and add the TLS test crates to `[dev-dependencies]`:
+- [x] **Step 3: Implement** - edit `src-tauri/Cargo.toml`. Replace the `reqwest` line and add dependencies; move `tempfile` into `[dependencies]` and add the TLS test crates to `[dev-dependencies]`:
 
 ```toml
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
@@ -184,12 +184,12 @@ impl LlmError {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::error_tests`
 Expected: PASS (4 tests). Also run `cargo tree -i aws-lc-rs` (expect "did not match any packages" - if it is present, see the risk note in Task 9).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/llm
