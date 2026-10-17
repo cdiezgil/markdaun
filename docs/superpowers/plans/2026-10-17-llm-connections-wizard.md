@@ -5156,7 +5156,7 @@ git commit -m "feat(ui): add LLM TS types and error-to-message mapping"
 **Files:**
 - Create: `src/lib/llm/presets.ts`, `src/lib/llm/presets.test.ts`
 
-- [ ] **Step 1: Write the failing test** - `src/lib/llm/presets.test.ts`:
+- [x] **Step 1: Write the failing test** - `src/lib/llm/presets.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -5254,12 +5254,12 @@ describe('presetsForRoute / draftFromPreset', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/lib/llm/presets.test.ts`
 Expected: FAIL (`./presets` not found).
 
-- [ ] **Step 3: Implement** - `src/lib/llm/presets.ts`:
+- [x] **Step 3: Implement** - `src/lib/llm/presets.ts`:
 
 ```ts
 import {
@@ -5476,12 +5476,12 @@ export function draftFromPreset(p: Preset): Connection {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun && npx vitest run src/lib/llm/presets.test.ts && npx tsc --noEmit`
 Expected: PASS (8 tests); tsc clean.
 
-- [ ] **Step 5: Verify preset endpoints against provider docs** (research step; edit `presets.ts` only if a value is wrong, and keep `presets.test.ts` green)
+- [x] **Step 5: Verify preset endpoints against provider docs** (research step; edit `presets.ts` only if a value is wrong, and keep `presets.test.ts` green)
 
 Use context7 (`mcp__context7__resolve-library-id` + `query-docs`) or the vendors' docs to confirm, per preset, (a) base URL, (b) the auth header, (c) that the suggested model ids exist, (d) the page that creates the key:
 
@@ -5498,7 +5498,7 @@ Use context7 (`mcp__context7__resolve-library-id` + `query-docs`) or the vendors
 
 If a discrepancy is found, update the table in `presets.ts` (and, for Azure/Gemini path changes, `engines/openai.rs` + its tests), then re-run `npx vitest run src/lib/llm` and the Rust engine tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib/llm
