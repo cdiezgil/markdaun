@@ -33,3 +33,8 @@ pub mod llm_cmd;
 pub use llm_cmd::*;
 #[cfg(test)]
 mod llm_tests;
+
+pub mod chat_notes;
+pub use chat_notes::*;
+#[cfg(test)]
+mod chat_notes_tests;
