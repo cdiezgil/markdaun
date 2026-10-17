@@ -74,7 +74,7 @@ pub async fn run(conn: &Connection, secret: Option<&str>, env: &LlmEnv, emit: Em
         .first()
         .cloned()
         .ok_or_else(|| LlmError::BadResponse("choose a model to test".into()))?;
-    if matches!(conn.auth, AuthSource::ApiKey) && secret.map_or(true, str::is_empty) {
+    if matches!(conn.auth, AuthSource::ApiKey) && secret.is_none_or(str::is_empty) {
         return Err(fail(emit, Step::Credential, LlmError::Unauthorized));
     }
 
