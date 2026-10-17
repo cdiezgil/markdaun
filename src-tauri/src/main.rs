@@ -39,6 +39,7 @@ fn main() {
             commands::write_note,
             commands::pick_image_file,
             commands::get_vault_graph,
+            commands::get_backlinks,
             commands::save_node_position,
             commands::github_configure,
             commands::github_get_config,

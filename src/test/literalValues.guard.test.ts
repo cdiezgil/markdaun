@@ -13,10 +13,8 @@ const SRC = join(process.cwd(), 'src');
 /**
  * Directories that still contain violations and are cleared in a later
  * slice. Paths are POSIX-style, relative to the repo root.
- * TODO(slice 2 - editor): remove 'src/components/editor/' once the editor is
- * restyled with tokens, so the guard covers it too.
  */
-const ALLOWLIST: readonly string[] = ['src/components/editor/'];
+const ALLOWLIST: readonly string[] = [];
 
 const isProduction = (path: string) =>
   !/\.test\.(ts|tsx)$/.test(path) && !path.startsWith('src/test/');
