@@ -35,6 +35,11 @@ function activeTakesPdfNatively(): boolean {
   return !!conn && NATIVE_PDF_ENGINES.has(conn.engine);
 }
 
+/** File name without folders or extension: the wikilink target of a note. */
+export function noteStem(path: string): string {
+  return (path.split('/').pop() ?? path).replace(/\.md$/i, '');
+}
+
 export interface BrainState {
   conversations: BrainConversation[];
   currentConversationId: string | null;
@@ -47,6 +52,12 @@ export interface BrainState {
   /** Non-blocking messages about the last send (e.g. PDF truncated). */
   notices: string[];
   pendingPrompt: PendingPrompt | null;
+  /** Vault-relative path of the note the conversation is scoped to ("Esta nota"). */
+  scopeNote: string | null;
+
+  /** Start a fresh conversation scoped to one note. */
+  askAboutNote(relativePath: string): void;
+  clearScope(): void;
 
   addAttachment(a: ChatAttachment): 'added' | 'duplicate' | 'limit';
   removeAttachment(vaultPath: string): void;
@@ -82,6 +93,22 @@ export const useBrainStore = create<BrainState>((set, get) => ({
   pendingAttachments: [],
   notices: [],
   pendingPrompt: null,
+  scopeNote: null,
+
+  askAboutNote(relativePath) {
+    set({
+      scopeNote: relativePath,
+      currentConversationId: null,
+      messages: [],
+      error: null,
+      notices: [],
+      pendingAttachments: [],
+    });
+  },
+
+  clearScope() {
+    set({ scopeNote: null });
+  },
 
   // ── Attachments ──────────────────────────────────────────────────────────────
 
@@ -147,6 +174,7 @@ export const useBrainStore = create<BrainState>((set, get) => ({
       set({
         currentConversationId: id,
         messages,
+        scopeNote: null,
         isLoading: false,
       });
     } catch (e) {
@@ -155,11 +183,12 @@ export const useBrainStore = create<BrainState>((set, get) => ({
   },
 
   startNewConversation() {
-    set({ currentConversationId: null, messages: [] });
+    set({ currentConversationId: null, messages: [], scopeNote: null });
   },
 
   async query(question, vaultPath) {
-    const { currentConversationId, messages, pendingAttachments } = get();
+    const { currentConversationId, messages, pendingAttachments, scopeNote } = get();
+    if (scopeNote) question = `Sobre [[${noteStem(scopeNote)}]]: ${question}`;
 
     // Optimistic: append user message immediately (with the same reference list
     // the backend stores instead of the bytes).

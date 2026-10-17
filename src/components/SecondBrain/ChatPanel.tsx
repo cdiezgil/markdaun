@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useBrainStore } from '../../store/brainStore';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useBrainStore, noteStem } from '../../store/brainStore';
 import { MessageBubble, type NoteContext } from './MessageBubble';
 import { useVaultStore } from '../../store/vaultStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -9,15 +9,16 @@ import { vaultFolders } from '../../lib/vaultFolders';
 import { describeBrainError, VISION_UNSUPPORTED_MESSAGE } from '../../lib/brainErrors';
 import { useLlmStore } from '../../store/llmStore';
 import { supportsVision } from '../../lib/llm/vision';
-import { Paperclip } from 'lucide-react';
+import { ArrowUp, AtSign, Paperclip, X } from 'lucide-react';
+import './brain.css';
 import { attachmentKindOf, chatAttachmentFromAbs, MAX_ATTACHMENTS } from '../../lib/attachments/types';
 import { ENTRY_MIME } from '../VaultTree/TreeNode';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPicker } from './AttachmentPicker';
 
 const noteStyle: React.CSSProperties = {
-  fontFamily: 'var(--sans)',
-  fontSize: '0.8125rem',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 13,
   color: 'var(--ink-muted)',
 };
 
@@ -35,6 +36,8 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
   const pendingPrompt = useBrainStore((s) => s.pendingPrompt);
   const addAttachment = useBrainStore((s) => s.addAttachment);
   const removeAttachment = useBrainStore((s) => s.removeAttachment);
+  const scopeNote = useBrainStore((s) => s.scopeNote);
+  const clearScope = useBrainStore((s) => s.clearScope);
 
   const activeConn = useLlmStore((s) => s.connections.find((c) => c.id === s.active?.connectionId));
   const activeModel = useLlmStore((s) => s.active?.model ?? '');
@@ -46,6 +49,17 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // `/brain?ask=<vault-relative path>` (e.g. from the graph): new conversation
+  // scoped to that note, composer focused, param consumed.
+  const askParam = searchParams.get('ask');
+  useEffect(() => {
+    if (!askParam) return;
+    useBrainStore.getState().askAboutNote(askParam);
+    setSearchParams({}, { replace: true });
+    textareaRef.current?.focus();
+  }, [askParam, setSearchParams]);
 
   // Auto-scroll to bottom when messages change.
   useEffect(() => {
@@ -135,6 +149,8 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
     },
   };
 
+  const send = isLoading || !input.trim() || visionBlocked;
+
   return (
     <div
       data-testid="chat-panel"
@@ -148,166 +164,213 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
         position: 'relative',
       }}
     >
-      {/* Messages area */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: 'var(--space-4)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            onSourceClick={handleSourceClick}
-            noteContext={noteContext}
-          />
-        ))}
-
-        {isLoading && (
-          <div
-            data-testid="chat-spinner"
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-              padding: 'var(--space-4)',
-            }}
-          >
-            <div
-              style={{
-                width: 24,
-                height: 24,
-                border: '2px solid var(--line)',
-                borderTopColor: 'var(--daun)',
-                borderRadius: '50%',
-                animation: 'spin 0.7s linear infinite',
-              }}
+      {/* Thread */}
+      <div className="brain-scroll" style={{ flex: 1, overflowY: 'auto', padding: '40px var(--space-8) var(--space-6)' }}>
+        <div
+          style={{
+            maxWidth: 720,
+            margin: '0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 28,
+          }}
+        >
+          {messages.map((msg) => (
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              onSourceClick={handleSourceClick}
+              noteContext={noteContext}
             />
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-          </div>
-        )}
+          ))}
 
-        {error && (
-          <div
-            data-testid="chat-error"
-            role="alert"
-            style={{
-              color: 'var(--danger)',
-              fontFamily: 'var(--sans)',
-              fontSize: '0.875rem',
-              padding: 'var(--space-2) var(--space-3)',
-              border: '1px solid var(--danger)',
-              borderRadius: 'var(--radius-sm)',
-              marginBottom: 'var(--space-3)',
-            }}
-          >
-            {describeBrainError(error)}
-          </div>
-        )}
+          {isLoading && (
+            <div data-testid="chat-spinner" style={{ display: 'flex', justifyContent: 'center' }}>
+              <div
+                style={{
+                  width: 24,
+                  height: 24,
+                  border: '2px solid var(--line)',
+                  borderTopColor: 'var(--daun)',
+                  borderRadius: '50%',
+                  animation: 'spin 0.7s linear infinite',
+                }}
+              />
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          )}
 
-        <div ref={messagesEndRef} />
+          {error && (
+            <div
+              data-testid="chat-error"
+              role="alert"
+              style={{
+                color: 'var(--danger)',
+                fontFamily: 'var(--font-sans)',
+                fontSize: 14,
+                padding: 'var(--space-2) var(--space-3)',
+                border: '1px solid var(--danger)',
+                borderRadius: 'var(--radius-sm)',
+              }}
+            >
+              {describeBrainError(error)}
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      {/* Input bar */}
-      <div
-        style={{
-          padding: 'var(--space-3)',
-          borderTop: '1px solid var(--line)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-2)',
-          background: 'var(--bg)',
-          position: 'relative',
-        }}
-      >
-        {pickerOpen && <AttachmentPicker onPick={attach} onClose={() => setPickerOpen(false)} />}
-        <AttachmentChips attachments={pendingAttachments} onRemove={removeAttachment} />
-        {notices.length > 0 && (
-          <div data-testid="chat-notices" style={noteStyle}>
-            {notices.map((n) => (
-              <div key={n}>{n}</div>
-            ))}
+      {/* Floating composer */}
+      <div style={{ padding: '0 var(--space-8) var(--space-6)', position: 'relative' }}>
+        <div style={{ maxWidth: 720, margin: '0 auto', position: 'relative' }}>
+          {pickerOpen && <AttachmentPicker onPick={attach} onClose={() => setPickerOpen(false)} />}
+          <div
+            data-testid="chat-composer"
+            style={{
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--surface)',
+              boxShadow: 'var(--shadow-pop)',
+              padding: '12px 12px 10px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-1)',
+            }}
+          >
+            <AttachmentChips attachments={pendingAttachments} onRemove={removeAttachment} />
+            {notices.length > 0 && (
+              <div data-testid="chat-notices" style={noteStyle}>
+                {notices.map((n) => (
+                  <div key={n}>{n}</div>
+                ))}
+              </div>
+            )}
+            {hint && (
+              <div data-testid="attachment-hint" role="status" style={noteStyle}>
+                {hint}
+              </div>
+            )}
+            {visionBlocked && (
+              <div data-testid="vision-warning" role="alert" style={{ ...noteStyle, color: 'var(--danger)' }}>
+                {VISION_UNSUPPORTED_MESSAGE}
+              </div>
+            )}
+            <textarea
+              data-testid="chat-input"
+              aria-label="Pregunta a tus notas"
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Pregunta a tus notas…"
+              disabled={isLoading}
+              rows={2}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                resize: 'none',
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                padding: 0,
+                fontFamily: 'var(--font-sans)',
+                fontSize: 15,
+                lineHeight: '22px',
+                color: 'var(--ink)',
+              }}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
+                <button
+                  type="button"
+                  aria-label="Adjuntar archivo"
+                  title="Adjuntar imagen o PDF"
+                  className="md-hover"
+                  onClick={() => setPickerOpen((v) => !v)}
+                  disabled={isLoading}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 28,
+                    height: 28,
+                    flexShrink: 0,
+                    border: 'none',
+                    background: 'transparent',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    color: pickerOpen || pendingAttachments.length > 0 ? 'var(--daun)' : 'var(--ink-muted)',
+                  }}
+                >
+                  <Paperclip size={16} strokeWidth={1.5} />
+                </button>
+                <button
+                  type="button"
+                  data-testid="scope-chip"
+                  title={scopeNote ? 'Volver a toda la bóveda' : 'Brain consulta toda la bóveda'}
+                  onClick={() => scopeNote && clearScope()}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 28,
+                    maxWidth: 360,
+                    padding: '0 10px',
+                    border: '1px solid var(--line)',
+                    borderRadius: 'var(--radius-pill)',
+                    background: 'var(--bg)',
+                    color: 'var(--ink-muted)',
+                    fontFamily: 'var(--font-sans)',
+                    fontSize: 12,
+                    lineHeight: '16px',
+                    fontWeight: 500,
+                    cursor: scopeNote ? 'pointer' : 'default',
+                  }}
+                >
+                  <AtSign size={13} strokeWidth={1.5} aria-hidden="true" />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {scopeNote ? `Esta nota · ${noteStem(scopeNote)}` : 'Toda la bóveda'}
+                  </span>
+                  {scopeNote && <X size={12} strokeWidth={1.5} aria-hidden="true" />}
+                </button>
+              </div>
+              <button
+                data-testid="chat-send-btn"
+                aria-label="Enviar"
+                onClick={handleSend}
+                disabled={send}
+                style={{
+                  width: 36,
+                  height: 36,
+                  flexShrink: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: 'none',
+                  borderRadius: 'var(--radius-pill)',
+                  background: 'var(--daun)',
+                  color: 'var(--on-daun)',
+                  opacity: send ? 0.5 : 1,
+                  cursor: send ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <ArrowUp size={18} strokeWidth={2} />
+              </button>
+            </div>
           </div>
-        )}
-        {hint && (
-          <div data-testid="attachment-hint" role="status" style={noteStyle}>
-            {hint}
+          <div
+            style={{
+              marginTop: 'var(--space-2)',
+              textAlign: 'center',
+              fontFamily: 'var(--font-sans)',
+              fontSize: 12,
+              lineHeight: '16px',
+              color: 'var(--ink-muted)',
+            }}
+          >
+            Brain responde a partir de tus notas y cita siempre sus fuentes.
           </div>
-        )}
-        {visionBlocked && (
-          <div data-testid="vision-warning" role="alert" style={{ ...noteStyle, color: 'var(--danger)' }}>
-            {VISION_UNSUPPORTED_MESSAGE}
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'flex-end' }}>
-        <button
-          type="button"
-          aria-label="Adjuntar archivo"
-          title="Adjuntar imagen o PDF"
-          onClick={() => setPickerOpen((v) => !v)}
-          disabled={isLoading}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 32,
-            height: 32,
-            flexShrink: 0,
-            border: 'none',
-            background: 'transparent',
-            borderRadius: 'var(--radius-sm)',
-            cursor: 'pointer',
-            color: pickerOpen || pendingAttachments.length > 0 ? 'var(--daun)' : 'var(--ink-muted)',
-          }}
-        >
-          <Paperclip size={20} strokeWidth={1.5} />
-        </button>
-        <textarea
-          data-testid="chat-input"
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Pregunta a tus notas…"
-          disabled={isLoading}
-          rows={1}
-          style={{
-            flex: 1,
-            resize: 'none',
-            background: 'var(--surface)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-sm)',
-            padding: 'var(--space-2) var(--space-3)',
-            fontFamily: 'var(--mono)',
-            fontSize: '0.875rem',
-            color: 'var(--ink)',
-            outline: 'none',
-            lineHeight: '1.5',
-            overflow: 'hidden',
-          }}
-        />
-        <button
-          data-testid="chat-send-btn"
-          onClick={handleSend}
-          disabled={isLoading || !input.trim() || visionBlocked}
-          style={{
-            background: 'var(--daun)',
-            color: 'var(--on-daun)',
-            border: 'none',
-            borderRadius: 'var(--radius-sm)',
-            padding: 'var(--space-2) var(--space-4)',
-            fontFamily: 'var(--sans)',
-            fontWeight: 500,
-            fontSize: '0.875rem',
-            cursor: isLoading || !input.trim() || visionBlocked ? 'not-allowed' : 'pointer',
-            flexShrink: 0,
-          }}
-        >
-          Enviar
-        </button>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Leaf } from 'lucide-react';
-import { useBrainStore } from '../../store/brainStore';
+import { useVaultStore } from '../../store/vaultStore';
 import { plural } from '../../lib/shell';
 import type { GraphNodeData } from '../../store/graphStore';
 
@@ -14,7 +14,7 @@ const strong: React.CSSProperties = { color: 'var(--ink)', fontWeight: 600 };
 /** Top-right card for the selected node: path, title, excerpt, counters, actions. */
 export function GraphNoteCard({ node }: GraphNoteCardProps) {
   const navigate = useNavigate();
-  const askWithAttachments = useBrainStore((s) => s.askWithAttachments);
+  const vaultPath = useVaultStore((s) => s.vaultPath);
   const isNote = node.kind === 'md';
 
   const open = () => {
@@ -22,8 +22,9 @@ export function GraphNoteCard({ node }: GraphNoteCardProps) {
     navigate(`/${route}/${encodeURIComponent(node.path)}`);
   };
   const ask = () => {
-    askWithAttachments([], { text: `Háblame de [[${node.label}]]`, send: false });
-    navigate('/brain');
+    const prefix = vaultPath ? `${vaultPath}/` : '';
+    const rel = prefix && node.path.startsWith(prefix) ? node.path.slice(prefix.length) : node.path;
+    navigate(`/brain?ask=${encodeURIComponent(rel)}`);
   };
 
   return (

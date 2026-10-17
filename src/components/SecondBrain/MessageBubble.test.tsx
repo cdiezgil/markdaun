@@ -139,10 +139,9 @@ describe('MessageBubble note proposals', () => {
     expect(ctx.onOpenNote).toHaveBeenCalledWith('/vault/Ideas/nueva.md');
   });
 
-  it('does not render cards without a note context (plain text)', () => {
+  it('does not render cards without a note context', () => {
     render(<MessageBubble message={makeMsg({ role: 'assistant', content: NOTE_MD })} onSourceClick={vi.fn()} />);
     expect(screen.queryByTestId('proposal-path')).not.toBeInTheDocument();
-    expect(screen.getByTestId('msg-bubble-assistant')).toHaveTextContent('markdaun-note');
   });
 
   it('still shows the warning on assistant messages', () => {
@@ -172,5 +171,33 @@ describe('MessageBubble note proposals', () => {
   it('shows no Save as note action on user messages', () => {
     render(<MessageBubble message={makeMsg({ role: 'user' })} onSourceClick={vi.fn()} noteContext={noteCtx()} />);
     expect(screen.queryByTestId('msg-save-as-note')).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageBubble assistant Markdown', () => {
+  it('renders Markdown instead of raw syntax, with a Brain label and no bubble', () => {
+    const msg = makeMsg({ role: 'assistant', content: 'Tienes **3 notas**\n\n> cita\n\n- uno\n- dos' });
+    render(<MessageBubble message={msg} onSourceClick={vi.fn()} />);
+    const body = screen.getByTestId('msg-bubble-assistant');
+    expect(body.querySelector('strong')?.textContent).toBe('3 notas');
+    expect(body.querySelector('blockquote')).not.toBeNull();
+    expect(body.querySelectorAll('li')).toHaveLength(2);
+    expect(body).not.toHaveTextContent('**');
+    expect(screen.getByText('Brain')).toBeInTheDocument();
+    expect(body.style.background).toBe('');
+  });
+
+  it('renders wikilinks inside answers', () => {
+    const msg = makeMsg({ role: 'assistant', content: 'Mira [[Primera nota]]' });
+    render(<MessageBubble message={msg} onSourceClick={vi.fn()} />);
+    expect(screen.getByTestId('msg-bubble-assistant').querySelector('[data-wikilink="Primera nota"]')).not.toBeNull();
+  });
+
+  it('shows the user message aligned right on daun with the asymmetric corner', () => {
+    render(<MessageBubble message={makeMsg({ role: 'user' })} onSourceClick={vi.fn()} />);
+    const b = screen.getByTestId('msg-bubble-user');
+    expect(b.style.background).toBe('var(--daun)');
+    expect(b.style.maxWidth).toBe('70%');
+    expect(b.style.borderRadius).toBe('var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg)');
   });
 });

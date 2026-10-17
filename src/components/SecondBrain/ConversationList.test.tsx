@@ -4,6 +4,14 @@ import { invoke } from '@tauri-apps/api/core';
 import { useBrainStore } from '../../store/brainStore';
 import { ConversationList } from './ConversationList';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
+
+const renderList = () =>
+  render(
+    <MemoryRouter>
+      <ConversationList vaultPath="/vault" />
+    </MemoryRouter>,
+  );
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -28,7 +36,7 @@ beforeEach(() => {
 
 describe('TC-27: ConversationList renders items', () => {
   it('TC-27: renders all conversations as list items', () => {
-    render(<ConversationList vaultPath="/vault" />);
+    renderList();
 
     expect(screen.getByTestId('conversation-list')).toBeInTheDocument();
     expect(screen.getByTestId('conv-item-conv-1')).toBeInTheDocument();
@@ -42,7 +50,7 @@ describe('TC-27: ConversationList renders items', () => {
 
 describe('TC-28: ConversationList search filters', () => {
   it('TC-28: typing in search input filters displayed conversations', () => {
-    render(<ConversationList vaultPath="/vault" />);
+    renderList();
 
     fireEvent.change(screen.getByTestId('conv-search-input'), {
       target: { value: 'python' },
@@ -58,7 +66,7 @@ describe('TC-28: ConversationList search filters', () => {
 describe('TC-29: ConversationList new conversation', () => {
   it('TC-29: clicking new conversation button resets state', () => {
     useBrainStore.setState({ currentConversationId: 'conv-1' });
-    render(<ConversationList vaultPath="/vault" />);
+    renderList();
 
     fireEvent.click(screen.getByTestId('new-conversation-btn'));
 
@@ -71,11 +79,35 @@ describe('TC-29: ConversationList new conversation', () => {
 
 describe('TC-34b: delete conversation shows confirm', () => {
   it('TC-34b: clicking delete icon opens the ConfirmDialog', () => {
-    render(<ConversationList vaultPath="/vault" />);
+    renderList();
 
     fireEvent.click(screen.getByTestId('conv-delete-conv-1'));
 
     // Confirm dialog should appear
     expect(screen.getByTestId('confirm-dialog-overlay')).toBeInTheDocument();
+  });
+});
+
+describe('ConversationList design', () => {
+  it('groups by day with a time under each title, and shows the vault footer', () => {
+    const now = new Date();
+    useBrainStore.setState({
+      conversations: [
+        { id: 'c1', title: 'Hoy una', created_at: now.toISOString() },
+        { id: 'c2', title: 'Vieja', created_at: new Date(2020, 0, 5, 10, 30).toISOString() },
+      ],
+    });
+    renderList();
+    expect(screen.getByRole('region', { name: 'Hoy' })).toHaveTextContent('Hoy una');
+    expect(screen.getByRole('region', { name: /ene/i })).toHaveTextContent('10:30');
+    expect(screen.getByTestId('vault-footer')).toHaveTextContent('0 notas · 0 carpetas');
+    expect(screen.getByTestId('settings-link')).toHaveAttribute('href', '/settings');
+  });
+
+  it('marks the active conversation with daun', () => {
+    useBrainStore.setState({ currentConversationId: 'conv-1' });
+    renderList();
+    expect(screen.getByTestId('conv-item-conv-1').style.color).toBe('var(--daun)');
+    expect(screen.getByTestId('conv-item-conv-2').style.color).toBe('var(--ink)');
   });
 });

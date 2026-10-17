@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { useBrainStore } from '../../store/brainStore';
 import { ChatPanel } from './ChatPanel';
 import React from 'react';
 
 vi.mocked(invoke);
+const realQuery = useBrainStore.getState().query;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -259,5 +260,56 @@ describe('ChatPanel attachments', () => {
     expect(query).not.toHaveBeenCalled();
     expect(screen.getByTestId('chat-input')).toHaveValue('Explica en una nota');
     expect(screen.getByTestId('vision-warning')).toBeInTheDocument();
+  });
+});
+
+describe('?ask=<path> from the graph', () => {
+  function Where() {
+    const { pathname, search } = useLocation();
+    return <div data-testid="where">{pathname + search}</div>;
+  }
+
+  it('starts a conversation scoped to the note, focuses the composer and clears the param', () => {
+    useBrainStore.setState({
+      currentConversationId: 'old',
+      messages: [{ id: 'm', role: 'user', content: 'x', sources: null, created_at: '' }],
+      scopeNote: null,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/brain?ask=${encodeURIComponent('Test/Primera nota.md')}`]}>
+        <ChatPanel vaultPath="/vault" />
+        <Where />
+      </MemoryRouter>,
+    );
+    const s = useBrainStore.getState();
+    expect(s.currentConversationId).toBeNull();
+    expect(s.messages).toHaveLength(0);
+    expect(s.scopeNote).toBe('Test/Primera nota.md');
+    expect(screen.getByTestId('scope-chip')).toHaveTextContent('Esta nota · Primera nota');
+    expect(screen.getByTestId('chat-input')).toHaveFocus();
+    expect(screen.getByTestId('where').textContent).toBe('/brain');
+  });
+
+  it('clicking the scope chip goes back to the whole vault', async () => {
+    useBrainStore.setState({ scopeNote: 'a/Nota.md' });
+    renderChatPanel();
+    await userEvent.click(screen.getByTestId('scope-chip'));
+    expect(useBrainStore.getState().scopeNote).toBeNull();
+    expect(screen.getByTestId('scope-chip')).toHaveTextContent('Toda la bóveda');
+  });
+
+  it('sends scoped questions about the note', async () => {
+    useBrainStore.setState({ scopeNote: 'a/Nota.md', query: realQuery });
+    vi.mocked(invoke).mockImplementation((async (cmd: string) =>
+      cmd === 'brain_query'
+        ? { answer: 'ok', sources: [], conversation_id: 'c', message_id: 'm' }
+        : []) as never);
+    renderChatPanel();
+    await userEvent.type(screen.getByTestId('chat-input'), 'resume');
+    await userEvent.click(screen.getByTestId('chat-send-btn'));
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(
+      'brain_query',
+      expect.objectContaining({ question: 'Sobre [[Nota]]: resume' }),
+    );
   });
 });

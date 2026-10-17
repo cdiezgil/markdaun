@@ -42,10 +42,10 @@ describe('SecondBrainView', () => {
     expect(screen.queryByTestId('chat-panel')).not.toBeInTheDocument();
   });
 
-  it('TC-27b: renders ConversationList + ChatPanel when a connection is active', () => {
+  it('TC-27b: renders only the ChatPanel (conversations live in the sidebar) when a connection is active', () => {
     useLlmStore.setState({ active: { connectionId: 'a', model: 'm' } });
     renderView();
-    expect(screen.getByTestId('conversation-list')).toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-list')).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('setup-prompt')).not.toBeInTheDocument();
   });
