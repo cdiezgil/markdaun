@@ -3756,7 +3756,7 @@ git commit -m "feat(llm): add validation pipeline with progress events and one-s
 - Create: `src-tauri/src/commands/llm_cmd.rs`, `src-tauri/src/commands/llm_tests.rs`
 - Modify: `src-tauri/src/commands/mod.rs`, `src-tauri/src/commands/brain_cmd.rs` (make `app_db_path` `pub(crate)`)
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/commands/llm_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/commands/llm_tests.rs`:
 
 ```rust
 use super::llm_cmd::*;
@@ -3983,7 +3983,7 @@ fn detect_cli_reports_installed_state() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - edit `src-tauri/src/commands/mod.rs`: add
+- [x] **Step 2: Run to verify it fails** - edit `src-tauri/src/commands/mod.rs`: add
 
 ```rust
 pub mod llm_cmd;
@@ -3997,7 +3997,7 @@ In `brain_cmd.rs` change `fn app_db_path` to `pub(crate) fn app_db_path`.
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test commands::llm_tests`
 Expected: FAIL to compile (`llm_cmd.rs` missing).
 
-- [ ] **Step 3: Implement** - `src-tauri/src/commands/llm_cmd.rs`:
+- [x] **Step 3: Implement** - `src-tauri/src/commands/llm_cmd.rs`:
 
 ```rust
 use crate::commands::brain_cmd::app_db_path;
@@ -4208,12 +4208,12 @@ pub async fn llm_detect_cli(env: tauri::State<'_, LlmEnv>, engine: Engine) -> Re
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test commands::llm_tests`
 Expected: PASS (12 tests). (The Tauri wrappers are compiled but only exercised in Task 17's build.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src
