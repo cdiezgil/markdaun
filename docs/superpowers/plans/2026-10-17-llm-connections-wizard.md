@@ -511,7 +511,7 @@ git commit -m "feat(llm): add SecretStore with keyring and in-memory backends"
 - Create: `src-tauri/src/llm/store.rs`, `src-tauri/src/llm/store_tests.rs`
 - Modify: `src-tauri/src/llm/mod.rs`
 
-- [ ] **Step 1: Write the failing test** - `src-tauri/src/llm/store_tests.rs`:
+- [x] **Step 1: Write the failing test** - `src-tauri/src/llm/store_tests.rs`:
 
 ```rust
 use super::connection::*;
@@ -653,12 +653,12 @@ fn migration_without_key_uses_auth_none() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** - add `pub mod store;` and `#[cfg(test)] mod store_tests;` to `llm/mod.rs`.
+- [x] **Step 2: Run to verify it fails** - add `pub mod store;` and `#[cfg(test)] mod store_tests;` to `llm/mod.rs`.
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::store_tests`
 Expected: FAIL to compile (`store.rs` missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Edit `src-tauri/src/db/config.rs`: add inside `impl ConfigDb` (after `set`):
 
@@ -869,12 +869,12 @@ fn legacy_base_url(url: &str) -> String {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd /Users/carlosdiez/Projects/markdaun/src-tauri && ORT_STRATEGY=download cargo test llm::store_tests db::`
 Expected: PASS (8 store tests + existing db tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src
