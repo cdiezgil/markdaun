@@ -44,4 +44,9 @@ impl ConfigDb {
         )?;
         Ok(())
     }
+
+    /// Raw connection, for modules that own extra tables in `config.db`.
+    pub fn connection(&self) -> &Connection {
+        &self.conn
+    }
 }

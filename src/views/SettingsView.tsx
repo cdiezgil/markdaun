@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useSyncStore } from '../store/syncStore';
 import { useVaultStore } from '../store/vaultStore';
 import { ConfirmDialog } from '../components/ConfirmDialog/ConfirmDialog';
+import { AiConnections } from '../components/Settings/AiConnections';
 
 export function SettingsView(): JSX.Element {
   const config = useSyncStore((s) => s.config);
@@ -191,6 +192,8 @@ export function SettingsView(): JSX.Element {
           </div>
         )}
       </section>
+
+      <AiConnections />
 
       {/* Overwrite confirm dialog */}
       <ConfirmDialog

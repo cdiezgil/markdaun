@@ -69,7 +69,7 @@ describe('TC-16: drag-drop importa ficheros', () => {
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith(
         'import_files',
-        expect.objectContaining({ source_paths: ['/tmp/foto.png'] }),
+        expect.objectContaining({ sourcePaths: ['/tmp/foto.png'] }),
       ),
     );
   });

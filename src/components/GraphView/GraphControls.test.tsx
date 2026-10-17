@@ -80,7 +80,7 @@ describe('TC-20: GraphControls — reload', () => {
     fireEvent.click(screen.getByTestId('reload-graph'));
     await vi.waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('get_vault_graph', {
-        vault_path: '/vault',
+        vaultPath: '/vault',
       });
     });
   });

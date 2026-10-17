@@ -4,7 +4,6 @@ import { useBrainStore } from './brainStore';
 
 const mockInvoke = vi.mocked(invoke);
 
-const DEFAULT_CONFIG = { endpoint_url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini' };
 const MOCK_CONVS = [
   { id: 'conv-1', title: 'Notas de viaje', created_at: '2024-01-02T00:00:00Z' },
   { id: 'conv-2', title: 'Ideas Python', created_at: '2024-01-01T00:00:00Z' },
@@ -17,31 +16,12 @@ const MOCK_MSGS = [
 beforeEach(() => {
   vi.clearAllMocks();
   useBrainStore.setState({
-    isConfigured: false,
-    config: { endpoint_url: null, model: null },
     conversations: [],
     currentConversationId: null,
     messages: [],
     filterQuery: '',
     isLoading: false,
     error: null,
-  });
-});
-
-// ── TC-18: configure invokes brain_configure ───────────────────────────────────
-
-describe('TC-18: configure', () => {
-  it('TC-18: invokes brain_configure and sets isConfigured', async () => {
-    mockInvoke.mockResolvedValueOnce(undefined); // brain_configure
-
-    await useBrainStore.getState().configure('https://api.openai.com/v1/chat/completions', 'sk-key', 'gpt-4o-mini');
-
-    expect(mockInvoke).toHaveBeenCalledWith('brain_configure', expect.objectContaining({
-      endpoint_url: 'https://api.openai.com/v1/chat/completions',
-      api_key: 'sk-key',
-      model: 'gpt-4o-mini',
-    }));
-    expect(useBrainStore.getState().isConfigured).toBe(true);
   });
 });
 

@@ -1,34 +1,35 @@
-use super::brain_cmd::{brain_query_with_embedding, build_rag_messages, configure_inner, get_config_inner};
+use super::brain_cmd::{brain_query_with_embedding, build_rag_messages, resolve_active};
 use crate::db::{ConversationsDb, VectorsDb};
-use crate::llm::client::LlmConfig;
-use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::thread;
+use crate::llm::connection::*;
+use crate::llm::proc::FixedResolver;
+use crate::llm::secrets::connection_account;
+use crate::llm::store::LlmStore;
+use crate::llm::testutil::{spawn, test_env, MockResponse, MockServer};
 use tempfile::NamedTempFile;
 
-// ── Mock HTTP server ──────────────────────────────────────────────────────────
+// ── Mock LLM ──────────────────────────────────────────────────────────────────
 
 const MOCK_LLM_RESPONSE: &str =
     r#"{"choices":[{"message":{"role":"assistant","content":"respuesta de prueba"}}]}"#;
 
-fn start_mock_llm(response: &'static str) -> (String, thread::JoinHandle<Vec<u8>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let url = format!("http://127.0.0.1:{port}");
-    let handle = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut buf = vec![0u8; 8192];
-        let n = stream.read(&mut buf).unwrap_or(0);
-        buf.truncate(n);
-        let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-            response.len(),
-            response
-        );
-        let _ = stream.write_all(resp.as_bytes());
-        buf
-    });
-    (url, handle)
+fn mock_llm() -> MockServer {
+    spawn(|_| MockResponse::json(200, MOCK_LLM_RESPONSE))
+}
+
+fn conn_for(url: &str) -> Connection {
+    Connection {
+        id: String::new(),
+        name: "Test".into(),
+        preset_id: None,
+        engine: Engine::OpenAiCompat,
+        base_url: Some(url.into()),
+        auth: AuthSource::None,
+        auth_header: AuthHeader::Bearer,
+        extra_headers: vec![],
+        ca_cert_path: None,
+        azure_api_version: None,
+        models: vec!["test-model".into()],
+    }
 }
 
 fn fake_embedding() -> Vec<f32> {
@@ -47,197 +48,154 @@ fn make_vectors_db() -> (VectorsDb, NamedTempFile) {
     (db, f)
 }
 
-// ── TC-13: brain_query_with_embedding builds prompt with context ───────────────
+// ── TC-13: prompt includes chunk content ──────────────────────────────────────
 
-/// TC-13: prompt sent to LLM includes chunk content from vectors.db.
 #[tokio::test]
 async fn brain_query_builds_prompt_with_context() {
     let cfg_file = make_config_db();
     let (vec_db, vec_file) = make_vectors_db();
-
     let emb = fake_embedding();
     vec_db
-        .upsert_file_chunks(
-            "/vault",
-            "/vault/nota.md",
-            &[(0, "contenido importante de la nota", emb.as_slice())],
-        )
+        .upsert_file_chunks("/vault", "/vault/nota.md", &[(0, "contenido importante de la nota", emb.as_slice())])
         .unwrap();
 
-    let (url, llm_handle) = start_mock_llm(MOCK_LLM_RESPONSE);
-    let llm_config = LlmConfig {
-        endpoint_url: url,
-        api_key: None,
-        model: "test-model".to_string(),
-    };
-
+    let server = mock_llm();
+    let env = test_env(FixedResolver::default(), 3000);
     let result = brain_query_with_embedding(
         cfg_file.path(),
         vec_file.path(),
         "¿qué dice la nota?",
         "/vault",
         None,
-        &llm_config,
+        &conn_for(&server.url),
+        "test-model",
+        None,
+        &env,
         &emb,
     )
     .await
     .unwrap();
 
-    let raw = llm_handle.join().unwrap();
-    let req_str = String::from_utf8_lossy(&raw);
-
     assert_eq!(result.answer, "respuesta de prueba", "TC-13: answer extracted");
-    assert!(
-        req_str.contains("contenido importante de la nota"),
-        "TC-13: prompt must include chunk content. Request:\n{req_str}"
-    );
+    let body = &server.requests()[0].body;
+    assert!(body.contains("contenido importante de la nota"), "TC-13: prompt must include chunk content. Body:\n{body}");
+    assert!(body.contains("test-model"), "TC-13: request carries the chosen model");
 }
 
-// ── TC-14: creates new conversation when conversation_id is None ───────────────
+// ── TC-14: creates a new conversation ─────────────────────────────────────────
 
-/// TC-14: brain_query_with_embedding creates a new conversation.
 #[tokio::test]
 async fn brain_query_creates_conversation_when_none() {
     let cfg_file = make_config_db();
     let (vec_db, vec_file) = make_vectors_db();
     let emb = fake_embedding();
-    vec_db
-        .upsert_file_chunks("/vault", "/vault/a.md", &[(0, "algo", emb.as_slice())])
-        .unwrap();
+    vec_db.upsert_file_chunks("/vault", "/vault/a.md", &[(0, "algo", emb.as_slice())]).unwrap();
 
-    let (url, _handle) = start_mock_llm(MOCK_LLM_RESPONSE);
-    let llm_config = LlmConfig {
-        endpoint_url: url,
-        api_key: None,
-        model: "m".to_string(),
-    };
-
+    let server = mock_llm();
+    let env = test_env(FixedResolver::default(), 3000);
     let result = brain_query_with_embedding(
         cfg_file.path(),
         vec_file.path(),
         "primera pregunta",
         "/vault",
-        None, // ← no conversation yet
-        &llm_config,
+        None,
+        &conn_for(&server.url),
+        "m",
+        None,
+        &env,
         &emb,
     )
     .await
     .unwrap();
 
     assert!(!result.conversation_id.is_empty(), "TC-14: conversation_id assigned");
-
     let conv_db = ConversationsDb::open(cfg_file.path()).unwrap();
     let list = conv_db.list_conversations("/vault").unwrap();
     assert_eq!(list.len(), 1, "TC-14: one conversation created");
     assert_eq!(list[0].id, result.conversation_id);
 }
 
-// ── TC-15: continues existing conversation ────────────────────────────────────
+// ── TC-15: continues an existing conversation ─────────────────────────────────
 
-/// TC-15: brain_query_with_embedding appends to an existing conversation.
 #[tokio::test]
 async fn brain_query_continues_existing_conversation() {
     let cfg_file = make_config_db();
     let (vec_db, vec_file) = make_vectors_db();
     let emb = fake_embedding();
-    vec_db
-        .upsert_file_chunks("/vault", "/vault/b.md", &[(0, "texto", emb.as_slice())])
-        .unwrap();
+    vec_db.upsert_file_chunks("/vault", "/vault/b.md", &[(0, "texto", emb.as_slice())]).unwrap();
 
-    // Pre-create a conversation.
     let conv_db = ConversationsDb::open(cfg_file.path()).unwrap();
-    let existing_id = conv_db
-        .create_conversation("/vault", "charla anterior")
-        .unwrap();
+    let existing_id = conv_db.create_conversation("/vault", "charla anterior").unwrap();
 
-    let (url, _handle) = start_mock_llm(MOCK_LLM_RESPONSE);
-    let llm_config = LlmConfig {
-        endpoint_url: url,
-        api_key: None,
-        model: "m".to_string(),
-    };
-
+    let server = mock_llm();
+    let env = test_env(FixedResolver::default(), 3000);
     let result = brain_query_with_embedding(
         cfg_file.path(),
         vec_file.path(),
         "segunda pregunta",
         "/vault",
-        Some(existing_id.clone()), // ← continue
-        &llm_config,
+        Some(existing_id.clone()),
+        &conn_for(&server.url),
+        "m",
+        None,
+        &env,
         &emb,
     )
     .await
     .unwrap();
 
-    assert_eq!(
-        result.conversation_id, existing_id,
-        "TC-15: same conversation_id returned"
-    );
-
+    assert_eq!(result.conversation_id, existing_id, "TC-15: same conversation_id returned");
     let messages = conv_db.get_messages(&existing_id).unwrap();
     assert_eq!(messages.len(), 2, "TC-15: user + assistant messages added");
     assert_eq!(messages[0].role, "user");
     assert_eq!(messages[1].role, "assistant");
 }
 
-// ── TC-16: API key in keyring, NOT in DB ─────────────────────────────────────
+// ── TC-16: LLM failure is surfaced as llm_error ───────────────────────────────
 
-/// TC-16: configure_inner only stores endpoint_url + model, NEVER the API key.
-#[test]
-fn brain_configure_stores_key_in_keyring() {
+#[tokio::test]
+async fn brain_query_reports_llm_errors() {
     let cfg_file = make_config_db();
-
-    // configure_inner does NOT receive or store the API key.
-    configure_inner(
+    let (_vec_db, vec_file) = make_vectors_db();
+    let server = spawn(|_| MockResponse::json(401, "{}"));
+    let env = test_env(FixedResolver::default(), 3000);
+    let err = brain_query_with_embedding(
         cfg_file.path(),
-        "https://api.openai.com/v1/chat/completions",
-        "gpt-4o-mini",
-    )
-    .unwrap();
-
-    // Verify DB has endpoint + model but NOT the api_key.
-    let db = crate::db::ConfigDb::open(cfg_file.path()).unwrap();
-    assert!(
-        db.get("llm_endpoint_url").unwrap().is_some(),
-        "TC-16: endpoint_url stored in DB"
-    );
-    assert!(
-        db.get("llm_model").unwrap().is_some(),
-        "TC-16: model stored in DB"
-    );
-    assert_eq!(
-        db.get("llm_api_key").unwrap(),
+        vec_file.path(),
+        "q",
+        "/vault",
         None,
-        "TC-16: API key must NOT be in DB"
-    );
+        &conn_for(&server.url),
+        "m",
+        None,
+        &env,
+        &fake_embedding(),
+    )
+    .await
+    .unwrap_err();
+    assert!(err.starts_with("llm_error:"), "got {err}");
 }
 
-// ── TC-17: brain_get_config does not return API key ───────────────────────────
+// ── TC-17: active connection resolution ───────────────────────────────────────
 
-/// TC-17: get_config_inner returns endpoint_url + model, never the API key.
 #[test]
-fn brain_get_config_does_not_return_api_key() {
+fn resolve_active_requires_configuration_then_returns_conn_model_secret() {
     let cfg_file = make_config_db();
-    configure_inner(
-        cfg_file.path(),
-        "https://api.example.com/v1/chat/completions",
-        "mistral-7b",
-    )
-    .unwrap();
+    let env = test_env(FixedResolver::default(), 1000);
+    assert_eq!(resolve_active(cfg_file.path(), &env).unwrap_err(), "not_configured");
 
-    let config = get_config_inner(cfg_file.path()).unwrap();
-    assert!(
-        config.endpoint_url.is_some(),
-        "TC-17: endpoint_url present"
-    );
-    assert!(config.model.is_some(), "TC-17: model present");
-    // BrainConfig has no `api_key` field — verified by type system.
-    // Serialize and check no "api_key" key leaks.
-    let json = serde_json::to_string(&config).unwrap();
-    assert!(
-        !json.contains("api_key"),
-        "TC-17: api_key must not appear in serialized config"
-    );
+    let store = LlmStore::open(cfg_file.path()).unwrap();
+    let mut c = conn_for("https://x");
+    c.auth = AuthSource::ApiKey;
+    c.models = vec!["a".into(), "b".into()];
+    let saved = store.upsert(c).unwrap();
+    env.secrets.set(&connection_account(&saved.id), "sk").unwrap();
+    store.set_active(&saved.id, "b").unwrap();
+
+    let (conn, model, secret) = resolve_active(cfg_file.path(), &env).unwrap();
+    assert_eq!(conn.id, saved.id);
+    assert_eq!(model, "b");
+    assert_eq!(secret.as_deref(), Some("sk"));
 }
 
 // ── Extra: build_rag_messages includes chunk filenames ────────────────────────
@@ -246,18 +204,9 @@ fn brain_get_config_does_not_return_api_key() {
 fn build_rag_messages_includes_context() {
     use crate::db::vectors::SearchResult;
     let results = vec![
-        SearchResult {
-            file_path: "/vault/nota-a.md".to_string(),
-            content: "contenido de A".to_string(),
-            distance: 0.1,
-        },
-        SearchResult {
-            file_path: "/vault/nota-b.md".to_string(),
-            content: "contenido de B".to_string(),
-            distance: 0.2,
-        },
+        SearchResult { file_path: "/vault/nota-a.md".to_string(), content: "contenido de A".to_string(), distance: 0.1 },
+        SearchResult { file_path: "/vault/nota-b.md".to_string(), content: "contenido de B".to_string(), distance: 0.2 },
     ];
-
     let messages = build_rag_messages("¿qué hay en las notas?", &results);
     assert_eq!(messages.len(), 2, "system + user");
     assert_eq!(messages[0].role, "system");

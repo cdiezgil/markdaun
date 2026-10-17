@@ -11,8 +11,6 @@ vi.mocked(invoke);
 beforeEach(() => {
   vi.clearAllMocks();
   useBrainStore.setState({
-    isConfigured: true,
-    config: { endpoint_url: 'https://x', model: 'm' },
     conversations: [],
     currentConversationId: null,
     messages: [],

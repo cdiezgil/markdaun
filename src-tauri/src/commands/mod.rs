@@ -28,3 +28,8 @@ pub mod brain_cmd;
 pub use brain_cmd::*;
 #[cfg(test)]
 mod brain_tests;
+
+pub mod llm_cmd;
+pub use llm_cmd::*;
+#[cfg(test)]
+mod llm_tests;

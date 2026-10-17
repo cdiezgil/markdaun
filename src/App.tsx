@@ -13,10 +13,14 @@ import { SettingsView } from './views/SettingsView';
 import { ExitDialog } from './components/Sync/ExitDialog';
 import { getCurrentWindow } from './lib/tauri';
 import { SecondBrainView } from './views/SecondBrainView';
+import { LlmWizard } from './components/LlmWizard/LlmWizard';
+import { ModelSwitcher } from './components/ModelSwitcher/ModelSwitcher';
+import { useLlmStore } from './store/llmStore';
 
 function AppLayout() {
   const [showExitDialog, setShowExitDialog] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const wizardOpen = useLlmStore((s) => s.wizardOpen);
 
   useEffect(() => {
     useVaultStore.getState().loadVault();
@@ -148,6 +152,8 @@ function AppLayout() {
         }}
         onCancel={() => setShowExitDialog(false)}
       />
+      <ModelSwitcher />
+      {wizardOpen && <LlmWizard />}
     </div>
   );
 }

@@ -33,7 +33,7 @@ describe('TC-11: RenameInput', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
 
     await waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(mockInvoke).toHaveBeenCalledWith('rename_entry', expect.objectContaining({ new_name: 'renombrado.md' }));
+    expect(mockInvoke).toHaveBeenCalledWith('rename_entry', expect.objectContaining({ newName: 'renombrado.md' }));
   });
 
   it('TC-11: Escape cancela sin renombrar', async () => {

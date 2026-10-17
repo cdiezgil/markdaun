@@ -1,22 +1,24 @@
 import React, { useEffect } from 'react';
 import { useVaultStore } from '../store/vaultStore';
 import { useBrainStore } from '../store/brainStore';
-import { LlmConfigPanel } from '../components/SecondBrain/LlmConfigPanel';
+import { useLlmStore } from '../store/llmStore';
+import { SetupPrompt } from '../components/SecondBrain/SetupPrompt';
 import { ConversationList } from '../components/SecondBrain/ConversationList';
 import { ChatPanel } from '../components/SecondBrain/ChatPanel';
 
 export function SecondBrainView(): JSX.Element {
   const vaultPath = useVaultStore((s) => s.vaultPath);
-  const isConfigured = useBrainStore((s) => s.isConfigured);
-  const loadConfig = useBrainStore((s) => s.loadConfig);
+  const active = useLlmStore((s) => s.active);
+  const loaded = useLlmStore((s) => s.loaded);
+  const loadLlm = useLlmStore((s) => s.load);
   const loadConversations = useBrainStore((s) => s.loadConversations);
 
   useEffect(() => {
-    void loadConfig();
+    void loadLlm();
     if (vaultPath) {
       void loadConversations(vaultPath);
     }
-  }, [vaultPath, loadConfig, loadConversations]);
+  }, [vaultPath, loadLlm, loadConversations]);
 
   return (
     <div
@@ -27,8 +29,8 @@ export function SecondBrainView(): JSX.Element {
         background: 'var(--bg)',
       }}
     >
-      {!isConfigured ? (
-        <LlmConfigPanel />
+      {!loaded ? null : !active ? (
+        <SetupPrompt />
       ) : (
         <>
           {/* Left: conversation history sidebar */}
