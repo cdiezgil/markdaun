@@ -17,6 +17,22 @@ pub fn assert_within_vault(path: &Path, vault_root: &Path) -> Result<(), String>
     Ok(())
 }
 
+/// Validates a user-supplied entry name (note or folder).
+/// Rejects empty/blank names and anything that could act as a path.
+pub fn validate_entry_name(name: &str) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("invalid_name".to_string());
+    }
+    if trimmed == "." || trimmed == ".." {
+        return Err("invalid_name".to_string());
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err("invalid_name".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn list_vault_tree(vault_path: String) -> Result<Vec<VaultEntry>, String> {
     let root = Path::new(&vault_path);
@@ -33,6 +49,7 @@ pub async fn create_note(
     let vault = Path::new(&vault_path);
 
     assert_within_vault(parent, vault)?;
+    validate_entry_name(&name)?;
 
     let name_with_ext = if name.to_lowercase().ends_with(".md") {
         name.clone()
@@ -63,6 +80,7 @@ pub async fn create_folder(
     let vault = Path::new(&vault_path);
 
     assert_within_vault(parent, vault)?;
+    validate_entry_name(&name)?;
 
     let dest = parent.join(&name);
 
@@ -104,6 +122,61 @@ pub async fn rename_entry(
         .canonicalize()
         .map_err(|e| format!("io_error: {e}"))?;
     Ok(canonical.to_string_lossy().to_string())
+}
+
+/// Moves an entry (note or folder) into a destination folder. Testable core.
+pub fn move_entry_inner(
+    source_path: &Path,
+    dest_folder_path: &Path,
+    vault_path: &Path,
+) -> Result<String, String> {
+    assert_within_vault(source_path, vault_path)?;
+    assert_within_vault(dest_folder_path, vault_path)?;
+
+    if !dest_folder_path.is_dir() {
+        return Err("dest_not_folder".to_string());
+    }
+
+    let canonical_source = source_path
+        .canonicalize()
+        .map_err(|_| "path_not_found".to_string())?;
+    let canonical_dest_folder = dest_folder_path
+        .canonicalize()
+        .map_err(|_| "path_not_found".to_string())?;
+
+    // Reject moving a folder into itself or one of its own subfolders
+    if canonical_dest_folder.starts_with(&canonical_source) {
+        return Err("cannot_move_into_subtree".to_string());
+    }
+
+    let file_name = source_path
+        .file_name()
+        .ok_or_else(|| "io_error: invalid source path".to_string())?;
+    let dest = dest_folder_path.join(file_name);
+
+    if dest.exists() {
+        return Err("already_exists".to_string());
+    }
+
+    std::fs::rename(source_path, &dest).map_err(|e| format!("io_error: {e}"))?;
+
+    let canonical = dest
+        .canonicalize()
+        .map_err(|e| format!("io_error: {e}"))?;
+    Ok(canonical.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn move_entry(
+    source_path: String,
+    dest_folder_path: String,
+    vault_path: String,
+) -> Result<String, String> {
+    move_entry_inner(
+        Path::new(&source_path),
+        Path::new(&dest_folder_path),
+        Path::new(&vault_path),
+    )
 }
 
 #[tauri::command]

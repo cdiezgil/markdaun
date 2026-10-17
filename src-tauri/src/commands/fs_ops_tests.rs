@@ -1,4 +1,4 @@
-use super::fs_ops::assert_within_vault;
+use super::fs_ops::{assert_within_vault, move_entry_inner, validate_entry_name};
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
@@ -240,4 +240,134 @@ fn import_files_collision_suffix() {
     assert_eq!(dest.file_name().unwrap(), "note_1.md");
     // Original is still intact
     assert_eq!(fs::read(&existing).unwrap(), b"old content");
+}
+
+// ── validate_entry_name ──────────────────────────────────────────────────────
+
+#[test]
+fn validate_name_accepts_normal_names() {
+    assert!(validate_entry_name("mi nota").is_ok());
+    assert!(validate_entry_name("investigación 2026").is_ok());
+    assert!(validate_entry_name("nota..1").is_ok());
+    assert!(validate_entry_name(".oculta").is_ok());
+}
+
+#[test]
+fn validate_name_rejects_empty_and_blank() {
+    assert_eq!(validate_entry_name(""), Err("invalid_name".to_string()));
+    assert_eq!(validate_entry_name("   "), Err("invalid_name".to_string()));
+}
+
+#[test]
+fn validate_name_rejects_path_separators_and_dots() {
+    assert_eq!(validate_entry_name(".."), Err("invalid_name".to_string()));
+    assert_eq!(validate_entry_name("."), Err("invalid_name".to_string()));
+    assert_eq!(validate_entry_name("a/b"), Err("invalid_name".to_string()));
+    assert_eq!(validate_entry_name("a\\b"), Err("invalid_name".to_string()));
+    assert_eq!(validate_entry_name("../fuera"), Err("invalid_name".to_string()));
+}
+
+// ── move_entry_inner ─────────────────────────────────────────────────────────
+
+#[test]
+fn move_file_into_folder() {
+    let vault = tempdir().unwrap();
+    let folder = vault.path().join("carpeta");
+    fs::create_dir(&folder).unwrap();
+    let file = vault.path().join("nota.md");
+    fs::write(&file, b"content").unwrap();
+
+    let result = move_entry_inner(&file, &folder, vault.path()).unwrap();
+    assert_eq!(result, folder.join("nota.md").canonicalize().unwrap().to_string_lossy());
+    assert!(!file.exists());
+    assert_eq!(fs::read(folder.join("nota.md")).unwrap(), b"content");
+}
+
+#[test]
+fn move_folder_into_nested_folder() {
+    let vault = tempdir().unwrap();
+    let outer = vault.path().join("outer");
+    fs::create_dir(&outer).unwrap();
+    let inner = outer.join("inner");
+    fs::create_dir(&inner).unwrap();
+    let folder = vault.path().join("movida");
+    fs::create_dir(&folder).unwrap();
+    fs::write(folder.join("hija.md"), b"x").unwrap();
+
+    move_entry_inner(&folder, &inner, vault.path()).unwrap();
+    assert!(inner.join("movida").is_dir());
+    assert!(inner.join("movida").join("hija.md").is_file());
+}
+
+#[test]
+fn move_file_to_vault_root() {
+    let vault = tempdir().unwrap();
+    let folder = vault.path().join("carpeta");
+    fs::create_dir(&folder).unwrap();
+    let file = folder.join("nota.md");
+    fs::write(&file, b"c").unwrap();
+
+    move_entry_inner(&file, vault.path(), vault.path()).unwrap();
+    assert!(vault.path().join("nota.md").is_file());
+}
+
+#[test]
+fn move_rejects_source_outside_vault() {
+    let vault = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    let file = outside.path().join("nota.md");
+    fs::write(&file, b"c").unwrap();
+
+    let result = move_entry_inner(&file, vault.path(), vault.path());
+    assert_eq!(result, Err("path_outside_vault".to_string()));
+}
+
+#[test]
+fn move_rejects_dest_folder_outside_vault() {
+    let vault = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    let file = vault.path().join("nota.md");
+    fs::write(&file, b"c").unwrap();
+
+    let result = move_entry_inner(&file, outside.path(), vault.path());
+    assert_eq!(result, Err("path_outside_vault".to_string()));
+}
+
+#[test]
+fn move_rejects_folder_into_own_subtree() {
+    let vault = tempdir().unwrap();
+    let folder = vault.path().join("padre");
+    fs::create_dir(&folder).unwrap();
+    let child = folder.join("hija");
+    fs::create_dir(&child).unwrap();
+
+    let result = move_entry_inner(&folder, &child, vault.path());
+    assert_eq!(result, Err("cannot_move_into_subtree".to_string()));
+    assert!(folder.is_dir()); // untouched
+}
+
+#[test]
+fn move_rejects_when_target_exists() {
+    let vault = tempdir().unwrap();
+    let folder = vault.path().join("carpeta");
+    fs::create_dir(&folder).unwrap();
+    let a = vault.path().join("a.md");
+    fs::write(&a, b"a").unwrap();
+    fs::write(folder.join("a.md"), b"b").unwrap();
+
+    let result = move_entry_inner(&a, &folder, vault.path());
+    assert_eq!(result, Err("already_exists".to_string()));
+    assert!(a.is_file()); // untouched
+}
+
+#[test]
+fn move_rejects_dest_that_is_not_a_folder() {
+    let vault = tempdir().unwrap();
+    let file_dest = vault.path().join("dest.md");
+    fs::write(&file_dest, b"").unwrap();
+    let a = vault.path().join("a.md");
+    fs::write(&a, b"a").unwrap();
+
+    let result = move_entry_inner(&a, &file_dest, vault.path());
+    assert_eq!(result, Err("dest_not_folder".to_string()));
 }
