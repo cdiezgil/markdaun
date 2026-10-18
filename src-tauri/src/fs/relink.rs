@@ -408,3 +408,13 @@ fn percent_encode(s: &str) -> String {
     }
     out
 }
+
+/// Remaps a vault-relative `/` path after `old` (a file or folder, also
+/// vault-relative) moved to `new`. `None` when `path` is not affected.
+pub fn remap_prefix(path: &str, old: &str, new: &str) -> Option<String> {
+    if path == old {
+        return Some(new.to_string());
+    }
+    let rest = path.strip_prefix(old)?.strip_prefix('/')?;
+    Some(format!("{new}/{rest}"))
+}

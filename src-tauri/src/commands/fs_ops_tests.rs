@@ -1,4 +1,9 @@
-use super::fs_ops::{assert_within_vault, move_entry_inner, validate_entry_name};
+use super::fs_ops::{
+    assert_within_vault, create_untitled_inner, move_entry_inner, move_with_relink, rename_entry_inner,
+    rename_from_title_inner, validate_entry_name,
+};
+use crate::db::h1_follow::H1FollowDb;
+use crate::db::{ConversationsDb, QueryScope};
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
@@ -429,4 +434,157 @@ fn import_file_data_dest_outside_vault_is_rejected() {
     let outside = tempdir().unwrap();
     let result = assert_within_vault(outside.path(), vault.path());
     assert_eq!(result, Err("path_outside_vault".to_string()));
+}
+
+// ── rename / move with relinking ─────────────────────────────────────────────
+
+fn vault_str(v: &tempfile::TempDir) -> String {
+    v.path().to_string_lossy().to_string()
+}
+
+#[test]
+fn rename_entry_rewrites_links_scopes_and_stops_following() {
+    let vault = tempdir().unwrap();
+    let db = vault.path().join(".markdaun-test.db");
+    fs::write(vault.path().join("Old.md"), "# Old").unwrap();
+    fs::write(vault.path().join("ref.md"), "see [[Old]]").unwrap();
+    let conv = ConversationsDb::open(&db).unwrap();
+    let id = conv.create_conversation(&vault_str(&vault), "c").unwrap();
+    conv.set_scope(&id, &QueryScope::Notes { paths: vec!["Old.md".into()] }).unwrap();
+    let follow = H1FollowDb::open(&db).unwrap();
+    follow.set_following(&vault_str(&vault), "Old.md", true).unwrap();
+
+    let out = rename_entry_inner(&vault.path().join("Old.md"), "New.md", vault.path(), Some(&db), false).unwrap();
+
+    assert_eq!(out.path, vault.path().join("New.md").to_string_lossy());
+    assert_eq!(out.rewritten, vec![vault.path().join("ref.md").to_string_lossy().to_string()]);
+    assert_eq!(fs::read_to_string(vault.path().join("ref.md")).unwrap(), "see [[New]]");
+    assert_eq!(conv.get_scope(&id).unwrap(), QueryScope::Notes { paths: vec!["New.md".into()] });
+    assert!(!follow.is_following(&vault_str(&vault), "New.md").unwrap(), "manual rename stops following");
+    assert!(!follow.is_following(&vault_str(&vault), "Old.md").unwrap());
+}
+
+#[test]
+fn rename_entry_rejects_existing_target_and_bad_names() {
+    let vault = tempdir().unwrap();
+    fs::write(vault.path().join("a.md"), "").unwrap();
+    fs::write(vault.path().join("b.md"), "").unwrap();
+    let a = vault.path().join("a.md");
+    assert_eq!(rename_entry_inner(&a, "b.md", vault.path(), None, false), Err("already_exists".to_string()));
+    assert_eq!(rename_entry_inner(&a, "../x.md", vault.path(), None, false), Err("invalid_name".to_string()));
+    assert!(a.exists());
+}
+
+#[test]
+fn move_with_relink_updates_folder_scope_and_follow_prefix() {
+    let vault = tempdir().unwrap();
+    let db = vault.path().join(".markdaun-test.db");
+    fs::create_dir_all(vault.path().join("proj")).unwrap();
+    fs::create_dir_all(vault.path().join("arch")).unwrap();
+    fs::write(vault.path().join("proj/N.md"), "").unwrap();
+    fs::write(vault.path().join("ref.md"), "[[proj/N]]").unwrap();
+    let conv = ConversationsDb::open(&db).unwrap();
+    let id = conv.create_conversation(&vault_str(&vault), "c").unwrap();
+    conv.set_scope(&id, &QueryScope::Folder { path: "proj".into() }).unwrap();
+    let follow = H1FollowDb::open(&db).unwrap();
+    follow.set_following(&vault_str(&vault), "proj/N.md", true).unwrap();
+
+    let out = move_with_relink(&vault.path().join("proj"), &vault.path().join("arch"), vault.path(), Some(&db)).unwrap();
+
+    assert_eq!(out.path, vault.path().join("arch/proj").to_string_lossy());
+    assert_eq!(fs::read_to_string(vault.path().join("ref.md")).unwrap(), "[[arch/proj/N]]");
+    assert_eq!(conv.get_scope(&id).unwrap(), QueryScope::Folder { path: "arch/proj".into() });
+    assert!(follow.is_following(&vault_str(&vault), "arch/proj/N.md").unwrap(), "move keeps following");
+}
+
+// ── H1-driven names ──────────────────────────────────────────────────────────
+
+#[test]
+fn create_untitled_numbers_collisions_and_registers_following() {
+    let vault = tempdir().unwrap();
+    let db = vault.path().join(".markdaun-test.db");
+    let first = create_untitled_inner(vault.path(), vault.path(), &db).unwrap();
+    let second = create_untitled_inner(vault.path(), vault.path(), &db).unwrap();
+    assert_eq!(first, vault.path().join("Sin título.md"));
+    assert_eq!(second, vault.path().join("Sin título 2.md"));
+    assert_eq!(fs::read_to_string(&first).unwrap(), "# \n");
+    let follow = H1FollowDb::open(&db).unwrap();
+    assert!(follow.is_following(&vault_str(&vault), "Sin título.md").unwrap());
+    assert!(follow.is_following(&vault_str(&vault), "Sin título 2.md").unwrap());
+}
+
+#[test]
+fn create_untitled_in_a_subfolder() {
+    let vault = tempdir().unwrap();
+    let db = vault.path().join(".markdaun-test.db");
+    fs::create_dir(vault.path().join("sub")).unwrap();
+    let note = create_untitled_inner(&vault.path().join("sub"), vault.path(), &db).unwrap();
+    assert_eq!(note, vault.path().join("sub/Sin título.md"));
+    assert!(H1FollowDb::open(&db).unwrap().is_following(&vault_str(&vault), "sub/Sin título.md").unwrap());
+}
+
+#[test]
+fn title_rename_renames_rewrites_and_keeps_following() {
+    let vault = tempdir().unwrap();
+    let db = vault.path().join(".markdaun-test.db");
+    let note = create_untitled_inner(vault.path(), vault.path(), &db).unwrap();
+    fs::write(vault.path().join("ref.md"), "[[Sin título]]").unwrap();
+
+    let out = rename_from_title_inner(&note, "Mi: gran idea?", vault.path(), &db).unwrap();
+
+    assert!(out.following);
+    assert_eq!(out.path, vault.path().join("Mi- gran idea-.md").to_string_lossy());
+    assert!(!note.exists());
+    assert_eq!(fs::read_to_string(vault.path().join("ref.md")).unwrap(), "[[Mi- gran idea-]]");
+    let follow = H1FollowDb::open(&db).unwrap();
+    assert!(follow.is_following(&vault_str(&vault), "Mi- gran idea-.md").unwrap());
+    assert!(!follow.is_following(&vault_str(&vault), "Sin título.md").unwrap());
+}
+
+#[test]
+fn title_rename_resolves_collisions() {
+    let vault = tempdir().unwrap();
+    let db = vault.path().join(".markdaun-test.db");
+    fs::write(vault.path().join("Idea.md"), "x").unwrap();
+    let note = create_untitled_inner(vault.path(), vault.path(), &db).unwrap();
+    let out = rename_from_title_inner(&note, "Idea", vault.path(), &db).unwrap();
+    assert_eq!(out.path, vault.path().join("Idea 2.md").to_string_lossy());
+    assert_eq!(fs::read_to_string(vault.path().join("Idea.md")).unwrap(), "x");
+}
+
+#[test]
+fn title_rename_with_empty_or_same_title_keeps_the_name() {
+    let vault = tempdir().unwrap();
+    let db = vault.path().join(".markdaun-test.db");
+    let note = create_untitled_inner(vault.path(), vault.path(), &db).unwrap();
+    for title in ["", "   ", "Sin título"] {
+        let out = rename_from_title_inner(&note, title, vault.path(), &db).unwrap();
+        assert!(out.following);
+        assert_eq!(out.path, note.to_string_lossy());
+        assert!(out.rewritten.is_empty());
+    }
+    assert!(note.exists());
+}
+
+#[test]
+fn title_rename_is_a_noop_when_the_note_does_not_follow() {
+    let vault = tempdir().unwrap();
+    let db = vault.path().join(".markdaun-test.db");
+    let note = vault.path().join("Mia.md");
+    fs::write(&note, "# Otra").unwrap();
+    let out = rename_from_title_inner(&note, "Otra", vault.path(), &db).unwrap();
+    assert!(!out.following);
+    assert_eq!(out.path, note.to_string_lossy());
+    assert!(note.exists());
+}
+
+#[test]
+fn title_rename_allows_a_case_only_change() {
+    let vault = tempdir().unwrap();
+    let db = vault.path().join(".markdaun-test.db");
+    let note = vault.path().join("idea.md");
+    fs::write(&note, "").unwrap();
+    H1FollowDb::open(&db).unwrap().set_following(&vault_str(&vault), "idea.md", true).unwrap();
+    let out = rename_from_title_inner(&note, "Idea", vault.path(), &db).unwrap();
+    assert_eq!(out.path, vault.path().join("Idea.md").to_string_lossy());
 }

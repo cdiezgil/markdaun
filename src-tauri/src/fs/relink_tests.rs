@@ -1,4 +1,4 @@
-use super::relink::relink_vault;
+use super::relink::{relink_vault, remap_prefix};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::{tempdir, TempDir};
@@ -256,4 +256,14 @@ fn moving_a_non_note_file_rewrites_markdown_links_to_it() {
     write(v.path(), "ref.md", "![p](pic.png) [[pic]]\n");
     mv(&v, "pic.png", "img/pic.png");
     assert_eq!(read(v.path(), "ref.md"), "![p](img/pic.png) [[pic]]\n");
+}
+
+// ── remap_prefix ─────────────────────────────────────────────────────────────
+
+#[test]
+fn remap_prefix_handles_exact_nested_and_unrelated_paths() {
+    assert_eq!(remap_prefix("a/Old.md", "a/Old.md", "a/New.md"), Some("a/New.md".to_string()));
+    assert_eq!(remap_prefix("proj/x/N.md", "proj", "arch/proj"), Some("arch/proj/x/N.md".to_string()));
+    assert_eq!(remap_prefix("project/N.md", "proj", "arch/proj"), None);
+    assert_eq!(remap_prefix("other.md", "proj", "q"), None);
 }
