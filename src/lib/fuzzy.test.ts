@@ -75,7 +75,7 @@ describe('searchNotes', () => {
     const [r] = searchNotes('proy/idea', [note('Proyectos/idea.md')], vault);
     expect(r.item.path).toBe('/v/Proyectos/idea.md');
     expect(r.dir).toBe('Proyectos');
-    expect(r.titleIndices).toEqual([]);
+    expect(r.titleIndices).toEqual([0, 1, 2, 3]);
     expect(r.dirIndices.length).toBeGreaterThan(0);
   });
 

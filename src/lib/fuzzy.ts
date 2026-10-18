@@ -37,8 +37,6 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
   const q = fold(query.replace(/\s+/g, '')).filter((c) => c !== '');
   if (q.length === 0) return { score: 0, indices: [] };
   const t = fold(text);
-  const raw = Array.from(text);
-  void raw;
 
   // Cheap subsequence check before the DP.
   let qi = 0;
