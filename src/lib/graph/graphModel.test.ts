@@ -3,6 +3,7 @@ import {
   nodeDiameter,
   buildGraphModel,
   filterGraph,
+  restrictToFolder,
   folderHalos,
   MIN_DIAMETER,
   MAX_DIAMETER,
@@ -137,5 +138,67 @@ describe('folderHalos', () => {
     expect(h.x + h.width).toBeGreaterThan(110);
     expect(h.y).toBeLessThan(-10);
     expect(h.y + h.height).toBeGreaterThan(50);
+  });
+});
+
+describe('restrictToFolder', () => {
+  const g: BackendGraph = {
+    nodes: [
+      { path: '/vault/P/in1.md', name: 'in1.md', kind: 'md', x: null, y: null, tags: ['t1'], excerpt: '' },
+      { path: '/vault/P/Sub/in2.md', name: 'in2.md', kind: 'md', x: null, y: null, tags: ['t2'], excerpt: '' },
+      { path: '/vault/PP/near.md', name: 'near.md', kind: 'md', x: null, y: null, tags: ['t3'], excerpt: '' },
+      { path: '/vault/out1.md', name: 'out1.md', kind: 'md', x: null, y: null, tags: [], excerpt: '' },
+      { path: '/vault/out2.md', name: 'out2.md', kind: 'md', x: null, y: null, tags: [], excerpt: '' },
+      { path: '/vault/far.md', name: 'far.md', kind: 'md', x: null, y: null, tags: [], excerpt: '' },
+    ],
+    edges: [
+      { source: '/vault/P/in1.md', target: '/vault/P/Sub/in2.md' },
+      { source: '/vault/out1.md', target: '/vault/P/in1.md' },
+      { source: '/vault/P/Sub/in2.md', target: '/vault/out2.md' },
+      { source: '/vault/out1.md', target: '/vault/out2.md' },
+      { source: '/vault/PP/near.md', target: '/vault/far.md' },
+    ],
+  };
+  const full = buildGraphModel(g, V);
+  const ids = (m: { nodes: { path: string }[] }) => m.nodes.map((n) => n.path).sort();
+
+  it('Bóveda (empty folder) leaves the model untouched', () => {
+    const m = restrictToFolder(full, '');
+    expect(ids(m)).toEqual(ids(full));
+    expect(m.outside.size).toBe(0);
+  });
+  it('keeps inside notes (subfolders included) and dims linked outside notes', () => {
+    const m = restrictToFolder(full, 'P');
+    expect(ids(m)).toEqual(
+      ['/vault/P/in1.md', '/vault/P/Sub/in2.md', '/vault/out1.md', '/vault/out2.md'].sort(),
+    );
+    expect([...m.outside].sort()).toEqual(['/vault/out1.md', '/vault/out2.md']);
+  });
+  it('does not treat a sibling folder with the same prefix as inside', () => {
+    const m = restrictToFolder(full, 'P');
+    expect(ids(m)).not.toContain('/vault/PP/near.md');
+  });
+  it('hides notes with no link to the folder and edges between two outside notes', () => {
+    const m = restrictToFolder(full, 'P');
+    expect(ids(m)).not.toContain('/vault/far.md');
+    expect(m.edges).toHaveLength(3);
+    expect(m.edges.some((e) => e.source === '/vault/out1.md' && e.target === '/vault/out2.md')).toBe(false);
+  });
+  it('keeps orphan semantics vault-wide', () => {
+    const m = restrictToFolder(full, 'P');
+    expect(m.nodes.find((n) => n.path === '/vault/out1.md')!.isOrphan).toBe(false);
+  });
+  it('limits tag nodes to inside notes', () => {
+    const m = restrictToFolder(full, 'P');
+    expect(m.tagNodes.map((t) => t.id).sort()).toEqual(['tag:t1', 'tag:t2']);
+    expect(m.tagEdges.every((e) => !e.source.includes('PP'))).toBe(true);
+  });
+  it('filterGraph exposes dimmed nodes/edges and hides them without links', () => {
+    const m = restrictToFolder(full, 'P');
+    const f = filterGraph(m, { showLinks: true, showTags: false, showOrphans: true, query: '' });
+    expect([...f.dimmedIds].sort()).toEqual(['/vault/out1.md', '/vault/out2.md']);
+    expect(f.dimmedEdges.size).toBe(2);
+    const off = filterGraph(m, { showLinks: false, showTags: false, showOrphans: true, query: '' });
+    expect(off.nodeIds.has('/vault/out1.md')).toBe(false);
   });
 });

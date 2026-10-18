@@ -54,6 +54,8 @@ export interface GraphModel {
   edges: BackendEdge[];
   tagNodes: TagNodeModel[];
   tagEdges: BackendEdge[];
+  /** Notes outside the selected folder, kept only as dimmed context (empty without a folder). */
+  outside: Set<string>;
 }
 
 /** Diameter in px, linear between MIN and MAX by backlink count. */
@@ -120,7 +122,41 @@ export function buildGraphModel(graph: BackendGraph, vaultPath: string): GraphMo
     count,
   }));
 
-  return { nodes, edges, tagNodes, tagEdges };
+  return { nodes, edges, tagNodes, tagEdges, outside: new Set() };
+}
+
+export const edgeKey = (e: BackendEdge) => `${e.source}→${e.target}`;
+
+function isInFolder(noteFolder: string, folder: string): boolean {
+  return noteFolder === folder || noteFolder.startsWith(`${folder}/`);
+}
+
+/**
+ * Restricts the model to a vault-relative folder (subfolders included; '' = whole vault).
+ * Outside notes linked to/from an inside note stay as dimmed context; the rest is dropped.
+ * Orphan flags stay vault-wide; tag nodes only come from inside notes.
+ */
+export function restrictToFolder(model: GraphModel, folder: string): GraphModel {
+  if (!folder) return model;
+  const inside = new Set(
+    model.nodes.filter((n) => isInFolder(n.folder, folder)).map((n) => n.path),
+  );
+  const edges = model.edges.filter((e) => inside.has(e.source) || inside.has(e.target));
+  const outside = new Set<string>();
+  for (const e of edges) {
+    if (!inside.has(e.source)) outside.add(e.source);
+    if (!inside.has(e.target)) outside.add(e.target);
+  }
+  const nodes = model.nodes.filter((n) => inside.has(n.path) || outside.has(n.path));
+
+  const tagEdges = model.tagEdges.filter((e) => inside.has(e.source));
+  const counts = new Map<string, number>();
+  for (const e of tagEdges) counts.set(e.target, (counts.get(e.target) ?? 0) + 1);
+  const tagNodes = model.tagNodes
+    .filter((t) => counts.has(t.id))
+    .map((t) => ({ ...t, count: counts.get(t.id) ?? 0 }));
+
+  return { nodes, edges, tagNodes, tagEdges, outside };
 }
 
 export interface GraphFilters {
@@ -137,10 +173,16 @@ export interface FilteredGraph {
   tagEdges: BackendEdge[];
   /** Ids matching the search query, or null when there is no query. */
   matches: Set<string> | null;
+  /** Visible notes outside the selected folder (rendered dimmed). */
+  dimmedIds: Set<string>;
+  /** Keys (`source→target`) of visible edges touching a dimmed note. */
+  dimmedEdges: Set<string>;
 }
 
 export function filterGraph(model: GraphModel, f: GraphFilters): FilteredGraph {
-  const visible = model.nodes.filter((n) => f.showOrphans || !n.isOrphan);
+  const visible = model.nodes.filter((n) =>
+    model.outside.has(n.path) ? f.showLinks : f.showOrphans || !n.isOrphan,
+  );
   const nodeIds = new Set(visible.map((n) => n.path));
 
   const edges = f.showLinks
@@ -163,7 +205,12 @@ export function filterGraph(model: GraphModel, f: GraphFilters): FilteredGraph {
     for (const t of tagNodes) if (t.label.toLowerCase().includes(q)) matches.add(t.id);
   }
 
-  return { nodeIds, edges, tagNodes, tagEdges, matches };
+  const dimmedIds = new Set([...nodeIds].filter((id) => model.outside.has(id)));
+  const dimmedEdges = new Set(
+    edges.filter((e) => dimmedIds.has(e.source) || dimmedIds.has(e.target)).map(edgeKey),
+  );
+
+  return { nodeIds, edges, tagNodes, tagEdges, matches, dimmedIds, dimmedEdges };
 }
 
 export interface HaloInput {

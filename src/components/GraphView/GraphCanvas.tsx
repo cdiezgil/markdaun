@@ -37,6 +37,7 @@ const EDGE_BASE = {
   strokeWidth: 1,
   opacity: 0.45,
 };
+const EDGE_DIMMED = { stroke: 'var(--line-strong)', strokeWidth: 1, opacity: 0.15 };
 const EDGE_ACTIVE = { stroke: 'var(--daun)', strokeWidth: 1.5, opacity: 1 };
 
 interface GraphCanvasProps {
@@ -94,12 +95,14 @@ function GraphCanvasInner({ vaultPath }: GraphCanvasProps) {
     const visibleNotes = nodes.filter((n) => filtered.nodeIds.has(n.id));
 
     const halos = folderHalos(
-      visibleNotes.map((n) => ({
-        folder: n.data.folder,
-        x: n.position.x + n.data.diameter / 2,
-        y: n.position.y + n.data.diameter / 2,
-        radius: n.data.diameter / 2 + 12,
-      })),
+      visibleNotes
+        .filter((n) => !filtered.dimmedIds.has(n.id))
+        .map((n) => ({
+          folder: n.data.folder,
+          x: n.position.x + n.data.diameter / 2,
+          y: n.position.y + n.data.diameter / 2,
+          radius: n.data.diameter / 2 + 12,
+        })),
     ).map<RFNode>((h) => ({
       id: `halo:${h.folder}`,
       type: 'folderHalo',
@@ -119,6 +122,7 @@ function GraphCanvasInner({ vaultPath }: GraphCanvasProps) {
         active: n.id === activePath,
         selected: n.id === selectedPath,
         dim: matches ? !matches.has(n.id) : false,
+        outside: filtered.dimmedIds.has(n.id),
       },
     }));
 
@@ -141,7 +145,11 @@ function GraphCanvasInner({ vaultPath }: GraphCanvasProps) {
       .map<Edge>((e) => ({
         ...e,
         type: 'straight',
-        style: e.source === activePath || e.target === activePath ? EDGE_ACTIVE : EDGE_BASE,
+        style: filtered.dimmedEdges.has(e.id)
+          ? EDGE_DIMMED
+          : e.source === activePath || e.target === activePath
+            ? EDGE_ACTIVE
+            : EDGE_BASE,
       }));
     const tagIds = new Set(filtered.tagEdges.map((e) => `${e.source}→${e.target}`));
     const tags = tagEdges

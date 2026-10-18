@@ -18,10 +18,22 @@ const initial = {
   showOrphans: true,
   searchQuery: '',
   selectedPath: null,
+  folder: '',
+  baseModel: null,
 };
+
+// Node's built-in localStorage shadows jsdom's; use a deterministic in-memory one.
+const memory = new Map<string, string>();
+vi.stubGlobal('localStorage', {
+  getItem: (k: string) => memory.get(k) ?? null,
+  setItem: (k: string, v: string) => void memory.set(k, v),
+  removeItem: (k: string) => void memory.delete(k),
+  clear: () => memory.clear(),
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   useGraphStore.setState(initial);
 });
 
@@ -146,5 +158,52 @@ describe('actions', () => {
       searchQuery: 'note',
       selectedPath: '/vault/a.md',
     });
+  });
+});
+
+describe('folder restriction', () => {
+  const graph = {
+    nodes: [n('/vault/P/a.md'), n('/vault/out.md'), n('/vault/far.md'), n('/vault/far2.md')],
+    edges: [
+      { source: '/vault/P/a.md', target: '/vault/out.md' },
+      { source: '/vault/far.md', target: '/vault/far2.md' },
+    ],
+  };
+
+  it('setFolder re-lays out the visible set, persists per vault and bumps loadId', async () => {
+    mockInvoke.mockResolvedValueOnce(graph);
+    await useGraphStore.getState().loadGraph('/vault');
+    const before = useGraphStore.getState().loadId;
+    useGraphStore.getState().setFolder('/vault', 'P');
+    const s = useGraphStore.getState();
+    expect(s.nodes.map((x) => x.id).sort()).toEqual(['/vault/P/a.md', '/vault/out.md']);
+    expect(s.model!.outside.has('/vault/out.md')).toBe(true);
+    expect(s.loadId).toBe(before + 1);
+    expect(localStorage.getItem('markdaun.graph.folder:/vault')).toBe('P');
+  });
+
+  it('Bóveda clears the restriction and the stored value', async () => {
+    mockInvoke.mockResolvedValueOnce(graph);
+    await useGraphStore.getState().loadGraph('/vault');
+    useGraphStore.getState().setFolder('/vault', 'P');
+    useGraphStore.getState().setFolder('/vault', '');
+    expect(useGraphStore.getState().nodes).toHaveLength(4);
+    expect(localStorage.getItem('markdaun.graph.folder:/vault')).toBeNull();
+  });
+
+  it('restores the stored folder on load', async () => {
+    localStorage.setItem('markdaun.graph.folder:/vault', 'P');
+    mockInvoke.mockResolvedValueOnce(graph);
+    await useGraphStore.getState().loadGraph('/vault');
+    expect(useGraphStore.getState().folder).toBe('P');
+    expect(useGraphStore.getState().nodes).toHaveLength(2);
+  });
+
+  it('falls back to Bóveda when the stored folder no longer exists', async () => {
+    localStorage.setItem('markdaun.graph.folder:/vault', 'Gone');
+    mockInvoke.mockResolvedValueOnce(graph);
+    await useGraphStore.getState().loadGraph('/vault');
+    expect(useGraphStore.getState().folder).toBe('');
+    expect(useGraphStore.getState().nodes).toHaveLength(4);
   });
 });

@@ -132,6 +132,18 @@ describe('StatusBar', () => {
       expect(screen.queryByTestId('save-state')).not.toBeInTheDocument();
     });
 
+    it('graph: counts only the notes inside the selected folder', () => {
+      seedNote('x');
+      useGraphStore.setState({
+        nodes: graphNodes as never,
+        edges: [{ id: 'e', source: 'a', target: 'b' }],
+        model: { nodes: [], edges: [], tagNodes: [], tagEdges: [], outside: new Set(['b']) },
+      });
+      renderBar('/graph');
+      expect(screen.getByTestId('graph-stats')).toHaveTextContent('1 nota · 0 enlaces · 0 huérfanas');
+      useGraphStore.setState({ model: null });
+    });
+
     it('brain: shows sync state and the AI selector, no note data', () => {
       seedNote('x');
       useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true } });

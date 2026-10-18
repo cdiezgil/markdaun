@@ -49,6 +49,12 @@ describe('GraphNode', () => {
     expect(label.style.fontSize).toBe('13px');
   });
 
+  it('shows notes outside the selected folder dimmed with a muted label', () => {
+    render(<GraphNode {...props({ ...base, outside: true })} />);
+    expect(screen.getByTestId('graph-node-/vault/a.md').style.opacity).toBe('0.4');
+    expect(screen.getByTestId('graph-node-label').style.color).toBe('var(--ink-muted)');
+  });
+
   it('dims non-matching nodes', () => {
     render(<GraphNode {...props({ ...base, dim: true })} />);
     expect(screen.getByTestId('graph-node-/vault/a.md').style.opacity).toBe('0.2');

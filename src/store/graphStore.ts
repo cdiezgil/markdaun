@@ -3,11 +3,14 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Edge, Node } from '@xyflow/react';
 import {
   buildGraphModel,
+  restrictToFolder,
   type BackendGraph,
   type GraphModel,
   type NodeKind,
   type TagNodeModel,
 } from '../lib/graph/graphModel';
+import { useVaultStore } from './vaultStore';
+import { vaultFolders } from '../lib/vaultFolders';
 import { layoutGraph, type LayoutNode } from '../lib/graph/graphLayout';
 
 // ── Node data ─────────────────────────────────────────────────────────────────
@@ -41,7 +44,12 @@ function noteRadius(diameter: number): number {
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 interface GraphStoreState {
+  /** Model restricted to `folder` (what is laid out and shown). */
   model: GraphModel | null;
+  /** Vault-wide model, kept to re-restrict when the folder changes. */
+  baseModel: GraphModel | null;
+  /** Selected vault-relative folder; '' = whole vault (Bóveda). */
+  folder: string;
   /** Note nodes (graphNode), laid out. */
   nodes: Node<GraphNodeData>[];
   /** Link edges between notes. */
@@ -67,10 +75,41 @@ interface GraphStoreState {
   setShowTags(v: boolean): void;
   setShowOrphans(v: boolean): void;
   setSearchQuery(q: string): void;
+  setFolder(vaultPath: string, folder: string): void;
 }
 
-export const useGraphStore = create<GraphStoreState>((set) => ({
+const folderKey = (vaultPath: string) => `markdaun.graph.folder:${vaultPath}`;
+
+function readStoredFolder(vaultPath: string): string {
+  try {
+    return localStorage.getItem(folderKey(vaultPath)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function storeFolder(vaultPath: string, folder: string) {
+  try {
+    if (folder) localStorage.setItem(folderKey(vaultPath), folder);
+    else localStorage.removeItem(folderKey(vaultPath));
+  } catch {
+    /* storage unavailable: the choice just won't persist */
+  }
+}
+
+function folderExists(folder: string, base: GraphModel, vaultPath: string): boolean {
+  if (!folder) return true;
+  const known = new Set(vaultFolders(useVaultStore.getState().tree, vaultPath));
+  return (
+    known.has(folder) ||
+    base.nodes.some((n) => n.folder === folder || n.folder.startsWith(`${folder}/`))
+  );
+}
+
+export const useGraphStore = create<GraphStoreState>((set, get) => ({
   model: null,
+  baseModel: null,
+  folder: '',
   nodes: [],
   edges: [],
   tagNodes: [],
@@ -88,8 +127,14 @@ export const useGraphStore = create<GraphStoreState>((set) => ({
     set({ isLoading: true, error: null });
     try {
       const graph = await invoke<BackendGraph>('get_vault_graph', { vaultPath });
-      const built = buildFlow(buildGraphModel(graph, vaultPath));
-      set((s) => ({ ...built, loadId: s.loadId + 1, isLoading: false }));
+      const base = buildGraphModel(graph, vaultPath);
+      let folder = readStoredFolder(vaultPath);
+      if (!folderExists(folder, base, vaultPath)) {
+        folder = '';
+        storeFolder(vaultPath, '');
+      }
+      const built = buildFlow(restrictToFolder(base, folder));
+      set((s) => ({ ...built, baseModel: base, folder, loadId: s.loadId + 1, isLoading: false }));
     } catch (e) {
       set({ error: typeof e === 'string' ? e : String(e), isLoading: false });
     }
@@ -115,6 +160,17 @@ export const useGraphStore = create<GraphStoreState>((set) => ({
   setShowTags: (v) => set({ showTags: v }),
   setShowOrphans: (v) => set({ showOrphans: v }),
   setSearchQuery: (q) => set({ searchQuery: q }),
+
+  setFolder(vaultPath, folder) {
+    const base = get().baseModel;
+    storeFolder(vaultPath, folder);
+    if (!base) {
+      set({ folder });
+      return;
+    }
+    const built = buildFlow(restrictToFolder(base, folder));
+    set((s) => ({ ...built, folder, selectedPath: null, loadId: s.loadId + 1 }));
+  },
 }));
 
 // ── Flow builder ──────────────────────────────────────────────────────────────

@@ -11,6 +11,8 @@ export interface GraphNodeView {
   selected?: boolean;
   /** Does not match the current search. */
   dim?: boolean;
+  /** Outside the selected folder: shown only as linked context. */
+  outside?: boolean;
 }
 
 const centreHandle: React.CSSProperties = {
@@ -45,11 +47,12 @@ export function GraphNode({ data: rawData }: NodeProps) {
       data-kind={data.kind}
       data-orphan={data.isOrphan ? 'true' : 'false'}
       data-active={data.active ? 'true' : 'false'}
+      data-outside={data.outside ? 'true' : 'false'}
       style={{
         position: 'relative',
         width: d,
         height: d,
-        opacity: data.dim ? 0.2 : 1,
+        opacity: data.dim ? 0.2 : data.outside ? 0.4 : 1,
         cursor: 'pointer',
       }}
     >
@@ -84,7 +87,7 @@ export function GraphNode({ data: rawData }: NodeProps) {
           fontSize: data.active ? '13px' : '12px',
           lineHeight: data.active ? '18px' : '16px',
           fontWeight: data.active ? 600 : 400,
-          color: data.isOrphan ? 'var(--amber)' : 'var(--ink)',
+          color: data.isOrphan ? 'var(--amber)' : data.outside ? 'var(--ink-muted)' : 'var(--ink)',
         }}
       >
         {data.label}

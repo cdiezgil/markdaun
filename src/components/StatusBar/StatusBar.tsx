@@ -10,7 +10,10 @@ import { viewForPath } from '../../lib/shell';
 function GraphStats(): JSX.Element {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
-  return <span data-testid="graph-stats">{formatGraphStats(graphStats(nodes, edges))}</span>;
+  const outside = useGraphStore((s) => s.model?.outside);
+  return (
+    <span data-testid="graph-stats">{formatGraphStats(graphStats(nodes, edges, outside))}</span>
+  );
 }
 
 /**
