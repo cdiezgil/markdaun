@@ -205,7 +205,8 @@ export default function EditorToolbar({ editor, mac = isMac() }: EditorToolbarPr
       style={{
         display: 'flex',
         alignItems: 'center',
-        flexWrap: 'wrap',
+        flexWrap: 'nowrap',
+        overflowX: 'auto',
         gap: 2,
         width: '100%',
         maxWidth: 'var(--measure)',
@@ -390,12 +391,13 @@ export default function EditorToolbar({ editor, mac = isMac() }: EditorToolbarPr
         <Minus size={20} strokeWidth={1.5} />
       </ToolbarButton>
 
-      <ToolbarSeparator />
-
-      {/* Shortcut cheat sheet */}
-      <ToolbarButton label="Atajos de teclado" shortcut="cheatSheet" mac={mac} onClick={toggleSheet}>
-        <Keyboard size={20} strokeWidth={1.5} />
-      </ToolbarButton>
+      {/* Shortcut cheat sheet: far right of the same row */}
+      <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+        <ToolbarSeparator />
+        <ToolbarButton label="Atajos de teclado" shortcut="cheatSheet" mac={mac} onClick={toggleSheet}>
+          <Keyboard size={20} strokeWidth={1.5} />
+        </ToolbarButton>
+      </span>
       <ShortcutCheatSheet open={sheetOpen} onClose={() => setSheetOpen(false)} mac={mac} />
     </div>
     </div>

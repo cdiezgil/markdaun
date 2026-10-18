@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
@@ -398,5 +398,14 @@ describe('EditorToolbar shortcuts', () => {
     await renderMac(true);
     fireEvent.click(screen.getByLabelText('Atajos de teclado'));
     expect(screen.getByRole('dialog', { name: 'Atajos de teclado' })).toBeDefined();
+  });
+
+  it('stays on one row (no wrap, scrolls) with the cheat sheet button last', async () => {
+    await renderMac(false);
+    const bar = screen.getByRole('toolbar');
+    expect(bar.style.flexWrap).toBe('nowrap');
+    expect(bar.style.overflowX).toBe('auto');
+    const buttons = within(bar).getAllByRole('button');
+    expect(buttons[buttons.length - 1].getAttribute('aria-label')).toBe('Atajos de teclado');
   });
 });

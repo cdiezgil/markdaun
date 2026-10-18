@@ -61,3 +61,24 @@ describe('ShortcutCheatSheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ShortcutCheatSheet layering', () => {
+  it('is a modal over an ink scrim, with an opaque surface above the sticky toolbar', () => {
+    render(<ShortcutCheatSheet open onClose={vi.fn()} mac />);
+    const overlay = screen.getByTestId('shortcut-cheatsheet-overlay');
+    const dialog = screen.getByRole('dialog');
+    expect(overlay.style.backgroundColor).toContain('var(--ink)');
+    expect(Number(overlay.style.zIndex)).toBeGreaterThan(5);
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.style.background).toBe('var(--surface)');
+    expect(dialog.style.opacity).toBe('1');
+  });
+
+  it('takes focus and keeps it on Tab', () => {
+    render(<ShortcutCheatSheet open onClose={vi.fn()} mac />);
+    const dialog = screen.getByRole('dialog');
+    expect(document.activeElement).toBe(dialog);
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(dialog);
+  });
+});

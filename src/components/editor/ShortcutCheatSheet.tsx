@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 import {
@@ -58,6 +58,16 @@ export function ShortcutCheatSheet({ open, onClose, mac = isMac() }: ShortcutChe
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Move focus into the dialog while open and give it back on close.
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => previous?.focus?.();
+  }, [open]);
+
   if (!open) return null;
 
   return createPortal(
@@ -68,6 +78,7 @@ export function ShortcutCheatSheet({ open, onClose, mac = isMac() }: ShortcutChe
         position: 'fixed',
         inset: 0,
         zIndex: 60,
+        backgroundColor: 'color-mix(in srgb, var(--ink) 40%, transparent)',
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'center',
@@ -75,8 +86,18 @@ export function ShortcutCheatSheet({ open, onClose, mac = isMac() }: ShortcutChe
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-label="Atajos de teclado"
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          // Nothing inside is focusable: keep focus trapped on the dialog.
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            dialogRef.current?.focus();
+          }
+        }}
         className="md-pop"
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -84,6 +105,8 @@ export function ShortcutCheatSheet({ open, onClose, mac = isMac() }: ShortcutChe
           maxHeight: 'calc(100vh - 2 * var(--space-8))',
           overflowY: 'auto',
           background: 'var(--surface)',
+          opacity: 1,
+          outline: 'none',
           color: 'var(--ink)',
           border: '1px solid var(--line)',
           borderRadius: 'var(--radius-lg)',
