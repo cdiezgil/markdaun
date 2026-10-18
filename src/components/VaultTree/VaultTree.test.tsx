@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { VaultTree } from './VaultTree';
 import { useVaultStore } from '../../store/vaultStore';
@@ -134,31 +134,79 @@ describe('TC-16: drop de ficheros externos importa al vault', () => {
   });
 });
 
-describe('creación con nombre obligatorio', () => {
-  it('el botón de nueva nota abre el diálogo y crea con el nombre escrito', async () => {
-    useVaultStore.setState({ vaultPath: '/vault', tree: [] });
-    mockInvoke
-      .mockResolvedValueOnce('/vault/mi-nota.md') // create_note
-      .mockResolvedValueOnce(sampleTree); // list_vault_tree
+function Where() {
+  return <div data-testid="where">{decodeURIComponent(useLocation().pathname)}</div>;
+}
 
-    wrap(<VaultTree />);
+describe('nueva nota sin nombre', () => {
+  beforeEach(() => {
+    useVaultStore.setState({ selectedFolder: null });
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'create_untitled_note') return '/vault/Sin título.md';
+      if (cmd === 'list_vault_tree') return sampleTree;
+      return undefined;
+    });
+  });
+
+  it('crea Sin título en la raíz sin abrir diálogo y abre la nota', async () => {
+    useVaultStore.setState({ vaultPath: '/vault', tree: [] });
+    render(
+      <MemoryRouter>
+        <Where />
+        <VaultTree />
+      </MemoryRouter>,
+    );
     fireEvent.click(screen.getByTestId('new-note-btn'));
 
-    const dialog = await screen.findByTestId('name-dialog-input');
-    fireEvent.change(dialog, { target: { value: 'mi nota' } });
-    fireEvent.click(screen.getByTestId('name-dialog-submit'));
-
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith(
-        'create_note',
-        expect.objectContaining({ name: 'mi nota' }),
-      ),
+      expect(mockInvoke).toHaveBeenCalledWith('create_untitled_note', {
+        parentPath: '/vault',
+        vaultPath: '/vault',
+      }),
     );
+    expect(screen.queryByTestId('name-dialog-overlay')).toBeNull();
     await waitFor(() =>
-      expect(screen.queryByTestId('name-dialog-overlay')).toBeNull(),
+      expect(screen.getByTestId('where')).toHaveTextContent('/editor//vault/Sin título.md'),
     );
   });
 
+  it('crea en la carpeta seleccionada', async () => {
+    useVaultStore.setState({
+      vaultPath: '/vault',
+      tree: [{ name: 'dir', path: '/vault/dir', kind: 'folder', children: [] }],
+    });
+    wrap(<VaultTree />);
+    fireEvent.click(screen.getByTestId('tree-node-dir'));
+    fireEvent.click(screen.getByTestId('new-note-btn'));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('create_untitled_note', {
+        parentPath: '/vault/dir',
+        vaultPath: '/vault',
+      }),
+    );
+  });
+
+  it('"Nueva nota" del menú de una carpeta también crea sin preguntar', async () => {
+    useVaultStore.setState({
+      vaultPath: '/vault',
+      tree: [{ name: 'dir', path: '/vault/dir', kind: 'folder', children: [] }],
+    });
+    wrap(<VaultTree />);
+    fireEvent.contextMenu(screen.getByTestId('tree-node-dir'));
+    fireEvent.click(await screen.findByTestId('context-new-note'));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('create_untitled_note', {
+        parentPath: '/vault/dir',
+        vaultPath: '/vault',
+      }),
+    );
+    expect(screen.queryByTestId('name-dialog-overlay')).toBeNull();
+  });
+});
+
+describe('creación de carpetas con nombre obligatorio', () => {
   it('el botón de nueva carpeta abre el diálogo y crea con el nombre escrito', async () => {
     useVaultStore.setState({ vaultPath: '/vault', tree: [] });
     mockInvoke
@@ -168,6 +216,7 @@ describe('creación con nombre obligatorio', () => {
     wrap(<VaultTree />);
     fireEvent.click(screen.getByTestId('new-folder-btn'));
 
+    expect(await screen.findByText('Nueva carpeta', { selector: '[role="dialog"] *' })).toBeInTheDocument();
     const dialog = await screen.findByTestId('name-dialog-input');
     fireEvent.change(dialog, { target: { value: 'proyecto' } });
     fireEvent.click(screen.getByTestId('name-dialog-submit'));
@@ -184,7 +233,7 @@ describe('creación con nombre obligatorio', () => {
     useVaultStore.setState({ vaultPath: '/vault', tree: [] });
 
     wrap(<VaultTree />);
-    fireEvent.click(screen.getByTestId('new-note-btn'));
+    fireEvent.click(screen.getByTestId('new-folder-btn'));
     fireEvent.click(await screen.findByTestId('name-dialog-submit'));
 
     expect(await screen.findByTestId('name-dialog-error')).toBeInTheDocument();
@@ -195,7 +244,7 @@ describe('creación con nombre obligatorio', () => {
     useVaultStore.setState({ vaultPath: '/vault', tree: [] });
 
     wrap(<VaultTree />);
-    fireEvent.click(screen.getByTestId('new-note-btn'));
+    fireEvent.click(screen.getByTestId('new-folder-btn'));
     fireEvent.click(await screen.findByTestId('name-dialog-cancel'));
 
     expect(screen.queryByTestId('name-dialog-overlay')).toBeNull();
@@ -207,9 +256,9 @@ describe('creación con nombre obligatorio', () => {
     mockInvoke.mockRejectedValueOnce('already_exists');
 
     wrap(<VaultTree />);
-    fireEvent.click(screen.getByTestId('new-note-btn'));
+    fireEvent.click(screen.getByTestId('new-folder-btn'));
     fireEvent.change(await screen.findByTestId('name-dialog-input'), {
-      target: { value: 'nota' },
+      target: { value: 'carpeta' },
     });
     fireEvent.click(screen.getByTestId('name-dialog-submit'));
 

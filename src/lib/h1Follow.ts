@@ -50,3 +50,17 @@ export function readH1(editor: Pick<Editor, 'state'>): { inH1: boolean; title: s
   });
   return { inH1, title };
 }
+
+/** Document position at the end of the first H1's content, or null without one. */
+export function firstH1ContentEnd(editor: Pick<Editor, 'state'>): number | null {
+  let end: number | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (end !== null) return false;
+    if (node.type.name === 'heading' && node.attrs['level'] === 1) {
+      end = pos + 1 + node.content.size;
+      return false;
+    }
+    return true;
+  });
+  return end;
+}

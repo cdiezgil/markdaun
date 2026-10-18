@@ -6,6 +6,7 @@ import { useEditorStore } from '../../store/editorStore';
 
 // Mock TipTap to avoid full DOM editor in unit tests
 vi.mock('./BacklinksSection', () => ({ default: () => null }));
+vi.mock('../../hooks/useH1Follow', () => ({ useH1Follow: vi.fn() }));
 
 vi.mock('@tiptap/react', () => ({
   useEditor: vi.fn(() => ({

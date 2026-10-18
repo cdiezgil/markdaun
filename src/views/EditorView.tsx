@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import type { Editor } from '@tiptap/react';
 
 import EditorToolbar from '../components/editor/EditorToolbar';
@@ -20,7 +20,8 @@ export function EditorView() {
   const { encodedPath } = useParams<{ encodedPath?: string }>();
   const filePath = encodedPath ? decodeURIComponent(encodedPath) : null;
 
-  const { activeNotePath, openNote, vaultPath } = useEditorStore();
+  const { activeNotePath, openNote, vaultPath, relocation } = useEditorStore();
+  const navigate = useNavigate();
   const [editor, setEditor] = useState<Editor | null>(null);
 
   // Open the note whenever the URL param changes
@@ -29,6 +30,14 @@ export function EditorView() {
       openNote(filePath).catch(console.error);
     }
   }, [filePath, vaultPath]);
+
+  // The open note was renamed or moved: point the URL at its new path.
+  useEffect(() => {
+    if (relocation && filePath === relocation.from) {
+      navigate(`/editor/${encodeURIComponent(relocation.to)}`, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [relocation]);
 
   if (!activeNotePath) {
     return (

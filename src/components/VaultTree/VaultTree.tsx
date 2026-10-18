@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FilePlus, FolderPlus, Settings } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { SyncPanel } from '../Sync/SyncPanel';
 import { useVaultStore } from '../../store/vaultStore';
 import { VaultEmpty } from './VaultEmpty';
@@ -22,12 +22,13 @@ const ICON_BUTTON: React.CSSProperties = {
   padding: 0,
 };
 
-type CreateDialog = { type: 'note' | 'folder'; parentPath: string } | null;
+type CreateDialog = { parentPath: string } | null;
 
 export function VaultTree() {
   const vaultPath = useVaultStore((s) => s.vaultPath);
   const tree = useVaultStore((s) => s.tree);
-  const createNote = useVaultStore((s) => s.createNote);
+  const createUntitledNote = useVaultStore((s) => s.createUntitledNote);
+  const navigate = useNavigate();
   const createFolder = useVaultStore((s) => s.createFolder);
   const moveEntry = useVaultStore((s) => s.moveEntry);
   const importFileData = useVaultStore((s) => s.importFileData);
@@ -41,12 +42,18 @@ export function VaultTree() {
 
   async function submitDialog(name: string) {
     if (!dialog) return;
-    if (dialog.type === 'note') {
-      await createNote(dialog.parentPath, name);
-    } else {
-      await createFolder(dialog.parentPath, name);
-    }
+    await createFolder(dialog.parentPath, name);
     setDialog(null);
+  }
+
+  /** Notes are created as "Sin título" without asking; the H1 names them later. */
+  async function newNote(parentPath?: string) {
+    try {
+      const path = await createUntitledNote(parentPath);
+      navigate(`/editor/${encodeURIComponent(path)}`);
+    } catch (e) {
+      console.error('create note failed:', e);
+    }
   }
 
   function hasEntryPayload(e: React.DragEvent): boolean {
@@ -122,7 +129,7 @@ export function VaultTree() {
         </span>
         <div style={{ display: 'flex', gap: 2 }}>
           <button
-            onClick={() => setDialog({ type: 'note', parentPath: vaultPath })}
+            onClick={() => void newNote()}
             title="Nueva nota"
             aria-label="Nueva nota"
             data-testid="new-note-btn"
@@ -132,7 +139,7 @@ export function VaultTree() {
             <FilePlus size={18} strokeWidth={1.5} />
           </button>
           <button
-            onClick={() => setDialog({ type: 'folder', parentPath: vaultPath })}
+            onClick={() => setDialog({ parentPath: useVaultStore.getState().selectedFolder ?? vaultPath })}
             title="Nueva carpeta"
             aria-label="Nueva carpeta"
             data-testid="new-folder-btn"
@@ -162,15 +169,14 @@ export function VaultTree() {
             key={entry.path}
             entry={entry}
             depth={0}
-            onCreateNote={(parentPath) => setDialog({ type: 'note', parentPath })}
-            onCreateFolder={(parentPath) => setDialog({ type: 'folder', parentPath })}
+            onCreateNote={(parentPath) => void newNote(parentPath)}
+            onCreateFolder={(parentPath) => setDialog({ parentPath })}
           />
         ))}
       </div>
       <NameDialog
         open={dialog !== null}
-        title={dialog?.type === 'folder' ? 'Nueva carpeta' : 'Nueva nota'}
-        hint={dialog?.type === 'note' ? 'Se añadirá la extensión .md automáticamente.' : undefined}
+        title="Nueva carpeta"
         onSubmit={submitDialog}
         onCancel={() => setDialog(null)}
       />

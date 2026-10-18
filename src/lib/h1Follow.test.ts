@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../store/editorStore';
 import { useVaultStore } from '../store/vaultStore';
-import { followH1Title, readH1 } from './h1Follow';
+import { followH1Title, readH1, firstH1ContentEnd } from './h1Follow';
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -101,5 +101,22 @@ describe('readH1', () => {
   it('empty when there is no H1', () => {
     const editor = fakeDoc([{ type: 'paragraph', text: 'x' }], 0);
     expect(readH1(editor as never)).toEqual({ inH1: false, title: '' });
+  });
+});
+
+describe('firstH1ContentEnd', () => {
+  it('returns the position where the first H1 content ends', () => {
+    const doc = {
+      descendants: (cb: (n: unknown, pos: number) => boolean | void) => {
+        cb({ type: { name: 'paragraph' }, attrs: {}, nodeSize: 5 }, 0);
+        cb({ type: { name: 'heading' }, attrs: { level: 1 }, nodeSize: 7, content: { size: 5 } }, 5);
+      },
+    };
+    expect(firstH1ContentEnd({ state: { doc } } as never)).toBe(11);
+  });
+
+  it('is null without an H1', () => {
+    const doc = { descendants: () => undefined };
+    expect(firstH1ContentEnd({ state: { doc } } as never)).toBeNull();
   });
 });
