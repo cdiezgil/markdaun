@@ -1,17 +1,24 @@
 import { create } from 'zustand';
 import {
+  archiveSource,
   brainDeleteConversation,
   brainGetConversations,
   brainGetMessages,
+  brainDigest,
   brainQuery,
   brainSetConversationScope,
+  onDigestProgress,
+  type DigestProgress,
+  type InboxItem,
   type QueryScope,
   type BrainConversation,
   type BrainMessage,
 } from '../lib/tauri';
 import { prepareAttachments } from '../lib/attachments/prepare';
-import { MAX_ATTACHMENTS, type ChatAttachment } from '../lib/attachments/types';
+import { MAX_ATTACHMENTS, MAX_PDF_PAGES, type AttachmentInput, type ChatAttachment } from '../lib/attachments/types';
 import { useLlmStore } from './llmStore';
+import { useEditorStore } from './editorStore';
+import { useVaultStore } from './vaultStore';
 import { VAULT_SCOPE } from '../lib/chat/scope';
 
 // ── Public types ───────────────────────────────────────────────────────────────
@@ -38,6 +45,31 @@ function activeTakesPdfNatively(): boolean {
   return !!conn && NATIVE_PDF_ENGINES.has(conn.engine);
 }
 
+/** What travels with a digestion besides the file path. */
+async function digestPayload(
+  item: InboxItem,
+): Promise<{ attachments?: AttachmentInput[]; sourceText?: string }> {
+  if (item.kind !== 'pdf' && item.kind !== 'image') return {};
+  const att: ChatAttachment = {
+    vaultPath: item.rel_path,
+    absPath: item.path,
+    name: item.name,
+    kind: item.kind === 'pdf' ? 'pdf' : 'image',
+  };
+  let prepared;
+  try {
+    prepared = await prepareAttachments([att], { nativePdf: activeTakesPdfNatively() });
+  } catch (e) {
+    throw `attachment_error: ${e instanceof Error ? e.message : String(e)}`;
+  }
+  const derived = prepared.inputs[0]?.derived;
+  // A PDF over the page limit is digested from its extracted text (in parts if needed).
+  if (item.kind === 'pdf' && derived?.text && (derived.pageCount ?? 0) > MAX_PDF_PAGES) {
+    return { sourceText: derived.text };
+  }
+  return { attachments: prepared.inputs };
+}
+
 export interface BrainState {
   conversations: BrainConversation[];
   currentConversationId: string | null;
@@ -52,6 +84,18 @@ export interface BrainState {
   pendingPrompt: PendingPrompt | null;
   /** What the conversation answers from; stored with the conversation. */
   scope: QueryScope;
+  /** Name of the inbox source being digested right now. */
+  digesting: string | null;
+  /** Part progress of a large source being digested. */
+  digestProgress: DigestProgress | null;
+
+  /** An archive of the digested source is running. */
+  archiving: boolean;
+  /** Move the conversation's source to `<targetFolder>/Fuentes/`. */
+  archiveDigestSource(conversationId: string, vaultPath: string, targetFolder: string): Promise<void>;
+
+  /** Digest inbox items one after another, one conversation each. */
+  digest(items: InboxItem[], vaultPath: string): Promise<void>;
 
   /** Start a fresh conversation scoped to one note (vault-relative path). */
   askAboutNote(relativePath: string): void;
@@ -93,6 +137,69 @@ export const useBrainStore = create<BrainState>((set, get) => ({
   notices: [],
   pendingPrompt: null,
   scope: VAULT_SCOPE,
+  digesting: null,
+  digestProgress: null,
+  archiving: false,
+
+  async archiveDigestSource(conversationId, vaultPath, targetFolder) {
+    const source = get().conversations.find((c) => c.id === conversationId)?.digest_source;
+    if (!source) return;
+    const abs = `${vaultPath.replace(/[\\/]+$/, '')}/${source}`;
+    set({ archiving: true, error: null });
+    try {
+      const editor = useEditorStore.getState();
+      const out = await editor.runRelocation(() => archiveSource(abs, targetFolder, vaultPath, conversationId));
+      await useVaultStore.getState().refreshTree();
+      await useEditorStore.getState().applyRelocation(abs, out.path, out.rewritten ?? []);
+      const conversations = await brainGetConversations(vaultPath).catch(() => get().conversations);
+      set({ conversations });
+    } catch (e) {
+      set({ error: String(e) });
+    } finally {
+      set({ archiving: false });
+    }
+  },
+
+  async digest(items, vaultPath) {
+    let unlisten: (() => void) | undefined;
+    let current = '';
+    try {
+      unlisten = await onDigestProgress((p) => {
+        if (p.source === current) set({ digestProgress: p });
+      });
+    } catch {
+      /* progress is optional */
+    }
+    try {
+      for (const item of items) {
+        current = item.rel_path;
+        set({
+          digesting: item.name,
+          digestProgress: null,
+          isLoading: true,
+          error: null,
+          notices: [],
+          currentConversationId: null,
+          messages: [],
+          pendingAttachments: [],
+          scope: VAULT_SCOPE,
+        });
+        try {
+          const { attachments, sourceText } = await digestPayload(item);
+          const result = await brainDigest(item.rel_path, vaultPath, attachments, sourceText);
+          const conversations = await brainGetConversations(vaultPath).catch(() => get().conversations);
+          set({ conversations });
+          await get().selectConversation(result.conversation_id);
+        } catch (e) {
+          set({ error: String(e) });
+          break;
+        }
+      }
+    } finally {
+      unlisten?.();
+      set({ digesting: null, digestProgress: null, isLoading: false });
+    }
+  },
 
   askAboutNote(relativePath) {
     set({

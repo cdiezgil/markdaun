@@ -114,3 +114,40 @@ describe('NoteProposalCard', () => {
     expect(screen.getByTestId('proposal-accept')).toBeInTheDocument();
   });
 });
+
+describe('carpeta nueva badge', () => {
+  it('flags a create proposal whose folder is not in the vault', () => {
+    backend();
+    setup({ path: 'Mutua/Nuevo/Acta.md', mode: 'create', content: 'x' }, { folders: ['', 'Mutua'] });
+    expect(screen.getByTestId('new-folder-badge')).toHaveTextContent('carpeta nueva');
+  });
+
+  it('is absent when the folder exists, at the root, for append or without folder info', () => {
+    backend();
+    const { unmount } = render(
+      <NoteProposalCard proposal={{ path: 'Mutua/A.md', mode: 'create', content: 'x' }} vaultPath="/vault" onOpen={vi.fn()} folders={['', 'Mutua']} />,
+    );
+    expect(screen.queryByTestId('new-folder-badge')).toBeNull();
+    unmount();
+    const r2 = render(
+      <NoteProposalCard proposal={{ path: 'A.md', mode: 'create', content: 'x' }} vaultPath="/vault" onOpen={vi.fn()} folders={['']} />,
+    );
+    expect(screen.queryByTestId('new-folder-badge')).toBeNull();
+    r2.unmount();
+    const r3 = render(
+      <NoteProposalCard proposal={{ path: 'Otra/A.md', mode: 'append', content: 'x' }} vaultPath="/vault" onOpen={vi.fn()} folders={['']} />,
+    );
+    expect(screen.queryByTestId('new-folder-badge')).toBeNull();
+    r3.unmount();
+    render(<NoteProposalCard proposal={{ path: 'Otra/A.md', mode: 'create', content: 'x' }} vaultPath="/vault" onOpen={vi.fn()} />);
+    expect(screen.queryByTestId('new-folder-badge')).toBeNull();
+  });
+
+  it('follows the edited path', () => {
+    backend();
+    setup({ path: 'Nueva/A.md', mode: 'create', content: 'x' }, { folders: ['', 'Personal'] });
+    expect(screen.getByTestId('new-folder-badge')).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('proposal-path'), { target: { value: 'Personal/A.md' } });
+    expect(screen.queryByTestId('new-folder-badge')).toBeNull();
+  });
+});

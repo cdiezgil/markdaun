@@ -49,6 +49,9 @@ fn classify_extension(name: &str) -> FileKind {
     }
 }
 
+/// Folder inside the vault where the app keeps its internals (e.g. the trash).
+pub const APP_DIR: &str = ".markdaun";
+
 fn build_tree(dir: &Path) -> Result<Vec<VaultEntry>, FsError> {
     let mut dirs: Vec<VaultEntry> = Vec::new();
     let mut files: Vec<VaultEntry> = Vec::new();
@@ -62,6 +65,10 @@ fn build_tree(dir: &Path) -> Result<Vec<VaultEntry>, FsError> {
     for entry in entries {
         let meta = entry.metadata()?;
         let name = entry.file_name().to_string_lossy().to_string();
+        // The app's own folder (trash, internals) is never part of the vault tree.
+        if name == APP_DIR {
+            continue;
+        }
         let canonical = entry.path().canonicalize()?;
         let path_str = canonical.to_string_lossy().to_string();
 

@@ -50,3 +50,13 @@ pub mod backlinks;
 pub use backlinks::*;
 #[cfg(test)]
 mod backlinks_tests;
+
+pub mod inbox;
+pub use inbox::*;
+#[cfg(test)]
+mod inbox_tests;
+
+pub mod digest;
+pub use digest::*;
+#[cfg(test)]
+mod digest_tests;

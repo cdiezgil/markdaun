@@ -7,6 +7,9 @@ import { VaultEmpty } from './VaultEmpty';
 import { TreeNode, ENTRY_MIME } from './TreeNode';
 import { NameDialog } from './NameDialog';
 import { countVaultEntries, formatVaultCounts } from '../../lib/vaultCounts';
+import { InboxEntry } from '../Inbox/InboxEntry';
+import { INBOX_DIR } from '../../lib/inbox';
+import { inboxEnsure } from '../../lib/tauri';
 
 const ICON_BUTTON: React.CSSProperties = {
   width: 32,
@@ -80,14 +83,15 @@ export function VaultTree() {
       return;
     }
 
-    // External files dropped from the OS: import bytes into the vault root.
+    // External files dropped from the OS without a target folder land in Entrada/.
     const hasFiles = Array.from(e.dataTransfer.types).includes('Files');
     const files = hasFiles ? Array.from(e.dataTransfer.files ?? []) : [];
     if (files.length > 0) {
       e.preventDefault();
+      const inbox = await inboxEnsure(vaultPath);
       for (const file of files) {
         const contents = new Uint8Array(await file.arrayBuffer());
-        await importFileData(vaultPath, file.name, contents);
+        await importFileData(inbox, file.name, contents);
       }
     }
   }
@@ -150,6 +154,7 @@ export function VaultTree() {
           </button>
         </div>
       </div>
+      <InboxEntry />
       <div
         onDragOver={handleRootDragOver}
         onDragLeave={() => setRootDropActive(false)}
@@ -164,7 +169,9 @@ export function VaultTree() {
         }}
         data-testid="vault-tree-scroll"
       >
-        {tree.map((entry) => (
+        {tree
+          .filter((entry) => !(entry.kind === 'folder' && entry.name === INBOX_DIR))
+          .map((entry) => (
           <TreeNode
             key={entry.path}
             entry={entry}

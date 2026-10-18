@@ -6,6 +6,8 @@ import { VaultTree } from './VaultTree';
 import { useVaultStore } from '../../store/vaultStore';
 import type { VaultEntry } from '../../store/vaultStore';
 import React from 'react';
+import { useInboxStore } from '../../store/inboxStore';
+import { INBOX_DIR } from '../../lib/inbox';
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -16,6 +18,7 @@ function wrap(ui: React.ReactElement) {
 beforeEach(() => {
   vi.clearAllMocks();
   useVaultStore.setState({ vaultPath: null, tree: [], isLoading: false, error: null });
+  useInboxStore.setState({ items: [], selected: [], load: vi.fn() });
 });
 
 const sampleTree: VaultEntry[] = [
@@ -71,6 +74,44 @@ describe('shell sidebar', () => {
     expect(footer).toContainElement(settings);
     expect(settings).toHaveAttribute('href', '/settings');
     expect(settings).toHaveAccessibleName('Ajustes');
+  });
+});
+
+describe('Entrada en la barra lateral', () => {
+  it('la carpeta Entrada no aparece en el árbol y su entrada va primero', () => {
+    useVaultStore.setState({
+      vaultPath: '/vault',
+      tree: [
+        { name: 'Entrada', path: '/vault/Entrada', kind: 'folder', children: [] },
+        ...sampleTree,
+      ],
+    });
+    wrap(<VaultTree />);
+    expect(screen.queryByTestId('tree-node-Entrada')).toBeNull();
+    expect(screen.getByTestId('tree-node-nota.md')).toBeInTheDocument();
+    const entry = screen.getByTestId('inbox-entry');
+    const scroll = screen.getByTestId('vault-tree-scroll');
+    expect(entry.compareDocumentPosition(scroll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(INBOX_DIR).toBe('Entrada');
+  });
+
+  it('soltar ficheros del SO en la raíz los importa a Entrada', async () => {
+    useVaultStore.setState({ vaultPath: '/vault', tree: [] });
+    mockInvoke.mockImplementation(async (cmd: string) => (cmd === 'inbox_ensure' ? '/vault/Entrada' : []));
+    wrap(<VaultTree />);
+    fireEvent.drop(screen.getByTestId('vault-tree-scroll'), {
+      dataTransfer: {
+        types: ['Files'],
+        getData: vi.fn().mockReturnValue(''),
+        files: [new File([new Uint8Array([9])], 'acta.pdf')],
+      },
+    });
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        'import_file_data',
+        expect.objectContaining({ destFolderPath: '/vault/Entrada', fileName: 'acta.pdf' }),
+      ),
+    );
   });
 });
 

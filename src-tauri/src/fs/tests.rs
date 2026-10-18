@@ -93,3 +93,17 @@ fn walk_vault_nested() {
     assert_eq!(nota.kind, EntryKind::File);
     assert_eq!(nota.file_type, Some(FileKind::Md));
 }
+
+/// The app's own `.markdaun/` folder (trash, internals) never shows in the tree.
+#[test]
+fn walk_vault_hides_markdaun_folder() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join(".markdaun/papelera")).unwrap();
+    fs::write(root.join(".markdaun/papelera/x.md"), b"").unwrap();
+    fs::write(root.join("note.md"), b"").unwrap();
+
+    let tree = walk_vault(root).unwrap();
+    assert!(find_entry(&tree, ".markdaun").is_none());
+    assert!(find_entry(&tree, "note.md").is_some());
+}

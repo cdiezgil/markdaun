@@ -16,6 +16,9 @@ import { attachmentKindOf, chatAttachmentFromAbs, MAX_ATTACHMENTS } from '../../
 import { ENTRY_MIME } from '../VaultTree/TreeNode';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPicker } from './AttachmentPicker';
+import { ArchiveSourceBar } from './ArchiveSourceBar';
+import { useNoteProposalStore } from '../../store/noteProposalStore';
+import { digestProgressLabel, firstAcceptedFolder } from '../../lib/chat/digest';
 
 const noteStyle: React.CSSProperties = {
   fontFamily: 'var(--font-sans)',
@@ -39,6 +42,12 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
   const removeAttachment = useBrainStore((s) => s.removeAttachment);
   const scope = useBrainStore((s) => s.scope);
   const setScope = useBrainStore((s) => s.setScope);
+  const digesting = useBrainStore((s) => s.digesting);
+  const digestProgress = useBrainStore((s) => s.digestProgress);
+  const archiving = useBrainStore((s) => s.archiving);
+  const archiveDigestSource = useBrainStore((s) => s.archiveDigestSource);
+  const currentConversation = useBrainStore((s) => s.conversations.find((c) => c.id === s.currentConversationId));
+  const proposalStates = useNoteProposalStore((s) => s.states);
 
   const activeConn = useLlmStore((s) => s.connections.find((c) => c.id === s.active?.connectionId));
   const activeModel = useLlmStore((s) => s.active?.model ?? '');
@@ -185,6 +194,12 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
             />
           ))}
 
+          {digesting && (
+            <div data-testid="digest-status" role="status" style={{ ...noteStyle, textAlign: 'center' }}>
+              Digiriendo «{digesting}»{digestProgressLabel(digestProgress) ? ` · ${digestProgressLabel(digestProgress)}` : '…'}
+            </div>
+          )}
+
           {isLoading && (
             <div data-testid="chat-spinner" style={{ display: 'flex', justifyContent: 'center' }}>
               <div
@@ -225,6 +240,15 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
       {/* Floating composer */}
       <div style={{ padding: '0 var(--space-8) var(--space-6)', position: 'relative' }}>
         <div style={{ maxWidth: 720, margin: '0 auto', position: 'relative' }}>
+          {currentConversation?.digest_source && (
+            <ArchiveSourceBar
+              source={currentConversation.digest_source}
+              archived={!!currentConversation.digest_archived}
+              archiving={archiving}
+              targetFolder={firstAcceptedFolder(proposalStates, messages.map((m) => m.id), vaultPath)}
+              onArchive={(folder) => void archiveDigestSource(currentConversation.id, vaultPath, folder)}
+            />
+          )}
           {pickerOpen && <AttachmentPicker onPick={attach} onClose={() => setPickerOpen(false)} />}
           <div
             data-testid="chat-composer"

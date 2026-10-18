@@ -5,6 +5,7 @@ import { SettingsView } from './SettingsView';
 
 vi.mock('../store/syncStore', () => ({ useSyncStore: vi.fn() }));
 vi.mock('../store/vaultStore', () => ({ useVaultStore: vi.fn() }));
+vi.mock('../components/Settings/Trash', () => ({ Trash: () => <div data-testid="trash-section" /> }));
 
 import { useSyncStore } from '../store/syncStore';
 import { useVaultStore } from '../store/vaultStore';
@@ -115,5 +116,13 @@ describe('SettingsView', () => {
     // The confirm button should show "Desvincular"
     const confirmBtn = screen.getByTestId('confirm-dialog-delete');
     expect(confirmBtn.textContent).toBe('Desvincular');
+  });
+});
+
+describe('Papelera en Ajustes', () => {
+  it('incluye la sección Papelera', () => {
+    makeState();
+    render(<SettingsView />);
+    expect(screen.getByTestId('trash-section')).toBeInTheDocument();
   });
 });
