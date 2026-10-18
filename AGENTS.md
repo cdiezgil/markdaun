@@ -85,6 +85,15 @@ El backend expone comandos Tauri al frontend. Sin servidor externo: todo corre e
 - **Embeddings del vault:** locales (`fastembed`), regenerados de forma incremental al guardar un fichero (background task Rust). Este diseño solo cubre el chat.
 - Todos los secretos viven solo en el llavero del SO; el webview ve un secreto una única vez, al pegarlo en el asistente. Sin streaming por ahora.
 
+### 2.7 Canales de captura
+
+Todo lo capturado aterriza en `Entrada/` (ver `docs/superpowers/specs/2026-10-18-capture-channels-design.md`).
+
+- **Office:** `.docx`/`.pptx` se extraen a Markdown con `zip` + `quick-xml` (`capture/office.rs`); la entrada los digiere y el indexador los indexa por su texto.
+- **Recortes web:** `capture/clip.rs`. Legibilidad con `dom_smoothie` (MIT, port de Readability.js), HTML→Markdown con `htmd` (Apache-2.0), reescritura de imágenes con `dom_query`. Descartados: `readability` (sin mantenimiento) y `html2md` (GPL).
+- **Captura rápida:** ventana `quick-capture` (hash `#quick-capture` del mismo bundle), atajo global con `tauri-plugin-global-shortcut` (configurable, `config.db`), aviso con `tauri-plugin-notification`.
+- **Menú de barra:** icono de bandeja (`tray-icon`); cerrar la ventana la oculta y *Salir* pasa por la guarda de cambios sin sincronizar.
+
 ---
 
 ## 3. Testing
