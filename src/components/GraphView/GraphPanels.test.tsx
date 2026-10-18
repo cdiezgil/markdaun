@@ -21,7 +21,8 @@ const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useGraphStore.setState({ showLinks: true, showTags: false, showOrphans: true, searchQuery: '' });
+  useGraphStore.setState({ showLinks: true, showTags: false, showOrphans: true, searchQuery: '', folder: '', baseModel: null, model: null });
+  useVaultStore.setState({ tree: [] });
 });
 
 describe('GraphFilterPanel', () => {
@@ -54,6 +55,57 @@ describe('GraphFilterPanel', () => {
     render(<GraphFilterPanel vaultPath="/vault" />);
     fireEvent.click(screen.getByTestId('reload-graph'));
     expect(mockInvoke).toHaveBeenCalledWith('get_vault_graph', { vaultPath: '/vault' });
+  });
+});
+
+describe('GraphFilterPanel folders', () => {
+  const tree = [
+    { name: 'Mutua', path: '/vault/Mutua', kind: 'folder' as const, children: [
+      { name: 'ProyectoX', path: '/vault/Mutua/ProyectoX', kind: 'folder' as const, children: [] },
+    ] },
+    { name: '.markdaun', path: '/vault/.markdaun', kind: 'folder' as const, children: [] },
+    { name: 'Entrada', path: '/vault/Entrada', kind: 'folder' as const, children: [] },
+  ];
+  beforeEach(() => useVaultStore.setState({ tree }));
+
+  it('shows "Carpetas" inactive when the whole vault is selected', () => {
+    render(<GraphFilterPanel vaultPath="/vault" />);
+    const chip = screen.getByTestId('toggle-folders');
+    expect(chip).toHaveTextContent(/^Carpetas$/);
+    expect(chip.style.border).toBe('1px solid var(--line)');
+  });
+
+  it('opens a tree with Bóveda first, no hidden folders, collapsed subfolders', () => {
+    render(<GraphFilterPanel vaultPath="/vault" />);
+    fireEvent.click(screen.getByTestId('toggle-folders'));
+    expect(screen.getByTestId('folder-option-root')).toHaveTextContent('Bóveda');
+    expect(screen.getByTestId('folder-option-Entrada')).toBeInTheDocument();
+    expect(screen.queryByTestId('folder-option-.markdaun')).toBeNull();
+    expect(screen.queryByTestId('folder-option-Mutua/ProyectoX')).toBeNull();
+    fireEvent.click(screen.getByTestId('folder-toggle-Mutua'));
+    expect(screen.getByTestId('folder-option-Mutua/ProyectoX')).toBeInTheDocument();
+  });
+
+  it('selecting a folder restricts the graph, closes the popover and labels the chip', () => {
+    mockInvoke.mockResolvedValue({ nodes: [], edges: [] });
+    render(<GraphFilterPanel vaultPath="/vault" />);
+    fireEvent.click(screen.getByTestId('toggle-folders'));
+    fireEvent.click(screen.getByTestId('folder-toggle-Mutua'));
+    fireEvent.click(screen.getByTestId('folder-option-Mutua/ProyectoX'));
+    expect(useGraphStore.getState().folder).toBe('Mutua/ProyectoX');
+    expect(screen.queryByTestId('folder-popover')).toBeNull();
+    const chip = screen.getByTestId('toggle-folders');
+    expect(chip).toHaveTextContent('Carpetas · Mutua/ProyectoX');
+    expect(chip.style.background).toBe('var(--mark)');
+  });
+
+  it('Bóveda clears the restriction', () => {
+    useGraphStore.setState({ folder: 'Entrada' });
+    render(<GraphFilterPanel vaultPath="/vault" />);
+    fireEvent.click(screen.getByTestId('toggle-folders'));
+    fireEvent.click(screen.getByTestId('folder-option-root'));
+    expect(useGraphStore.getState().folder).toBe('');
+    expect(screen.queryByTestId('folder-popover')).toBeNull();
   });
 });
 

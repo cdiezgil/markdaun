@@ -38,6 +38,17 @@ describe('countVaultEntries / formatVaultCounts', () => {
   });
 });
 
+describe('graphStats with outside (dimmed) notes', () => {
+  it('does not count dimmed notes nor their edges', () => {
+    const nodes = [
+      { id: 'a', data: { kind: 'md', isOrphan: false } },
+      { id: 'o', data: { kind: 'md', isOrphan: false } },
+    ];
+    const edges = [{ source: 'a', target: 'o' }];
+    expect(graphStats(nodes, edges, new Set(['o']))).toEqual({ notes: 1, links: 0, orphans: 0 });
+  });
+});
+
 describe('graphStats / formatGraphStats', () => {
   const nodes = [
     { id: 'orphanGroup_root', type: 'orphanGroup', position: { x: 0, y: 0 }, data: { folderName: 'root' } },

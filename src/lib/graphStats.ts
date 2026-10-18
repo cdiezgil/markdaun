@@ -7,19 +7,37 @@ export interface GraphStats {
 }
 
 interface StatNode {
+  id?: string;
   data?: Record<string, unknown>;
 }
 
-/** Note/link/orphan counts for the graph status line (md notes only). */
-export function graphStats(nodes: StatNode[], edges: unknown[]): GraphStats {
+interface StatEdge {
+  source?: string;
+  target?: string;
+}
+
+/**
+ * Note/link/orphan counts for the graph status line (md notes only).
+ * `outside` ids (dimmed context notes of a folder restriction) are not counted.
+ */
+export function graphStats(
+  nodes: StatNode[],
+  edges: StatEdge[],
+  outside?: Set<string>,
+): GraphStats {
   let notes = 0;
   let orphans = 0;
+  let links = 0;
+  for (const e of edges) {
+    if (!outside?.has(e.source ?? '') && !outside?.has(e.target ?? '')) links += 1;
+  }
   for (const n of nodes) {
+    if (n.id !== undefined && outside?.has(n.id)) continue;
     if (n.data?.kind !== 'md') continue;
     notes += 1;
     if (n.data.isOrphan === true) orphans += 1;
   }
-  return { notes, links: edges.length, orphans };
+  return { notes, links, orphans };
 }
 
 export function formatGraphStats({ notes, links, orphans }: GraphStats): string {
