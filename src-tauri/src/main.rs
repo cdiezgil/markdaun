@@ -74,6 +74,7 @@ fn main() {
             commands::trash_restore,
             commands::trash_delete,
             commands::archive_source,
+            commands::brain_digest,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -282,7 +282,9 @@ mod tests {
                 vault_path TEXT NOT NULL,
                 title TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                scope TEXT
+                scope TEXT,
+                digest_source TEXT,
+                digest_archived INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT PRIMARY KEY,
