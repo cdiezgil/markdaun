@@ -196,7 +196,7 @@ Dos temas, activados por `data-theme="dark"` o `prefers-color-scheme`:
 | **Espaciado** | `--space-1` (4px) … `--space-16` (64px) — retícula de 4px |
 | **Radios** | `--radius-sm` (6) · `--radius-md` (10) · `--radius-lg` (16) · `--radius-pill` (999px) |
 | **Sombra** | `--shadow-pop` — única sombra del sistema, solo para elementos flotantes |
-| **Layout** | `--measure` (68ch) · `--sidebar-width` (264px) · `--toolbar-height` (44px) |
+| **Layout** | `--measure` (88ch) · `--sidebar-width` (264px) · `--toolbar-height` (44px) |
 
 ### 6.4 Tipografía
 
