@@ -2,7 +2,7 @@ export type NoteMode = 'create' | 'append';
 
 export type MessageSegment =
   | { type: 'text'; text: string }
-  | { type: 'note'; path: string; mode: NoteMode; content: string };
+  | { type: 'note'; path: string; mode: NoteMode; content: string; adjusted?: boolean };
 
 const BLOCK_RE = /```markdaun-note([^\n]*)\n([\s\S]*?)\n```/g;
 
@@ -39,7 +39,8 @@ export function parseNoteBlocks(message: string): MessageSegment[] {
       continue;
     }
     flush();
-    out.push({ type: 'note', path, mode: modeRaw, content: m[2] });
+    const adjusted = attr(m[1], 'adjusted') === 'true';
+    out.push(adjusted ? { type: 'note', path, mode: modeRaw, content: m[2], adjusted } : { type: 'note', path, mode: modeRaw, content: m[2] });
   }
   pushText(message.slice(last));
   flush();

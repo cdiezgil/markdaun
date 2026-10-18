@@ -197,6 +197,21 @@ describe('capturas rápidas', () => {
     expect(mockInvoke).toHaveBeenCalledWith('inbox_list', { vaultPath: '/v' });
   });
 
+  it('confirma una nota de voz y recarga la entrada cuando cambia la transcripción', async () => {
+    mockInvoke.mockResolvedValue([] as never);
+    useVaultStore.setState({ vaultPath: '/v', tree: [], isLoading: false, error: null });
+    render(<App />);
+    await waitFor(() => expect(handlers.has('voice-changed')).toBe(true));
+    await act(async () =>
+      handlers.get('inbox-captured')!({ payload: { kind: 'voice', rel_path: 'Entrada/N.m4a', clipped: null, failure: null } }),
+    );
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Transcribiendo');
+    mockInvoke.mockClear();
+    useVaultStore.setState({ vaultPath: '/v' }); // the mount-time init may have replaced it
+    await act(async () => handlers.get('voice-changed')!({}));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('inbox_list', { vaultPath: '/v' }));
+  });
+
   it('avisa cuando solo se pudo guardar el enlace', async () => {
     mockInvoke.mockResolvedValue([] as never);
     render(<App />);

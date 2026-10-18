@@ -38,6 +38,13 @@ quick-xml = "0.42"
 dom_smoothie = "0.18"
 htmd = "0.5"
 dom_query = "0.28"
+sha2 = "0.10"
+whisper-rs = "0.16"
+symphonia = { version = "0.6", default-features = false, features = ["isomp4", "aac", "mkv", "ogg", "vorbis", "wav", "pcm", "mp3", "flac"] }
+symphonia-adapter-libopus = "0.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

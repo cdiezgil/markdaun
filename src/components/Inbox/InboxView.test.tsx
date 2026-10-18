@@ -41,10 +41,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   digest.mockResolvedValue(undefined);
   useVaultStore.setState({ vaultPath: '/v' });
-  useInboxStore.setState({ items: [], selected: [], loading: false, error: null });
+  useInboxStore.setState({ items: [], selected: [], loading: false, error: null, areas: [], lastArea: null });
   useBrainStore.setState({ digest });
   useLlmStore.setState({ loaded: true, active: { connectionId: 'k', model: 'm' }, load: vi.fn() } as never);
-  mockInvoke.mockImplementation(async (cmd: string) => (cmd === 'inbox_list' ? ITEMS : undefined));
+  mockInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === 'inbox_list') return ITEMS;
+    if (cmd === 'inbox_list_areas') return ['Mutua', 'Personal'];
+    if (cmd === 'inbox_get_last_area') return 'Personal';
+    return undefined;
+  });
 });
 
 describe('InboxView', () => {
@@ -65,11 +70,40 @@ describe('InboxView', () => {
     expect(screen.getByTestId('select-hoja.xlsx')).toBeDisabled();
   });
 
-  it('Digerir digests that item and goes to the Brain', async () => {
+  it('Digerir asks for the area, then digests that item inside it and goes to the Brain', async () => {
     renderView();
     fireEvent.click(await screen.findByTestId('digest-acta.md'));
+    expect(digest).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByTestId('area-Mutua'));
     await waitFor(() => expect(screen.getByTestId('brain-route')).toBeInTheDocument());
-    expect(digest).toHaveBeenCalledWith([expect.objectContaining({ rel_path: 'Entrada/acta.md' })], '/v');
+    expect(digest).toHaveBeenCalledWith([expect.objectContaining({ rel_path: 'Entrada/acta.md' })], '/v', 'Mutua');
+    expect(mockInvoke).toHaveBeenCalledWith('inbox_set_last_area', { vaultPath: '/v', area: 'Mutua' });
+  });
+
+  it('the area menu lists the areas plus the vault root and highlights the last used one', async () => {
+    renderView();
+    fireEvent.click(await screen.findByTestId('digest-acta.md'));
+    const menu = await screen.findByTestId('area-menu');
+    expect(menu).toHaveTextContent('Mutua');
+    expect(menu).toHaveTextContent('Bóveda (raíz)');
+    expect(screen.getByTestId('area-Personal')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('area-Mutua')).not.toHaveAttribute('aria-current');
+  });
+
+  it('the vault root is chosen as the empty area', async () => {
+    renderView();
+    fireEvent.click(await screen.findByTestId('digest-acta.md'));
+    fireEvent.click(await screen.findByTestId('area-root'));
+    await waitFor(() => expect(digest).toHaveBeenCalled());
+    expect(digest.mock.calls[0][2]).toBe('');
+  });
+
+  it('Escape closes the area menu without digesting', async () => {
+    renderView();
+    fireEvent.click(await screen.findByTestId('digest-acta.md'));
+    fireEvent.keyDown(await screen.findByTestId('area-menu'), { key: 'Escape' });
+    expect(screen.queryByTestId('area-menu')).toBeNull();
+    expect(digest).not.toHaveBeenCalled();
   });
 
   it('Digerir seleccionados digests the selection in order', async () => {
@@ -77,8 +111,10 @@ describe('InboxView', () => {
     fireEvent.click(await screen.findByTestId('select-acta.md'));
     fireEvent.click(screen.getByTestId('select-foto.png'));
     fireEvent.click(screen.getByTestId('digest-selected'));
+    fireEvent.click(await screen.findByTestId('area-Mutua'));
     await waitFor(() => expect(digest).toHaveBeenCalled());
     expect(digest.mock.calls[0][0].map((i: InboxItem) => i.name)).toEqual(['acta.md', 'foto.png']);
+    expect(digest.mock.calls[0][2]).toBe('Mutua');
   });
 
   it('hides the bulk action until something is selected', async () => {

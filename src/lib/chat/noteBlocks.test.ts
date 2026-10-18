@@ -41,4 +41,9 @@ describe('parseNoteBlocks', () => {
     const md = '```markdaun-note path="a.md"\nstill streaming';
     expect(parseNoteBlocks(md)).toEqual([{ type: 'text', text: md }]);
   });
+
+  it('flags blocks whose path was adjusted into the area', () => {
+    const segs = parseNoteBlocks(block('path="Mutua/b.md" adjusted="true" mode="create"'));
+    expect(segs).toEqual([{ type: 'note', path: 'Mutua/b.md', mode: 'create', content: '# T\nbody', adjusted: true }]);
+  });
 });

@@ -9,6 +9,8 @@ export interface NoteProposal {
   path: string;
   mode: NoteMode;
   content: string;
+  /** The path was rewritten into the area chosen for the digestion. */
+  adjusted?: boolean;
 }
 
 export type ProposalStatus = 'pending' | 'created' | 'appended' | 'discarded';
@@ -209,6 +211,11 @@ export function NoteProposalCard({
         )}
       </div>
 
+      {proposal.adjusted && (
+        <p data-testid="proposal-adjusted" style={{ margin: '0 0 var(--space-2)', color: 'var(--ink-muted)', fontSize: 12 }}>
+          Ruta ajustada al área
+        </p>
+      )}
       {mode === 'append' && tail && (
         <pre data-testid="proposal-tail" style={{ ...monoBlock, color: 'var(--ink-muted)' }}>
           {tail}

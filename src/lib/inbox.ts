@@ -1,4 +1,4 @@
-import type { InboxKind, QuickSummary } from './tauri';
+import type { InboxKind, QuickSummary, VoiceInfo } from './tauri';
 
 /** Human file size with a decimal comma (es-ES): 512 B, 1,5 KB, 5 MB. */
 export function formatSize(bytes: number): string {
@@ -15,6 +15,7 @@ const KIND_LABELS: Record<InboxKind, string> = {
   image: 'Imagen',
   docx: 'Word',
   pptx: 'PowerPoint',
+  audio: 'Audio',
   other: 'Otro',
 };
 
@@ -39,8 +40,19 @@ export function pluralize(n: number, one: string, many: string): string {
 
 /** Confirmation shown in the main window after a quick capture. */
 export function captureToast(s: QuickSummary): string {
+  if (s.kind === 'voice') return 'Nota de voz guardada en Entrada. Transcribiendo…';
   if (s.kind === 'clip' && s.clipped === false) {
     return `No se pudo recortar la página (${s.failure ?? 'motivo desconocido'}). Guardé el enlace en Entrada.`;
   }
   return 'Guardado en Entrada';
+}
+
+/** What is happening to a voice recording that has no transcript yet. */
+export function voiceStatusText(v: VoiceInfo): string {
+  if (v.state === 'transcribing') return 'Transcribiendo…';
+  if (v.state === 'downloading') {
+    const base = 'Descargando el modelo de voz…';
+    return v.progress == null ? base : `${base} ${Math.round(v.progress * 100)} %`;
+  }
+  return v.detail ? `Error de transcripción · ${v.detail}` : 'Error de transcripción';
 }

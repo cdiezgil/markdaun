@@ -7,7 +7,10 @@ import {
   inboxDiscard,
   inboxClipUrl,
   inboxEnsure,
+  inboxGetLastArea,
   inboxList,
+  inboxListAreas,
+  inboxSetLastArea,
   onDigestProgress,
   trashDelete,
   trashList,
@@ -57,6 +60,7 @@ describe('inbox wrappers', () => {
       vaultPath: '/v',
       attachments: null,
       sourceText: null,
+      area: null,
     });
     await brainDigest('Entrada/a.pdf', '/v', [{ vaultPath: 'Entrada/a.pdf' }], 'texto');
     expect(mockInvoke).toHaveBeenLastCalledWith('brain_digest', {
@@ -64,7 +68,29 @@ describe('inbox wrappers', () => {
       vaultPath: '/v',
       attachments: [{ vaultPath: 'Entrada/a.pdf' }],
       sourceText: 'texto',
+      area: null,
     });
+    await brainDigest('Entrada/a.md', '/v', undefined, undefined, 'Mutua');
+    expect(mockInvoke).toHaveBeenLastCalledWith('brain_digest', {
+      sourcePath: 'Entrada/a.md',
+      vaultPath: '/v',
+      attachments: null,
+      sourceText: null,
+      area: 'Mutua',
+    });
+  });
+
+  it('area wrappers send camelCase args', async () => {
+    mockInvoke.mockResolvedValue([] as never);
+    await inboxListAreas('/v');
+    await inboxSetLastArea('/v', 'Mutua');
+    mockInvoke.mockResolvedValue(null as never);
+    expect(await inboxGetLastArea('/v')).toBeNull();
+    expect(mockInvoke.mock.calls.slice(-3)).toEqual([
+      ['inbox_list_areas', { vaultPath: '/v' }],
+      ['inbox_set_last_area', { vaultPath: '/v', area: 'Mutua' }],
+      ['inbox_get_last_area', { vaultPath: '/v' }],
+    ]);
   });
 
   it('onDigestProgress listens to digest-progress', async () => {

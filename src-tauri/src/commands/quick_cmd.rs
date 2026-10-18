@@ -87,7 +87,7 @@ impl<R: tauri::Runtime> ShortcutRegistrar for PluginRegistrar<R> {
     }
 }
 
-fn notify_saved(app: &tauri::AppHandle) {
+pub(crate) fn notify_saved(app: &tauri::AppHandle) {
     use tauri_plugin_notification::{NotificationExt, PermissionState};
     let n = app.notification();
     if !matches!(n.permission_state(), Ok(PermissionState::Granted)) {

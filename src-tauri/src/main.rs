@@ -9,6 +9,7 @@ mod fs;
 mod graph;
 mod git;
 mod llm;
+mod voice;
 
 fn main() {
     let app = tauri::Builder::default()
@@ -17,10 +18,13 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .on_permission_request(|webview, kind| capture::permissions::decide(webview.label(), &kind))
         .manage(llm::env::LlmEnv::production())
         .manage(llm::validate::ValidationStore::default())
         .manage(std::sync::Arc::new(llm::EmbedderState::default()))
         .manage(commands::vault_index::IndexLocks::default())
+        .manage(voice::jobs::VoiceJobs::default())
+        .manage(voice::transcribe::EngineState::default())
         .manage(capture::shortcut::ShortcutState::default())
         .manage(capture::lifecycle::QuitFlag::default())
         .on_window_event(|window, event| {
@@ -97,6 +101,9 @@ fn main() {
             commands::inbox_ensure,
             commands::inbox_list,
             commands::inbox_discard,
+            commands::inbox_list_areas,
+            commands::inbox_get_last_area,
+            commands::inbox_set_last_area,
             commands::trash_list,
             commands::trash_restore,
             commands::trash_delete,
@@ -105,6 +112,11 @@ fn main() {
             commands::inbox_clip_url,
             commands::quick_capture_save,
             commands::quick_capture_hide,
+            commands::quick_capture_save_audio,
+            commands::voice_retry,
+            commands::voice_get_config,
+            commands::voice_set_model,
+            commands::voice_download_model,
             commands::quick_capture_get_config,
             commands::quick_capture_set_shortcut,
             commands::quit_app,

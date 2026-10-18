@@ -309,7 +309,16 @@ export async function onBrainIndexProgress(cb: (p: IndexProgress) => void): Prom
 
 // ── Inbox, trash and digestion ─────────────────────────────────────────────────
 
-export type InboxKind = 'md' | 'txt' | 'pdf' | 'image' | 'docx' | 'pptx' | 'other';
+export type InboxKind = 'md' | 'txt' | 'pdf' | 'image' | 'docx' | 'pptx' | 'audio' | 'other';
+
+/** Transcription state of a voice recording. */
+export interface VoiceInfo {
+  state: 'downloading' | 'transcribing' | 'error';
+  /** Error detail, when `state` is `error`. */
+  detail: string | null;
+  /** Model download progress (0..1), when known. */
+  progress: number | null;
+}
 
 export interface InboxItem {
   name: string;
@@ -322,6 +331,8 @@ export interface InboxItem {
   added_ms: number;
   /** Digestion handles this type (otherwise only *Descartar*). */
   supported: boolean;
+  /** Voice recordings without a transcript note yet: what is happening to them. */
+  voice?: VoiceInfo | null;
 }
 
 export interface TrashItem {
@@ -424,13 +435,29 @@ export async function brainDigest(
   vaultPath: string,
   attachments?: AttachmentInput[],
   sourceText?: string,
+  area?: string,
 ): Promise<DigestResult> {
   return invoke<DigestResult>('brain_digest', {
     sourcePath,
     vaultPath,
     attachments: attachments && attachments.length > 0 ? attachments : null,
     sourceText: sourceText ?? null,
+    area: area ?? null,
   });
+}
+
+/** Digestion areas: the vault's top-level folders (without `Entrada/`). */
+export async function inboxListAreas(vaultPath: string): Promise<string[]> {
+  return invoke<string[]>('inbox_list_areas', { vaultPath });
+}
+
+/** Area used by the previous digestion ('' = vault root); null if never set. */
+export async function inboxGetLastArea(vaultPath: string): Promise<string | null> {
+  return invoke<string | null>('inbox_get_last_area', { vaultPath });
+}
+
+export async function inboxSetLastArea(vaultPath: string, area: string): Promise<void> {
+  return invoke<void>('inbox_set_last_area', { vaultPath, area });
 }
 
 /** Subscribe to multi-part digestion progress (`digest-progress`). */
@@ -441,7 +468,7 @@ export async function onDigestProgress(cb: (p: DigestProgress) => void): Promise
 // ── Quick capture, shortcut and quit guard ─────────────────────────────────────
 
 export interface QuickSummary {
-  kind: 'note' | 'image' | 'clip';
+  kind: 'note' | 'image' | 'clip' | 'voice';
   /** Vault-relative path of the main item written. */
   rel_path: string;
   /** For clips: whether the page could be clipped. */
@@ -459,6 +486,11 @@ export interface QuickConfig {
 /** Saves a quick capture into `Entrada/`; `imageB64` is the pasted image as base64. */
 export async function quickCaptureSave(text: string, imageB64?: string): Promise<QuickSummary> {
   return invoke<QuickSummary>('quick_capture_save', { text, imageB64: imageB64 ?? null });
+}
+
+/** Saves a voice recording (base64 of the recorder's container) into `Entrada/` and starts transcribing it. */
+export async function quickCaptureSaveAudio(audioB64: string, mime: string): Promise<QuickSummary> {
+  return invoke<QuickSummary>('quick_capture_save_audio', { audioB64, mime });
 }
 
 export async function quickCaptureHide(): Promise<void> {
@@ -492,4 +524,52 @@ export async function onRequestQuit(cb: () => void): Promise<() => void> {
 /** The quick-capture window was shown (`quick-capture-open`). */
 export async function onQuickCaptureOpen(cb: () => void): Promise<() => void> {
   return listen('quick-capture-open', () => cb());
+}
+
+// ── Voice notes ────────────────────────────────────────────────────────────────
+
+export interface VoiceModelInfo {
+  id: string;
+  label: string;
+  approx_mb: number;
+  downloaded: boolean;
+}
+
+export interface VoiceConfig {
+  /** Selected model id. */
+  model: string;
+  models: VoiceModelInfo[];
+}
+
+export interface VoiceModelProgress {
+  id: string;
+  done: number;
+  total: number | null;
+}
+
+/** Retries the transcription of a recording that failed or was interrupted. */
+export async function voiceRetry(vaultPath: string, relPath: string): Promise<void> {
+  return invoke<void>('voice_retry', { vaultPath, relPath });
+}
+
+export async function voiceGetConfig(): Promise<VoiceConfig> {
+  return invoke<VoiceConfig>('voice_get_config');
+}
+
+export async function voiceSetModel(model: string): Promise<VoiceConfig> {
+  return invoke<VoiceConfig>('voice_set_model', { model });
+}
+
+/** Downloads a model ahead of time; progress arrives on `voice-model-progress`. */
+export async function voiceDownloadModel(model: string): Promise<VoiceConfig> {
+  return invoke<VoiceConfig>('voice_download_model', { model });
+}
+
+/** A transcription changed state (`voice-changed`): refresh the inbox. */
+export async function onVoiceChanged(cb: () => void): Promise<() => void> {
+  return listen('voice-changed', () => cb());
+}
+
+export async function onVoiceModelProgress(cb: (p: VoiceModelProgress) => void): Promise<() => void> {
+  return listen<VoiceModelProgress>('voice-model-progress', (event) => cb(event.payload));
 }

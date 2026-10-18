@@ -5,6 +5,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog/ConfirmDialog';
 import { AiConnections } from '../components/Settings/AiConnections';
 import { Trash } from '../components/Settings/Trash';
 import { QuickCaptureSettings } from '../components/Settings/QuickCaptureSettings';
+import { VoiceSettings } from '../components/Settings/VoiceSettings';
 
 export function SettingsView(): JSX.Element {
   const config = useSyncStore((s) => s.config);
@@ -198,6 +199,8 @@ export function SettingsView(): JSX.Element {
       <AiConnections />
 
       <QuickCaptureSettings />
+
+      <VoiceSettings />
 
       <Trash />
 

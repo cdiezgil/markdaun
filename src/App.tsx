@@ -11,7 +11,7 @@ import { PreviewView } from './views/PreviewView';
 import { GraphView } from './views/GraphView';
 import { SettingsView } from './views/SettingsView';
 import { ExitDialog } from './components/Sync/ExitDialog';
-import { onInboxCaptured, onRequestQuit, quitApp } from './lib/tauri';
+import { onInboxCaptured, onRequestQuit, onVoiceChanged, quitApp } from './lib/tauri';
 import { captureToast } from './lib/inbox';
 import { useInboxStore } from './store/inboxStore';
 import { Toast } from './components/Shell/Toast';
@@ -63,6 +63,30 @@ function AppLayout() {
       setToast(captureToast(summary));
       const vault = useVaultStore.getState().vaultPath;
       if (vault) void useInboxStore.getState().load(vault);
+    })
+      .then((fn) => (cancelled ? fn() : (unlisten = fn)))
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // A voice note changed state (transcribing, model download, done, failed).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    onVoiceChanged(() => {
+      const vault = useVaultStore.getState().vaultPath;
+      if (!vault) return;
+      void useInboxStore
+        .getState()
+        .load(vault)
+        .then(() => {
+          // The transcript note is a new file: refresh the tree once downloads settle.
+          const busy = useInboxStore.getState().items.some((i) => i.voice?.state === 'downloading');
+          if (!busy) void useVaultStore.getState().refreshTree();
+        });
     })
       .then((fn) => (cancelled ? fn() : (unlisten = fn)))
       .catch(console.error);

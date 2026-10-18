@@ -95,7 +95,7 @@ export interface BrainState {
   archiveDigestSource(conversationId: string, vaultPath: string, targetFolder: string): Promise<void>;
 
   /** Digest inbox items one after another, one conversation each. */
-  digest(items: InboxItem[], vaultPath: string): Promise<void>;
+  digest(items: InboxItem[], vaultPath: string, area?: string): Promise<void>;
 
   /** Start a fresh conversation scoped to one note (vault-relative path). */
   askAboutNote(relativePath: string): void;
@@ -160,7 +160,7 @@ export const useBrainStore = create<BrainState>((set, get) => ({
     }
   },
 
-  async digest(items, vaultPath) {
+  async digest(items, vaultPath, area) {
     let unlisten: (() => void) | undefined;
     let current = '';
     try {
@@ -186,7 +186,7 @@ export const useBrainStore = create<BrainState>((set, get) => ({
         });
         try {
           const { attachments, sourceText } = await digestPayload(item);
-          const result = await brainDigest(item.rel_path, vaultPath, attachments, sourceText);
+          const result = await brainDigest(item.rel_path, vaultPath, attachments, sourceText, area);
           const conversations = await brainGetConversations(vaultPath).catch(() => get().conversations);
           set({ conversations });
           await get().selectConversation(result.conversation_id);
