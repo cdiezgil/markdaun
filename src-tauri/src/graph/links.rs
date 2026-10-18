@@ -1,4 +1,5 @@
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use crate::fs::relink::percent_decode;
 use std::path::{Path, PathBuf};
 
 /// Extract outgoing links from a Markdown file.
@@ -52,7 +53,7 @@ pub fn extract_links(
             continue;
         }
         if let Some(parent) = file_path.parent() {
-            let candidate = parent.join(&href);
+            let candidate = parent.join(percent_decode(&href));
             if let Ok(canonical) = candidate.canonicalize() {
                 if all_files.iter().any(|f| {
                     f.canonicalize()
