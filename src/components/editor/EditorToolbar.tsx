@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/react';
 import {
   Heading1,
@@ -18,6 +18,7 @@ import {
   Table,
   ScanText,
   Workflow,
+  Keyboard,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -27,22 +28,30 @@ import { collectNoteAttachments, describeSkipped } from '../../lib/attachments/n
 import { explainNoteImagesPrompt } from '../../lib/attachments/prompts';
 import { pickImageFile, convertAssetSrc } from '../../lib/tauri';
 import { TableSizePicker } from './TableSizePicker';
+import { ShortcutCheatSheet } from './ShortcutCheatSheet';
+import { EDITOR_ACTION_EVENT, type EditorActionDetail } from './extensions/EditorShortcuts';
+import { ariaKeyShortcuts, shortcutById, withShortcut, type ShortcutId } from '../../lib/editor/shortcuts';
+import { isMac } from '../../lib/shortcut';
 
 // ── ToolbarButton ─────────────────────────────────────────────────────────────
 
 interface ToolbarButtonProps {
   label: string;
+  /** Shortcut shown in the tooltip and exposed through aria-keyshortcuts. */
+  shortcut?: ShortcutId;
+  mac: boolean;
   isActive?: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }
 
-function ToolbarButton({ label, isActive = false, onClick, children }: ToolbarButtonProps) {
+function ToolbarButton({ label, shortcut, mac, isActive = false, onClick, children }: ToolbarButtonProps) {
   return (
     <button
       type="button"
       aria-label={label}
-      title={label}
+      title={shortcut ? withShortcut(label, shortcut, mac) : label}
+      aria-keyshortcuts={shortcut ? ariaKeyShortcuts(shortcutById(shortcut), mac) : undefined}
       onClick={onClick}
       data-active={isActive ? 'true' : 'false'}
       style={{
@@ -78,12 +87,15 @@ function ToolbarSeparator() {
 
 interface EditorToolbarProps {
   editor: Editor | null;
+  /** Platform override (tests). Defaults to the detected platform. */
+  mac?: boolean;
 }
 
-export default function EditorToolbar({ editor }: EditorToolbarProps) {
+export default function EditorToolbar({ editor, mac = isMac() }: EditorToolbarProps) {
   const { activeNotePath } = useEditorStore();
   const navigate = useNavigate();
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const tableButtonRef = useRef<HTMLDivElement>(null);
 
   const handleInsertImage = async () => {
@@ -143,6 +155,34 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
     setTablePickerOpen(false);
   };
 
+  const toggleSheet = useCallback(() => setSheetOpen((open) => !open), []);
+
+  // Mod-/ toggles the cheat sheet from anywhere in the editor view (the open
+  // sheet handles its own Mod-/ to close).
+  useEffect(() => {
+    if (sheetOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === '/' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        setSheetOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [sheetOpen]);
+
+  // Shortcuts that need UI owned by the toolbar (link prompt, pickers).
+  const handlersRef = useRef({ link: handleInsertLink, table: handleInsertTable, image: handleInsertImage });
+  handlersRef.current = { link: handleInsertLink, table: handleInsertTable, image: handleInsertImage };
+  useEffect(() => {
+    const onAction = (e: Event) => {
+      const { id } = (e as CustomEvent<EditorActionDetail>).detail;
+      void handlersRef.current[id]();
+    };
+    window.addEventListener(EDITOR_ACTION_EVENT, onAction);
+    return () => window.removeEventListener(EDITOR_ACTION_EVENT, onAction);
+  }, []);
+
   return (
     <div
       data-testid="editor-toolbar-bar"
@@ -175,6 +215,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       {/* Headings */}
       <ToolbarButton
         label="Heading 1"
+        shortcut="heading1"
+        mac={mac}
         isActive={editor?.isActive('heading', { level: 1 }) ?? false}
         onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
       >
@@ -183,6 +225,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Heading 2"
+        shortcut="heading2"
+        mac={mac}
         isActive={editor?.isActive('heading', { level: 2 }) ?? false}
         onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
       >
@@ -191,6 +235,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Heading 3"
+        shortcut="heading3"
+        mac={mac}
         isActive={editor?.isActive('heading', { level: 3 }) ?? false}
         onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
       >
@@ -202,6 +248,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       {/* Inline marks */}
       <ToolbarButton
         label="Bold"
+        shortcut="bold"
+        mac={mac}
         isActive={editor?.isActive('bold') ?? false}
         onClick={() => editor?.chain().focus().toggleBold().run()}
       >
@@ -210,6 +258,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Italic"
+        shortcut="italic"
+        mac={mac}
         isActive={editor?.isActive('italic') ?? false}
         onClick={() => editor?.chain().focus().toggleItalic().run()}
       >
@@ -218,6 +268,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Strikethrough"
+        shortcut="strike"
+        mac={mac}
         isActive={editor?.isActive('strike') ?? false}
         onClick={() => editor?.chain().focus().toggleStrike().run()}
       >
@@ -226,6 +278,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Inline code"
+        shortcut="code"
+        mac={mac}
         isActive={editor?.isActive('code') ?? false}
         onClick={() => editor?.chain().focus().toggleCode().run()}
       >
@@ -237,6 +291,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Code block"
+        shortcut="codeBlock"
+        mac={mac}
         isActive={editor?.isActive('codeBlock') ?? false}
         onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
       >
@@ -245,6 +301,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Blockquote"
+        shortcut="blockquote"
+        mac={mac}
         isActive={editor?.isActive('blockquote') ?? false}
         onClick={() => editor?.chain().focus().toggleBlockquote().run()}
       >
@@ -253,6 +311,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Bullet list"
+        shortcut="bulletList"
+        mac={mac}
         isActive={editor?.isActive('bulletList') ?? false}
         onClick={() => editor?.chain().focus().toggleBulletList().run()}
       >
@@ -261,6 +321,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Ordered list"
+        shortcut="orderedList"
+        mac={mac}
         isActive={editor?.isActive('orderedList') ?? false}
         onClick={() => editor?.chain().focus().toggleOrderedList().run()}
       >
@@ -271,6 +333,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarButton
         label="Diagrama"
+        shortcut="diagram"
+        mac={mac}
         onClick={() => editor?.chain().focus().insertMermaid().run()}
       >
         <Workflow size={20} strokeWidth={1.5} />
@@ -279,6 +343,8 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       {/* Link */}
       <ToolbarButton
         label="Link"
+        shortcut="link"
+        mac={mac}
         isActive={editor?.isActive('link') ?? false}
         onClick={handleInsertLink}
       >
@@ -286,13 +352,13 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
       </ToolbarButton>
 
       {/* Image */}
-      <ToolbarButton label="Insert image" onClick={handleInsertImage}>
+      <ToolbarButton label="Insert image" shortcut="image" mac={mac} onClick={handleInsertImage}>
         <Image size={20} strokeWidth={1.5} />
       </ToolbarButton>
 
       {/* Table */}
       <div ref={tableButtonRef} style={{ position: 'relative', display: 'inline-flex' }}>
-        <ToolbarButton label="Insert table" onClick={handleInsertTable}>
+        <ToolbarButton label="Insert table" shortcut="table" mac={mac} onClick={handleInsertTable}>
           <Table size={20} strokeWidth={1.5} />
         </ToolbarButton>
       </div>
@@ -310,17 +376,27 @@ export default function EditorToolbar({ editor }: EditorToolbarProps) {
         })()}
 
       {/* Explain the images / PDFs referenced by this note with the AI */}
-      <ToolbarButton label="Explicar imágenes de esta nota" onClick={handleExplainImages}>
+      <ToolbarButton label="Explicar imágenes de esta nota" mac={mac} onClick={handleExplainImages}>
         <ScanText size={20} strokeWidth={1.5} />
       </ToolbarButton>
 
       {/* Horizontal rule */}
       <ToolbarButton
         label="Horizontal rule"
+        shortcut="horizontalRule"
+        mac={mac}
         onClick={() => editor?.chain().focus().setHorizontalRule().run()}
       >
         <Minus size={20} strokeWidth={1.5} />
       </ToolbarButton>
+
+      <ToolbarSeparator />
+
+      {/* Shortcut cheat sheet */}
+      <ToolbarButton label="Atajos de teclado" shortcut="cheatSheet" mac={mac} onClick={toggleSheet}>
+        <Keyboard size={20} strokeWidth={1.5} />
+      </ToolbarButton>
+      <ShortcutCheatSheet open={sheetOpen} onClose={() => setSheetOpen(false)} mac={mac} />
     </div>
     </div>
   );

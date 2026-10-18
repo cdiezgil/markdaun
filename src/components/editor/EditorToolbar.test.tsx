@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
@@ -329,5 +329,74 @@ describe('Explicar imágenes de esta nota', () => {
     fireEvent.click(screen.getByLabelText('Explicar imágenes de esta nota'));
     expect(useBrainStore.getState().pendingAttachments).toHaveLength(5);
     expect(useBrainStore.getState().notices.join(' ')).toMatch(/2 archivo\(s\) más/);
+  });
+});
+
+// ── Shortcuts: tooltips, UI actions, cheat sheet ─────────────────────────────
+describe('EditorToolbar shortcuts', () => {
+  async function renderMac(mac: boolean, editorOverrides = {}) {
+    const { default: EditorToolbar } = await import('./EditorToolbar');
+    const editor = makeEditor(editorOverrides);
+    render(
+      <MemoryRouter initialEntries={['/editor/x']}>
+        <Routes>
+          <Route
+            path="/editor/x"
+            element={<EditorToolbar editor={editor as never} mac={mac} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    return { editor };
+  }
+
+  it('shows the macOS shortcut in tooltip and aria-keyshortcuts', async () => {
+    await renderMac(true);
+    const bold = screen.getByLabelText('Bold');
+    expect(bold.getAttribute('title')).toBe('Bold · ⌘B');
+    expect(bold.getAttribute('aria-keyshortcuts')).toBe('Meta+B');
+    expect(screen.getByLabelText('Strikethrough').getAttribute('title')).toBe('Strikethrough · ⇧⌘X');
+  });
+
+  it('shows Ctrl notation elsewhere', async () => {
+    await renderMac(false);
+    expect(screen.getByLabelText('Bold').getAttribute('title')).toBe('Bold · Ctrl+B');
+    expect(screen.getByLabelText('Heading 1').getAttribute('title')).toBe('Heading 1 · Ctrl+Alt+1');
+    expect(screen.getByLabelText('Bold').getAttribute('aria-keyshortcuts')).toBe('Control+B');
+  });
+
+  it('opens the table picker on the table shortcut event', async () => {
+    await renderMac(false);
+    expect(screen.queryByTestId('table-size-picker')).toBeNull();
+    act(() => {
+      window.dispatchEvent(new CustomEvent('markdaun:editor-action', { detail: { id: 'table' } }));
+    });
+    expect(screen.getByTestId('table-size-picker')).toBeDefined();
+  });
+
+  it('runs the link prompt on the link shortcut event', async () => {
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('https://example.com');
+    const { editor } = await renderMac(false);
+    act(() => {
+      window.dispatchEvent(new CustomEvent('markdaun:editor-action', { detail: { id: 'link' } }));
+    });
+    expect(prompt).toHaveBeenCalled();
+    expect(editor.chain().setLink).toHaveBeenCalledWith({ href: 'https://example.com' });
+    prompt.mockRestore();
+  });
+
+  it('opens and closes the cheat sheet with Mod-/', async () => {
+    await renderMac(false);
+    expect(screen.queryByRole('dialog', { name: 'Atajos de teclado' })).toBeNull();
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true });
+    expect(screen.getByRole('dialog', { name: 'Atajos de teclado' })).toBeDefined();
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true });
+    expect(screen.queryByRole('dialog', { name: 'Atajos de teclado' })).toBeNull();
+  });
+
+  it('opens the cheat sheet from its toolbar button', async () => {
+    await renderMac(true);
+    fireEvent.click(screen.getByLabelText('Atajos de teclado'));
+    expect(screen.getByRole('dialog', { name: 'Atajos de teclado' })).toBeDefined();
   });
 });
