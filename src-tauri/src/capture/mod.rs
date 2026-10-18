@@ -23,3 +23,7 @@ mod shortcut_tests;
 
 #[cfg(test)]
 mod lifecycle_tests;
+
+pub mod permissions;
+#[cfg(test)]
+mod permissions_tests;

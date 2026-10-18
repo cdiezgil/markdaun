@@ -18,6 +18,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .on_permission_request(|webview, kind| capture::permissions::decide(webview.label(), &kind))
         .manage(llm::env::LlmEnv::production())
         .manage(llm::validate::ValidationStore::default())
         .manage(std::sync::Arc::new(llm::EmbedderState::default()))

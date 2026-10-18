@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
-import { onQuickCaptureOpen, quickCaptureHide, quickCaptureSave } from '../../lib/tauri';
+import { Mic, Square, X } from 'lucide-react';
+import { onQuickCaptureOpen, quickCaptureHide, quickCaptureSave, quickCaptureSaveAudio } from '../../lib/tauri';
+import {
+  blobToBase64,
+  MAX_RECORDING_MS,
+  microphoneErrorMessage,
+  VoiceRecorder,
+} from '../../lib/voice/recorder';
 import { isMac } from '../../lib/shortcut';
 
 interface PastedImage {
@@ -15,6 +21,15 @@ function quickErrorMessage(e: unknown): string {
   if (raw === 'image_too_large') return 'La imagen es demasiado grande (máximo 20 MB).';
   if (raw === 'empty_capture') return 'No hay nada que guardar.';
   return raw;
+}
+
+/** A recording shorter than this is taken for an accidental click. */
+const MIN_RECORDING_MS = 1000;
+const TICK_MS = 100;
+
+function clock(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 function readImage(file: Blob): Promise<PastedImage> {
@@ -45,16 +60,30 @@ export function QuickCaptureWindow(): JSX.Element {
   const [image, setImage] = useState<PastedImage | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [level, setLevel] = useState(0);
+  const recorder = useRef<VoiceRecorder | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   // Guards against a double submit before React re-renders `saving`.
   const busy = useRef(false);
 
+  /** Throws a running recording away and goes back to the text box. */
+  const discardRecording = useCallback(() => {
+    recorder.current?.cancel();
+    recorder.current = null;
+    setRecording(false);
+    setElapsedMs(0);
+    setLevel(0);
+  }, []);
+
   const reset = useCallback(() => {
+    discardRecording();
     setText('');
     setImage(null);
     setError(null);
     box.current?.focus();
-  }, []);
+  }, [discardRecording]);
 
   useEffect(() => {
     box.current?.focus();
@@ -66,8 +95,76 @@ export function QuickCaptureWindow(): JSX.Element {
     return () => {
       cancelled = true;
       unlisten?.();
+      recorder.current?.cancel();
     };
   }, [reset]);
+
+  const startRecording = async () => {
+    if (busy.current || recorder.current) return;
+    setError(null);
+    try {
+      recorder.current = await VoiceRecorder.start();
+      setElapsedMs(0);
+      setRecording(true);
+    } catch (e) {
+      setError(microphoneErrorMessage(e));
+    }
+  };
+
+  /** Stops the recording and saves it into the inbox (the window then closes). */
+  const finishRecording = useCallback(async () => {
+    const rec = recorder.current;
+    if (!rec || busy.current) return;
+    busy.current = true;
+    recorder.current = null;
+    setSaving(true);
+    setError(null);
+    try {
+      const audio = await rec.stop();
+      setRecording(false);
+      if (audio.durationMs < MIN_RECORDING_MS) {
+        setError('La grabación es demasiado corta.');
+        return;
+      }
+      await quickCaptureSaveAudio(await blobToBase64(audio.blob), audio.mime);
+      reset();
+    } catch (e) {
+      setRecording(false);
+      setError(quickErrorMessage(e));
+    } finally {
+      busy.current = false;
+      setSaving(false);
+    }
+  }, [reset]);
+
+  // While recording: clock, level meter, the 30-minute limit and the keys
+  // (the text box is gone, so they are listened to on the document).
+  useEffect(() => {
+    if (!recording) return;
+    const timer = setInterval(() => {
+      const rec = recorder.current;
+      if (!rec) return;
+      const ms = rec.elapsedMs();
+      setElapsedMs(ms);
+      setLevel(rec.level());
+      if (ms >= MAX_RECORDING_MS) void finishRecording();
+    }, TICK_MS);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        discardRecording();
+        box.current?.focus();
+      } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        void finishRecording();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [recording, finishRecording, discardRecording]);
 
   const canSave = !saving && (text.trim() !== '' || image !== null);
 
@@ -124,6 +221,38 @@ export function QuickCaptureWindow(): JSX.Element {
       }}
     >
       <div data-tauri-drag-region style={{ height: 'var(--space-4)', flexShrink: 0 }} />
+      {recording ? (
+        <div
+          data-testid="recording-panel"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            gap: 'var(--space-3)',
+            padding: '0 var(--space-4)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
+            <span aria-hidden style={{ width: 8, height: 8, borderRadius: 'var(--radius-pill)', background: 'var(--danger)' }} />
+            Grabando
+            <span data-testid="recording-time" style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
+              {clock(elapsedMs)}
+            </span>
+          </div>
+          <div
+            role="meter"
+            aria-label="Nivel de entrada"
+            aria-valuemin={0}
+            aria-valuemax={1}
+            aria-valuenow={level}
+            style={{ height: 6, borderRadius: 'var(--radius-pill)', background: 'var(--line)', overflow: 'hidden' }}
+          >
+            <div style={{ width: `${Math.round(level * 100)}%`, height: '100%', background: 'var(--daun)' }} />
+          </div>
+        </div>
+      ) : (
       <textarea
         ref={box}
         value={text}
@@ -146,6 +275,7 @@ export function QuickCaptureWindow(): JSX.Element {
           padding: '0 var(--space-4)',
         }}
       />
+      )}
       {image && (
         <div
           data-testid="image-chip"
@@ -180,14 +310,40 @@ export function QuickCaptureWindow(): JSX.Element {
           padding: 'var(--space-2) var(--space-4) var(--space-3)',
         }}
       >
-        <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
-          {isMac() ? '⌘↵ guardar · Esc cerrar' : 'Ctrl+Intro guardar · Esc cerrar'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          {!recording && (
+            <button
+              type="button"
+              aria-label="Grabar nota de voz"
+              title="Grabar nota de voz"
+              onClick={() => void startRecording()}
+              disabled={saving || text.trim() !== '' || image !== null}
+              style={{
+                ...GHOST,
+                opacity: saving || text.trim() !== '' || image !== null ? 0.4 : 1,
+              }}
+            >
+              <Mic size={16} strokeWidth={1.5} />
+            </button>
+          )}
+          <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
+            {recording
+              ? isMac()
+                ? '⌘↵ detener y guardar · Esc descartar'
+                : 'Ctrl+Intro detener y guardar · Esc descartar'
+              : isMac()
+                ? '⌘↵ guardar · Esc cerrar'
+                : 'Ctrl+Intro guardar · Esc cerrar'}
+          </span>
+        </div>
         <button
           type="button"
-          onClick={() => void save()}
-          disabled={!canSave}
+          onClick={() => void (recording ? finishRecording() : save())}
+          disabled={recording ? saving : !canSave}
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
             height: 28,
             padding: '0 var(--space-3)',
             border: 'none',
@@ -196,11 +352,12 @@ export function QuickCaptureWindow(): JSX.Element {
             color: 'var(--on-daun)',
             fontFamily: 'var(--font-sans)',
             fontSize: 13,
-            cursor: canSave ? 'pointer' : 'default',
-            opacity: canSave ? 1 : 0.5,
+            cursor: recording || canSave ? 'pointer' : 'default',
+            opacity: recording || canSave ? 1 : 0.5,
           }}
         >
-          {saving ? 'Guardando…' : 'Guardar en Entrada'}
+          {recording && <Square size={12} strokeWidth={1.5} />}
+          {saving ? 'Guardando…' : recording ? 'Detener y guardar' : 'Guardar en Entrada'}
         </button>
       </div>
     </div>

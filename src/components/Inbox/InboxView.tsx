@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { File, FileText, Image, Inbox, Link2, Sparkles, Trash2 } from 'lucide-react';
+import { File, FileText, Image, Inbox, Link2, Mic, RotateCw, Sparkles, Trash2 } from 'lucide-react';
 import { useVaultStore } from '../../store/vaultStore';
 import { useInboxStore } from '../../store/inboxStore';
 import { useBrainStore } from '../../store/brainStore';
 import { useLlmStore } from '../../store/llmStore';
-import { formatDate, formatSize, inboxErrorMessage, kindLabel, pluralize } from '../../lib/inbox';
+import { formatDate, formatSize, inboxErrorMessage, kindLabel, pluralize, voiceStatusText } from '../../lib/inbox';
 import { AreaMenu } from './AreaMenu';
 import type { ClipSummary, InboxItem } from '../../lib/tauri';
 
@@ -35,6 +35,7 @@ function KindIcon({ kind }: { kind: InboxItem['kind'] }): JSX.Element {
   const props = { size: 16, strokeWidth: 1.5, color: 'var(--ink-muted)' };
   if (kind === 'md' || kind === 'txt' || kind === 'pdf' || kind === 'docx' || kind === 'pptx') return <FileText {...props} />;
   if (kind === 'image') return <Image {...props} />;
+  if (kind === 'audio') return <Mic {...props} />;
   return <File {...props} />;
 }
 
@@ -54,6 +55,7 @@ export function InboxView(): JSX.Element {
   const lastArea = useInboxStore((s) => s.lastArea);
   const loadAreas = useInboxStore((s) => s.loadAreas);
   const rememberArea = useInboxStore((s) => s.rememberArea);
+  const retryVoice = useInboxStore((s) => s.retryVoice);
   const llmLoaded = useLlmStore((s) => s.loaded);
   const llmActive = useLlmStore((s) => s.active);
   const loadLlm = useLlmStore((s) => s.load);
@@ -264,8 +266,17 @@ export function InboxView(): JSX.Element {
                   <div style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</div>
                   <div style={SMALL}>
                     {kindLabel(it.kind)} · {formatSize(it.size)} · {formatDate(it.added_ms)}
-                    {!it.supported && ' · formato no soportado todavía'}
+                    {!it.supported && it.kind !== 'audio' && ' · formato no soportado todavía'}
                   </div>
+                  {it.voice && (
+                    <div
+                      data-testid={`voice-status-${it.name}`}
+                      role="status"
+                      style={{ ...SMALL, color: it.voice.state === 'error' ? 'var(--danger)' : 'var(--ink-muted)' }}
+                    >
+                      {voiceStatusText(it.voice)}
+                    </div>
+                  )}
                 </div>
                 {it.supported && (
                   <span style={{ position: 'relative', display: 'inline-flex' }}>
@@ -279,6 +290,15 @@ export function InboxView(): JSX.Element {
                     </button>
                     {menu(it.rel_path)}
                   </span>
+                )}
+                {it.voice?.state === 'error' && (
+                  <button
+                    data-testid={`retry-${it.name}`}
+                    onClick={() => vaultPath && void retryVoice(it, vaultPath)}
+                    style={BUTTON}
+                  >
+                    <RotateCw size={14} strokeWidth={1.5} color="var(--daun)" /> Reintentar
+                  </button>
                 )}
                 <button
                   data-testid={`discard-${it.name}`}

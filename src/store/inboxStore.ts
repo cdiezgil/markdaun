@@ -5,6 +5,7 @@ import {
   inboxGetLastArea,
   inboxList,
   inboxListAreas,
+  voiceRetry,
   inboxSetLastArea,
   type ClipSummary,
   type InboxItem,
@@ -24,6 +25,8 @@ interface InboxState {
   lastArea: string | null;
 
   loadAreas(vaultPath: string): Promise<void>;
+  /** Transcribes a recording again after a failure. */
+  retryVoice(item: InboxItem, vaultPath: string): Promise<void>;
   rememberArea(vaultPath: string, area: string): Promise<void>;
   load(vaultPath: string): Promise<void>;
   toggle(relPath: string): void;
@@ -47,6 +50,15 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     try {
       const [areas, lastArea] = await Promise.all([inboxListAreas(vaultPath), inboxGetLastArea(vaultPath)]);
       set({ areas, lastArea: lastArea ?? null });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async retryVoice(item, vaultPath) {
+    try {
+      await voiceRetry(vaultPath, item.rel_path);
+      await get().load(vaultPath);
     } catch (e) {
       set({ error: String(e) });
     }
