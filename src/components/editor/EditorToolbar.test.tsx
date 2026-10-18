@@ -400,11 +400,12 @@ describe('EditorToolbar shortcuts', () => {
     expect(screen.getByRole('dialog', { name: 'Atajos de teclado' })).toBeDefined();
   });
 
-  it('stays on one row (no wrap, scrolls) with the cheat sheet button last', async () => {
+  it('stays on one row without scrolling, with the cheat sheet button last', async () => {
     await renderMac(false);
     const bar = screen.getByRole('toolbar');
     expect(bar.style.flexWrap).toBe('nowrap');
-    expect(bar.style.overflowX).toBe('auto');
+    expect(bar.style.overflowX).not.toBe('auto');
+    expect(bar.style.overflowX).not.toBe('scroll');
     const buttons = within(bar).getAllByRole('button');
     expect(buttons[buttons.length - 1].getAttribute('aria-label')).toBe('Atajos de teclado');
   });

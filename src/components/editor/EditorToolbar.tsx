@@ -206,7 +206,6 @@ export default function EditorToolbar({ editor, mac = isMac() }: EditorToolbarPr
         display: 'flex',
         alignItems: 'center',
         flexWrap: 'nowrap',
-        overflowX: 'auto',
         gap: 2,
         width: '100%',
         maxWidth: 'var(--measure)',

@@ -51,7 +51,7 @@ Tres familias, todas libres en Google Fonts:
 - **Geist** (`sans`) — la interfaz: menús, paneles, botones, y el cuerpo de la vista de lectura.
 - **Geist Mono** (`mono`) — el editor. La mono alinea la sintaxis Markdown y da ritmo de escritura constante; sigue la tradición de los editores de escritura enfocada.
 
-Reglas: cuerpo del editor 15/26 con medida `measure` (68ch). Interfaz a 13–14px. Pesos solo 400, 500 y 600. Itálica de Instrument Serif para un único acento por pantalla.
+Reglas: cuerpo del editor 15/26 con medida `measure` (88ch). Interfaz a 13–14px. Pesos solo 400, 500 y 600. Itálica de Instrument Serif para un único acento por pantalla.
 
 ## Espacio y forma
 
