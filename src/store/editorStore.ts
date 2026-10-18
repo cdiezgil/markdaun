@@ -38,6 +38,8 @@ export interface EditorState {
   setSelectionText(text: string): void;
   saveNow(): Promise<void>;
   initVault(): Promise<void>;
+  /** Reloads the tree the editor resolves wikilinks against. */
+  refreshVaultTree(): Promise<void>;
   /**
    * Runs a rename/move: pending edits are flushed first and saves are held
    * back while it runs, so nothing is written to a path that is going away.
@@ -178,6 +180,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
+  async refreshVaultTree() {
+    const { vaultPath } = get();
+    if (!vaultPath) return;
+    set({ vaultTree: await listVaultTree(vaultPath) });
+  },
+
   async runRelocation<T>(run: () => Promise<T>): Promise<T> {
     if (debounceTimer !== null) {
       clearTimeout(debounceTimer);
@@ -198,17 +206,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   async applyRelocation(from: string, to: string, rewritten: string[]) {
-    const { activeNotePath, vaultPath } = get();
+    const { activeNotePath } = get();
     let mapped = activeNotePath;
     if (activeNotePath === from) mapped = to;
     else if (activeNotePath?.startsWith(from + '/')) mapped = to + activeNotePath.slice(from.length);
     if (mapped !== activeNotePath) {
       set({ activeNotePath: mapped, relocation: { from: activeNotePath as string, to: mapped as string } });
     }
-    if (vaultPath) {
-      const tree = await listVaultTree(vaultPath);
-      set({ vaultTree: tree });
-    }
+    await get().refreshVaultTree();
     if (mapped && !get().isDirty && rewritten.includes(mapped)) {
       await get().openNote(mapped);
     }
