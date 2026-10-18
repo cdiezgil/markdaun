@@ -9,9 +9,11 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 walkdir = "2"
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -31,6 +33,11 @@ tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+quick-xml = "0.42"
+dom_smoothie = "0.18"
+htmd = "0.5"
+dom_query = "0.28"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

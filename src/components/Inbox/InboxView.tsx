@@ -1,12 +1,12 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { File, FileText, Image, Inbox, Sparkles, Trash2 } from 'lucide-react';
+import { File, FileText, Image, Inbox, Link2, Sparkles, Trash2 } from 'lucide-react';
 import { useVaultStore } from '../../store/vaultStore';
 import { useInboxStore } from '../../store/inboxStore';
 import { useBrainStore } from '../../store/brainStore';
 import { useLlmStore } from '../../store/llmStore';
-import { formatDate, formatSize, kindLabel } from '../../lib/inbox';
-import type { InboxItem } from '../../lib/tauri';
+import { formatDate, formatSize, inboxErrorMessage, kindLabel, pluralize } from '../../lib/inbox';
+import type { ClipSummary, InboxItem } from '../../lib/tauri';
 
 const SMALL: React.CSSProperties = {
   fontFamily: 'var(--font-sans)',
@@ -32,7 +32,7 @@ const BUTTON: React.CSSProperties = {
 
 function KindIcon({ kind }: { kind: InboxItem['kind'] }): JSX.Element {
   const props = { size: 16, strokeWidth: 1.5, color: 'var(--ink-muted)' };
-  if (kind === 'md' || kind === 'txt' || kind === 'pdf') return <FileText {...props} />;
+  if (kind === 'md' || kind === 'txt' || kind === 'pdf' || kind === 'docx' || kind === 'pptx') return <FileText {...props} />;
   if (kind === 'image') return <Image {...props} />;
   return <File {...props} />;
 }
@@ -47,10 +47,15 @@ export function InboxView(): JSX.Element {
   const selectAll = useInboxStore((s) => s.selectAll);
   const clearSelection = useInboxStore((s) => s.clearSelection);
   const discard = useInboxStore((s) => s.discard);
+  const clipUrl = useInboxStore((s) => s.clipUrl);
+  const clipping = useInboxStore((s) => s.clipping);
   const llmLoaded = useLlmStore((s) => s.loaded);
   const llmActive = useLlmStore((s) => s.active);
   const loadLlm = useLlmStore((s) => s.load);
   const navigate = useNavigate();
+  const [adding, setAdding] = useState(false);
+  const [url, setUrl] = useState('');
+  const [lastClip, setLastClip] = useState<ClipSummary | null>(null);
 
   useEffect(() => {
     void loadLlm();
@@ -69,6 +74,17 @@ export function InboxView(): JSX.Element {
     navigate('/brain');
   };
 
+  const submitUrl = async () => {
+    const value = url.trim();
+    if (!vaultPath || !value || clipping) return;
+    setLastClip(null);
+    const summary = await clipUrl(value, vaultPath);
+    if (summary) {
+      setLastClip(summary);
+      setUrl('');
+    }
+  };
+
   const supported = items.filter((i) => i.supported);
   const chosen = selected
     .map((rel) => items.find((i) => i.rel_path === rel))
@@ -81,26 +97,79 @@ export function InboxView(): JSX.Element {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
         <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400 }}>Entrada</h1>
-        {chosen.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <button data-testid="add-url" onClick={() => setAdding((v) => !v)} style={BUTTON}>
+            <Link2 size={14} strokeWidth={1.5} /> Añadir URL
+          </button>
+          {chosen.length > 0 && (
+            <button
+              data-testid="digest-selected"
+              onClick={() => digest(chosen)}
+              disabled={noConnection}
+              style={{
+                ...BUTTON,
+                border: 'none',
+                background: 'var(--daun)',
+                color: 'var(--on-daun)',
+                opacity: noConnection ? 0.5 : 1,
+              }}
+            >
+              <Sparkles size={14} strokeWidth={1.5} /> Digerir seleccionados ({chosen.length})
+            </button>
+          )}
+        </div>
+      </div>
+      <p style={{ ...SMALL, margin: 'var(--space-2) 0 var(--space-4)' }}>
+        Todo lo que llega sin carpeta aterriza aquí. Digiérelo para convertirlo en notas enlazadas.
+      </p>
+
+      {adding && (
+        <div style={{ display: 'flex', gap: 'var(--space-2)', margin: '0 0 var(--space-3)' }}>
+          <input
+            data-testid="clip-url-input"
+            aria-label="Dirección de la página"
+            placeholder="https://…"
+            value={url}
+            disabled={clipping}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submitUrl();
+            }}
+            style={{
+              flex: 1,
+              height: 28,
+              padding: '0 var(--space-3)',
+              border: '1px solid var(--line-strong)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--surface)',
+              color: 'var(--ink)',
+              fontFamily: 'var(--font-sans)',
+              fontSize: 13,
+            }}
+          />
           <button
-            data-testid="digest-selected"
-            onClick={() => digest(chosen)}
-            disabled={noConnection}
+            data-testid="clip-url-submit"
+            onClick={() => void submitUrl()}
+            disabled={clipping || url.trim() === ''}
             style={{
               ...BUTTON,
               border: 'none',
               background: 'var(--daun)',
               color: 'var(--on-daun)',
-              opacity: noConnection ? 0.5 : 1,
+              opacity: clipping || url.trim() === '' ? 0.5 : 1,
             }}
           >
-            <Sparkles size={14} strokeWidth={1.5} /> Digerir seleccionados ({chosen.length})
+            {clipping ? 'Recortando…' : 'Recortar'}
           </button>
-        )}
-      </div>
-      <p style={{ ...SMALL, margin: 'var(--space-2) 0 var(--space-4)' }}>
-        Todo lo que llega sin carpeta aterriza aquí. Digiérelo para convertirlo en notas enlazadas.
-      </p>
+        </div>
+      )}
+      {lastClip && (
+        <p data-testid="clip-result" role="status" style={{ ...SMALL, color: lastClip.clipped ? 'var(--ink-muted)' : 'var(--amber)' }}>
+          {lastClip.clipped
+            ? `Recortado: «${lastClip.title}» (${pluralize(lastClip.words, 'palabra', 'palabras')}, ${pluralize(lastClip.images_downloaded, 'imagen', 'imágenes')}).`
+            : `No se pudo recortar: ${lastClip.failure ?? 'motivo desconocido'}. Guardé el enlace en la entrada para que no se pierda.`}
+        </p>
+      )}
 
       {noConnection && (
         <p role="status" style={{ ...SMALL, color: 'var(--amber)' }}>
@@ -109,7 +178,7 @@ export function InboxView(): JSX.Element {
       )}
       {error && (
         <p role="alert" style={{ ...SMALL, color: 'var(--danger)' }}>
-          {error}
+          {inboxErrorMessage(error)}
         </p>
       )}
 

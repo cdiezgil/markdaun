@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useVaultStore } from './store/vaultStore';
 import { useEditorStore } from './store/editorStore';
@@ -11,7 +11,10 @@ import { PreviewView } from './views/PreviewView';
 import { GraphView } from './views/GraphView';
 import { SettingsView } from './views/SettingsView';
 import { ExitDialog } from './components/Sync/ExitDialog';
-import { getCurrentWindow } from './lib/tauri';
+import { onInboxCaptured, onRequestQuit, quitApp } from './lib/tauri';
+import { captureToast } from './lib/inbox';
+import { useInboxStore } from './store/inboxStore';
+import { Toast } from './components/Shell/Toast';
 import { SecondBrainView } from './views/SecondBrainView';
 import { LlmWizard } from './components/LlmWizard/LlmWizard';
 import { TopBar } from './components/Shell/TopBar';
@@ -26,29 +29,47 @@ function AppLayout() {
   const wizardOpen = useLlmStore((s) => s.wizardOpen);
   const vaultPath = useVaultStore((s) => s.vaultPath);
   const inBrain = viewForPath(useLocation().pathname) === 'brain';
-  // Programmatic closes from the exit dialog must bypass the close guard,
-  // otherwise window.close() re-triggers onCloseRequested and loops forever.
-  const forceCloseRef = useRef(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const dismissToast = useCallback(() => setToast(null), []);
 
   useEffect(() => {
     useVaultStore.getState().loadVault();
     useEditorStore.getState().initVault().catch(console.error);
   }, []);
 
+  // Closing the window only hides it (done in the backend); *Salir* (tray menu,
+  // Cmd+Q) asks us to run the unsynced-changes guard before really quitting.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    getCurrentWindow()
-      .onCloseRequested(async (event: { preventDefault(): void }) => {
-        if (forceCloseRef.current) return;
-        const { config, status } = useSyncStore.getState();
-        if (config.isConnected && status.hasChanges) {
-          event.preventDefault();
-          setShowExitDialog(true);
-        }
-      })
-      .then((fn) => { unlisten = fn; })
+    let cancelled = false;
+    onRequestQuit(() => {
+      const { config, status } = useSyncStore.getState();
+      if (config.isConnected && status.hasChanges) setShowExitDialog(true);
+      else void quitApp();
+    })
+      .then((fn) => (cancelled ? fn() : (unlisten = fn)))
       .catch(console.error);
-    return () => { unlisten?.(); };
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // A capture saved from the quick-capture window.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    onInboxCaptured((summary) => {
+      setToast(captureToast(summary));
+      const vault = useVaultStore.getState().vaultPath;
+      if (vault) void useInboxStore.getState().load(vault);
+    })
+      .then((fn) => (cancelled ? fn() : (unlisten = fn)))
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   return (
@@ -93,16 +114,17 @@ function AppLayout() {
           const { push } = useSyncStore.getState();
           const vaultPath = useVaultStore.getState().vaultPath;
           if (vaultPath) await push(vaultPath).catch(() => {});
-          forceCloseRef.current = true;
-          await getCurrentWindow().close();
+          setIsSyncing(false);
+          setShowExitDialog(false);
+          await quitApp();
         }}
         onQuit={async () => {
           setShowExitDialog(false);
-          forceCloseRef.current = true;
-          await getCurrentWindow().close();
+          await quitApp();
         }}
         onCancel={() => setShowExitDialog(false)}
       />
+      <Toast message={toast} onDismiss={dismissToast} />
       {wizardOpen && <LlmWizard />}
     </div>
   );

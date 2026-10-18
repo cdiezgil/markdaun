@@ -35,6 +35,11 @@ impl Env {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, body).unwrap();
     }
+    fn write_bytes(&self, rel: &str, body: &[u8]) {
+        let p = self.path(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    }
     fn vkey(&self) -> String {
         self.vault.path().to_string_lossy().to_string()
     }
@@ -235,4 +240,43 @@ fn only_one_sync_per_vault_at_a_time() {
     assert!(locks.try_acquire("/other").is_some(), "other vaults are independent");
     drop(first);
     assert!(locks.try_acquire("/v").is_some(), "released on drop");
+}
+
+#[test]
+fn docx_and_pptx_are_indexed_by_their_extracted_text() {
+    use crate::capture::testutil::{simple_docx, simple_pptx};
+    let e = env();
+    e.write_bytes("Proyecto/Fuentes/informe.docx", &simple_docx(&["El presupuesto asciende a zanahorias."], &[]));
+    e.write_bytes("Proyecto/Fuentes/charla.pptx", &simple_pptx(&["Arquitectura hexagonal"]));
+    e.write_bytes("Proyecto/Fuentes/roto.docx", b"not a zip");
+    e.write("a.md", "alpha");
+    let (r, _) = e.sync();
+    assert_eq!(r.indexed, 3);
+    assert_eq!(r.failed, 1, "a corrupt document is reported, not fatal");
+    assert_eq!(e.files(), vec!["Proyecto/Fuentes/charla.pptx", "Proyecto/Fuentes/informe.docx", "a.md"]);
+    let q = fake_embed("zanahorias presupuesto").unwrap();
+    let hits = e.db.search_similar(&e.vkey(), &q, 1).unwrap();
+    assert!(hits[0].content.contains("zanahorias"), "{}", hits[0].content);
+    assert!(hits[0].content.starts_with("Nota: Proyecto/Fuentes/informe.docx"));
+    // Unchanged files are not re-extracted/embedded.
+    let (r, _) = e.sync();
+    assert_eq!((r.indexed, r.removed), (0, 0));
+}
+
+#[test]
+fn index_path_handles_a_single_office_file() {
+    use crate::capture::testutil::simple_docx;
+    let e = env();
+    e.write_bytes("x.docx", &simple_docx(&["contenido singular"], &[]));
+    index_path(&e.db, e.vault.path(), &e.path("x.docx"), &fake_embed);
+    assert_eq!(e.files(), vec!["x.docx"]);
+}
+
+#[test]
+fn notes_listing_still_counts_only_markdown() {
+    use crate::capture::testutil::simple_docx;
+    let e = env();
+    e.write_bytes("x.docx", &simple_docx(&["a"], &[]));
+    e.write("n.md", "n");
+    assert_eq!(list_vault_notes(e.vault.path()).len(), 1);
 }

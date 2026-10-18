@@ -106,4 +106,67 @@ describe('InboxView', () => {
     expect(await screen.findByText(/conexión de ia/i)).toBeInTheDocument();
     expect(screen.getByTestId('digest-acta.md')).toBeDisabled();
   });
+
+  describe('Añadir URL', () => {
+    const clipped = {
+      path: '/v/Entrada/Art.md',
+      rel_path: 'Entrada/Art.md',
+      title: 'Art',
+      clipped: true,
+      failure: null,
+      words: 321,
+      images_downloaded: 2,
+      images_failed: 0,
+    };
+
+    it('opens an input, clips the url and reports the result', async () => {
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'inbox_clip_url') return clipped;
+        return cmd === 'inbox_list' ? ITEMS : undefined;
+      });
+      renderView();
+      fireEvent.click(await screen.findByTestId('add-url'));
+      const input = screen.getByTestId('clip-url-input');
+      fireEvent.change(input, { target: { value: 'https://example.com/a' } });
+      fireEvent.click(screen.getByTestId('clip-url-submit'));
+      await waitFor(() =>
+        expect(mockInvoke).toHaveBeenCalledWith('inbox_clip_url', { url: 'https://example.com/a', vaultPath: '/v' }),
+      );
+      expect(await screen.findByTestId('clip-result')).toHaveTextContent('Art');
+      expect(screen.getByTestId('clip-result')).toHaveTextContent('321 palabras');
+      expect(screen.getByTestId('clip-result')).toHaveTextContent('2 imágenes');
+    });
+
+    it('says when only the link could be saved', async () => {
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'inbox_clip_url') return { ...clipped, clipped: false, failure: 'HTTP 404' };
+        return cmd === 'inbox_list' ? ITEMS : undefined;
+      });
+      renderView();
+      fireEvent.click(await screen.findByTestId('add-url'));
+      fireEvent.change(screen.getByTestId('clip-url-input'), { target: { value: 'https://example.com/x' } });
+      fireEvent.keyDown(screen.getByTestId('clip-url-input'), { key: 'Enter' });
+      const msg = await screen.findByTestId('clip-result');
+      expect(msg).toHaveTextContent('No se pudo recortar: HTTP 404');
+      expect(msg).toHaveTextContent('enlace');
+    });
+
+    it('does not submit an empty url', async () => {
+      renderView();
+      fireEvent.click(await screen.findByTestId('add-url'));
+      expect(screen.getByTestId('clip-url-submit')).toBeDisabled();
+    });
+
+    it('shows a friendly message for an invalid url', async () => {
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'inbox_clip_url') throw 'invalid_url';
+        return cmd === 'inbox_list' ? ITEMS : undefined;
+      });
+      renderView();
+      fireEvent.click(await screen.findByTestId('add-url'));
+      fireEvent.change(screen.getByTestId('clip-url-input'), { target: { value: 'hola' } });
+      fireEvent.click(screen.getByTestId('clip-url-submit'));
+      expect(await screen.findByRole('alert')).toHaveTextContent('dirección');
+    });
+  });
 });

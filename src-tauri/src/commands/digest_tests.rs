@@ -1,4 +1,5 @@
 use super::digest::{
+    office_source,
     apply_consolidation_plan, build_consolidation_messages, build_digest_messages, digest_core,
     parse_note_blocks, render_note_block, split_source, DigestProgress, DigestRequest, NoteBlock,
     DIGEST_INSTRUCTION,
@@ -202,6 +203,7 @@ async fn run_digest(
         source_rel: "Entrada/acta.txt",
         text: Some(text),
         attachments: &[],
+        images: &[],
         chunk_chars: chunk,
     };
     let res = digest_core(db.path(), &req, &conn_for(&server.url), "m", None, &env, &move |p| {
@@ -334,9 +336,83 @@ async fn attachments_need_a_vision_model() {
         source_rel: "Entrada/foto.png",
         text: None,
         attachments: &inputs,
+        images: &[],
         chunk_chars: 1000,
     };
     let err = digest_core(db.path(), &req, &conn_for(&server.url), "m", None, &env, &|_| {}).await.unwrap_err();
     assert!(err == "vision_unsupported" || err.starts_with("attachment_error"), "{err}");
     assert!(server.requests().is_empty());
+}
+
+// ── Word / PowerPoint sources ────────────────────────────────────────────────
+
+fn png_of(side: u32) -> Vec<u8> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgb8(side, side).write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
+fn extracted(name: &str, bytes: Vec<u8>) -> crate::capture::office::ExtractedImage {
+    crate::capture::office::ExtractedImage { name: name.into(), bytes, media_type: "image/png".into() }
+}
+
+async fn run_with_images(vision: bool, images: Vec<crate::capture::office::ExtractedImage>) -> (Result<super::digest::DigestResult, String>, MockServer) {
+    let db = NamedTempFile::new().unwrap();
+    let vault = vault_with_structure();
+    let server = spawn(|_| reply(&block("Personal/N.md", "create", "# N")));
+    let env = test_env(FixedResolver::default(), 5000);
+    let vault_str = vault.path().to_string_lossy().to_string();
+    let mut conn = conn_for(&server.url);
+    if vision {
+        conn.vision_models = vec!["m".into()];
+    }
+    let req = DigestRequest {
+        vault_path: &vault_str,
+        source_rel: "Entrada/informe.docx",
+        text: Some("# Informe\n\ncuerpo del informe"),
+        attachments: &[],
+        images: &images,
+        chunk_chars: 1000,
+    };
+    let res = digest_core(db.path(), &req, &conn, "m", None, &env, &|_| {}).await;
+    (res, server)
+}
+
+#[tokio::test]
+async fn office_images_are_attached_largest_first_up_to_the_limit_and_the_rest_is_noted() {
+    // Seven images; sizes grow with the index so 3..=7 are the five largest.
+    let images: Vec<_> = (1..=7u32).map(|n| extracted(&format!("image{n}.png"), png_of(10 * n))).collect();
+    let (res, server) = run_with_images(true, images).await;
+    res.unwrap();
+    let body = &server.requests()[0].body;
+    assert_eq!(body.matches("\"type\":\"image_url\"").count(), 5, "{body}");
+    assert!(body.contains("cuerpo del informe"));
+    assert!(body.contains("[Archivo adjunto: image7.png]") && body.contains("[Archivo adjunto: image3.png]"));
+    assert!(!body.contains("[Archivo adjunto: image1.png]") && !body.contains("[Archivo adjunto: image2.png]"));
+    assert!(body.contains("2 imágenes más que no se adjuntaron"), "{body}");
+}
+
+#[tokio::test]
+async fn office_images_are_only_mentioned_when_the_model_has_no_vision() {
+    let images = vec![extracted("image1.png", png_of(10))];
+    let (res, server) = run_with_images(false, images).await;
+    res.unwrap();
+    let body = &server.requests()[0].body;
+    assert_eq!(body.matches("\"type\":\"image_url\"").count(), 0);
+    assert!(body.contains("no admite imágenes"), "{body}");
+}
+
+#[test]
+fn office_source_extracts_text_and_images_and_reports_bad_files() {
+    use crate::capture::testutil::{simple_docx, PNG};
+    let v = tempdir().unwrap();
+    fs::create_dir_all(v.path().join("Entrada")).unwrap();
+    fs::write(v.path().join("Entrada/a.docx"), simple_docx(&["Hola mundo"], &[PNG])).unwrap();
+    let (text, images) = office_source(v.path(), "Entrada/a.docx").unwrap();
+    assert!(text.starts_with("# Documento\n\nHola mundo"));
+    assert_eq!(images.len(), 1);
+
+    fs::write(v.path().join("Entrada/roto.docx"), b"zip? no").unwrap();
+    assert!(office_source(v.path(), "Entrada/roto.docx").unwrap_err().starts_with("office_error"));
+    assert!(office_source(v.path(), "Entrada/falta.docx").unwrap_err().starts_with("io_error"));
 }

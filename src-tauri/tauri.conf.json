@@ -12,12 +12,29 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "MarkDaun",
         "width": 1280,
         "height": 800,
         "minWidth": 800,
         "minHeight": 600,
         "dragDropEnabled": false
+      },
+      {
+        "label": "quick-capture",
+        "title": "Captura rápida",
+        "url": "index.html#quick-capture",
+        "width": 480,
+        "height": 220,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "visible": false,
+        "center": true,
+        "skipTaskbar": true,
+        "focus": true,
+        "dragDropEnabled": false,
+        "shadow": true
       }
     ],
     "security": {

@@ -27,13 +27,34 @@ impl Recorded {
 pub struct MockResponse {
     pub status: u16,
     pub body: String,
+    /// Binary body; wins over `body` when set.
+    pub raw: Option<Vec<u8>>,
+    pub content_type: String,
     pub delay_ms: u64,
     pub headers: Vec<(String, String)>,
 }
 
 impl MockResponse {
     pub fn json(status: u16, body: &str) -> Self {
-        Self { status, body: body.to_string(), delay_ms: 0, headers: Vec::new() }
+        Self {
+            status,
+            body: body.to_string(),
+            raw: None,
+            content_type: "application/json".to_string(),
+            delay_ms: 0,
+            headers: Vec::new(),
+        }
+    }
+    pub fn html(status: u16, body: &str) -> Self {
+        let mut r = Self::json(status, body);
+        r.content_type = "text/html; charset=utf-8".to_string();
+        r
+    }
+    pub fn bytes(status: u16, content_type: &str, body: Vec<u8>) -> Self {
+        let mut r = Self::json(status, "");
+        r.content_type = content_type.to_string();
+        r.raw = Some(body);
+        r
     }
     /// Redirect response; `location` may be relative (e.g. `/blob/x`).
     pub fn redirect(status: u16, location: &str) -> Self {
@@ -113,13 +134,15 @@ fn serve<S: Read + Write>(mut stream: S, handler: &Handler, log: &Log) {
         thread::sleep(Duration::from_millis(resp.delay_ms));
     }
     let extra: String = resp.headers.iter().map(|(k, v)| format!("{k}: {v}\r\n")).collect();
-    let out = format!(
-        "HTTP/1.1 {} X\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+    let body: Vec<u8> = resp.raw.clone().unwrap_or_else(|| resp.body.clone().into_bytes());
+    let head = format!(
+        "HTTP/1.1 {} X\r\nContent-Type: {}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
         resp.status,
-        resp.body.len(),
-        resp.body
+        resp.content_type,
+        body.len(),
     );
-    let _ = stream.write_all(out.as_bytes());
+    let _ = stream.write_all(head.as_bytes());
+    let _ = stream.write_all(&body);
     let _ = stream.flush();
 }
 

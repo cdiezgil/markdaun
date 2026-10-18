@@ -309,7 +309,7 @@ export async function onBrainIndexProgress(cb: (p: IndexProgress) => void): Prom
 
 // ── Inbox, trash and digestion ─────────────────────────────────────────────────
 
-export type InboxKind = 'md' | 'txt' | 'pdf' | 'image' | 'other';
+export type InboxKind = 'md' | 'txt' | 'pdf' | 'image' | 'docx' | 'pptx' | 'other';
 
 export interface InboxItem {
   name: string;
@@ -349,6 +349,19 @@ export interface DigestProgress {
   consolidating: boolean;
 }
 
+/** What clipping a URL into the inbox produced. */
+export interface ClipSummary {
+  path: string;
+  rel_path: string;
+  title: string;
+  /** False when only a note with the link and the failure reason was written. */
+  clipped: boolean;
+  failure: string | null;
+  words: number;
+  images_downloaded: number;
+  images_failed: number;
+}
+
 export interface ArchiveOutcome {
   path: string;
   rewritten: string[];
@@ -361,6 +374,11 @@ export async function inboxEnsure(vaultPath: string): Promise<string> {
 
 export async function inboxList(vaultPath: string): Promise<InboxItem[]> {
   return invoke<InboxItem[]>('inbox_list', { vaultPath });
+}
+
+/** Clips a web page into `Entrada/` (a failure note when it cannot be clipped). */
+export async function inboxClipUrl(url: string, vaultPath: string): Promise<ClipSummary> {
+  return invoke<ClipSummary>('inbox_clip_url', { url, vaultPath });
 }
 
 /** Moves an inbox item to the vault trash (nothing is deleted). */
@@ -418,4 +436,60 @@ export async function brainDigest(
 /** Subscribe to multi-part digestion progress (`digest-progress`). */
 export async function onDigestProgress(cb: (p: DigestProgress) => void): Promise<() => void> {
   return listen<DigestProgress>('digest-progress', (event) => cb(event.payload));
+}
+
+// ── Quick capture, shortcut and quit guard ─────────────────────────────────────
+
+export interface QuickSummary {
+  kind: 'note' | 'image' | 'clip';
+  /** Vault-relative path of the main item written. */
+  rel_path: string;
+  /** For clips: whether the page could be clipped. */
+  clipped: boolean | null;
+  failure: string | null;
+}
+
+export interface QuickConfig {
+  shortcut: string;
+  default_shortcut: string;
+  /** Why the shortcut is not active (e.g. taken by another app). */
+  error: string | null;
+}
+
+/** Saves a quick capture into `Entrada/`; `imageB64` is the pasted image as base64. */
+export async function quickCaptureSave(text: string, imageB64?: string): Promise<QuickSummary> {
+  return invoke<QuickSummary>('quick_capture_save', { text, imageB64: imageB64 ?? null });
+}
+
+export async function quickCaptureHide(): Promise<void> {
+  return invoke<void>('quick_capture_hide');
+}
+
+export async function quickCaptureGetConfig(): Promise<QuickConfig> {
+  return invoke<QuickConfig>('quick_capture_get_config');
+}
+
+/** Rejects with `invalid_shortcut` or `shortcut_unavailable: <reason>`. */
+export async function quickCaptureSetShortcut(shortcut: string): Promise<QuickConfig> {
+  return invoke<QuickConfig>('quick_capture_set_shortcut', { shortcut });
+}
+
+/** Really quits the app (call it after the unsynced-changes guard). */
+export async function quitApp(): Promise<void> {
+  return invoke<void>('quit_app');
+}
+
+/** A capture was saved from the quick-capture window (`inbox-captured`). */
+export async function onInboxCaptured(cb: (s: QuickSummary) => void): Promise<() => void> {
+  return listen<QuickSummary>('inbox-captured', (event) => cb(event.payload));
+}
+
+/** The user chose *Salir* (tray, Cmd+Q): run the exit guard (`request-quit`). */
+export async function onRequestQuit(cb: () => void): Promise<() => void> {
+  return listen('request-quit', () => cb());
+}
+
+/** The quick-capture window was shown (`quick-capture-open`). */
+export async function onQuickCaptureOpen(cb: () => void): Promise<() => void> {
+  return listen('quick-capture-open', () => cb());
 }
