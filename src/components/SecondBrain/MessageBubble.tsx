@@ -42,6 +42,7 @@ function ProposalCard({
       vaultPath={ctx.vaultPath}
       initialStatus={saved?.status}
       initialAbsolutePath={saved?.absolutePath}
+      folders={ctx.folders}
       onStatusChange={(status, absolutePath) => setState(stateKey, { status, absolutePath })}
       onWritten={() => ctx.onNoteWritten()}
       onOpen={ctx.onOpenNote}

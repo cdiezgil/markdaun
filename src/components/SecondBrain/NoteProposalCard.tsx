@@ -3,6 +3,7 @@ import { FilePlus, FileText } from 'lucide-react';
 import { chatWriteNote, noteExists, readNoteTail } from '../../lib/tauri';
 import type { NoteMode } from '../../lib/chat/noteBlocks';
 import { humanizeNoteError } from './noteErrors';
+import { isNewFolder } from '../../lib/chat/digest';
 
 export interface NoteProposal {
   path: string;
@@ -21,6 +22,8 @@ export interface NoteProposalCardProps {
   onWritten?(absolutePath: string, mode: NoteMode): void;
   initialStatus?: ProposalStatus;
   initialAbsolutePath?: string;
+  /** Vault-relative folders ('' = root); enables the "carpeta nueva" badge. */
+  folders?: string[];
   /** Lets the parent keep per-message state in memory. */
   onStatusChange?(status: ProposalStatus, absolutePath?: string): void;
 }
@@ -76,6 +79,7 @@ export function NoteProposalCard({
   onWritten,
   initialStatus = 'pending',
   initialAbsolutePath,
+  folders,
   onStatusChange,
 }: NoteProposalCardProps): JSX.Element {
   const [path, setPath] = useState(proposal.path);
@@ -153,6 +157,7 @@ export function NoteProposalCard({
     );
   }
 
+  const newFolder = mode === 'create' && !!folders && validPath && isNewFolder(path, folders);
   const createExists = mode === 'create' && exists === true;
   const appendMissing = mode === 'append' && exists === false;
 
@@ -185,6 +190,23 @@ export function NoteProposalCard({
             padding: 'var(--space-1) var(--space-2)',
           }}
         />
+        {newFolder && (
+          <span
+            data-testid="new-folder-badge"
+            title="Esta carpeta aún no existe: se creará al aceptar."
+            style={{
+              flexShrink: 0,
+              padding: '0 var(--space-2)',
+              borderRadius: 'var(--radius-pill)',
+              background: 'var(--sap)',
+              color: 'var(--on-sap)',
+              fontSize: 11,
+              lineHeight: '18px',
+            }}
+          >
+            carpeta nueva
+          </span>
+        )}
       </div>
 
       {mode === 'append' && tail && (

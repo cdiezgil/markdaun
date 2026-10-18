@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { useBrainStore } from '../../store/brainStore';
@@ -312,5 +312,67 @@ describe('?ask=<path> from the graph', () => {
     await userEvent.click(screen.getByTestId('scope-chip'));
     await userEvent.click(screen.getByRole('menuitem', { name: /Toda la bóveda/ }));
     expect(useBrainStore.getState().scope).toEqual({ kind: 'vault' });
+  });
+});
+
+// ── Digestion conversations ───────────────────────────────────────────────────
+
+import { useNoteProposalStore } from '../../store/noteProposalStore';
+
+describe('ChatPanel digestion', () => {
+  const digestConv = {
+    id: 'c1',
+    title: 'Digerir: acta.txt',
+    created_at: 'x',
+    digest_source: 'Entrada/acta.txt',
+    digest_archived: false,
+  };
+  const answer = {
+    id: 'm1',
+    role: 'assistant' as const,
+    content: '```markdaun-note path="Mutua/ProyectoX/Acta.md" mode="create"\n# Acta\n```',
+    sources: null,
+    created_at: 'x',
+  };
+
+  beforeEach(() => {
+    useNoteProposalStore.setState({ states: {}, counter: 0 });
+    useVaultStore.setState({ vaultPath: '/vault', tree: [] });
+    useBrainStore.setState({
+      conversations: [digestConv],
+      currentConversationId: 'c1',
+      messages: [answer],
+      digesting: null,
+      digestProgress: null,
+    });
+  });
+
+  it('shows Archivar fuente disabled until a card is accepted, then enabled', () => {
+    renderChatPanel();
+    expect(screen.getByTestId('archive-source')).toBeDisabled();
+    act(() => {
+      useNoteProposalStore.getState().set('m1:0', { status: 'created', absolutePath: '/vault/Mutua/ProyectoX/Acta.md' });
+    });
+    expect(screen.getByTestId('archive-source')).toBeEnabled();
+    expect(screen.getByTestId('archive-source-bar')).toHaveTextContent('Mutua/ProyectoX/Fuentes');
+  });
+
+  it('is absent in ordinary conversations', () => {
+    useBrainStore.setState({ conversations: [{ id: 'c1', title: 'charla', created_at: 'x' }] });
+    renderChatPanel();
+    expect(screen.queryByTestId('archive-source-bar')).toBeNull();
+  });
+
+  it('shows what is being digested and the part progress', () => {
+    useBrainStore.setState({
+      currentConversationId: null,
+      messages: [],
+      isLoading: true,
+      digesting: 'grande.md',
+      digestProgress: { source: 'Entrada/grande.md', part: 2, total: 5, consolidating: false },
+    });
+    renderChatPanel();
+    expect(screen.getByTestId('digest-status')).toHaveTextContent('grande.md');
+    expect(screen.getByTestId('digest-status')).toHaveTextContent('Parte 2/5');
   });
 });
