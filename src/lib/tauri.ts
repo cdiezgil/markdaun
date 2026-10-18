@@ -349,6 +349,19 @@ export interface DigestProgress {
   consolidating: boolean;
 }
 
+/** What clipping a URL into the inbox produced. */
+export interface ClipSummary {
+  path: string;
+  rel_path: string;
+  title: string;
+  /** False when only a note with the link and the failure reason was written. */
+  clipped: boolean;
+  failure: string | null;
+  words: number;
+  images_downloaded: number;
+  images_failed: number;
+}
+
 export interface ArchiveOutcome {
   path: string;
   rewritten: string[];
@@ -361,6 +374,11 @@ export async function inboxEnsure(vaultPath: string): Promise<string> {
 
 export async function inboxList(vaultPath: string): Promise<InboxItem[]> {
   return invoke<InboxItem[]>('inbox_list', { vaultPath });
+}
+
+/** Clips a web page into `Entrada/` (a failure note when it cannot be clipped). */
+export async function inboxClipUrl(url: string, vaultPath: string): Promise<ClipSummary> {
+  return invoke<ClipSummary>('inbox_clip_url', { url, vaultPath });
 }
 
 /** Moves an inbox item to the vault trash (nothing is deleted). */

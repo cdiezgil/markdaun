@@ -26,3 +26,13 @@ export function formatDate(ms: number): string {
   return new Date(ms).toLocaleDateString('es-ES');
 }
 export const INBOX_DIR = 'Entrada';
+
+/** User-facing text for the errors the inbox commands return. */
+export function inboxErrorMessage(error: string): string {
+  if (error === 'invalid_url') return 'Esa dirección no es válida. Usa una URL que empiece por http:// o https://.';
+  return error;
+}
+
+export function pluralize(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}

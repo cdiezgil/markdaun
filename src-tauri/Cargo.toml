@@ -33,6 +33,9 @@ base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 quick-xml = "0.42"
+dom_smoothie = "0.18"
+htmd = "0.5"
+dom_query = "0.28"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

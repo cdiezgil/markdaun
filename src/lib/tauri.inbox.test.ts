@@ -5,6 +5,7 @@ import {
   archiveSource,
   brainDigest,
   inboxDiscard,
+  inboxClipUrl,
   inboxEnsure,
   inboxList,
   onDigestProgress,
@@ -75,5 +76,13 @@ describe('inbox wrappers', () => {
     await onDigestProgress(cb);
     expect(listen).toHaveBeenCalledWith('digest-progress', expect.any(Function));
     expect(cb).toHaveBeenCalledWith({ source: 's', part: 1, total: 2, consolidating: false });
+  });
+});
+
+describe('inboxClipUrl', () => {
+  it('sends the url and the vault in camelCase', async () => {
+    mockInvoke.mockResolvedValue({ clipped: true } as never);
+    await inboxClipUrl('https://example.com/a', '/v');
+    expect(mockInvoke).toHaveBeenCalledWith('inbox_clip_url', { url: 'https://example.com/a', vaultPath: '/v' });
   });
 });

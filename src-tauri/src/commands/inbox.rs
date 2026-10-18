@@ -261,10 +261,39 @@ pub fn archive_source_inner(
 
     let stem = source.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     let ext = source.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    let dest = unique_name(&dir, &stem, &ext);
+    // A clipped note travels with its `<stem>_assets/` images.
+    let assets_src = source.with_file_name(format!("{stem}_assets"));
+    let with_assets = assets_src.is_dir();
+    let dest = free_destination(&dir, &stem, &ext, with_assets);
+
+    let mut rewritten: Vec<String> = Vec::new();
+    if with_assets {
+        let dest_stem = dest.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let assets_dest = dir.join(format!("{dest_stem}_assets"));
+        std::fs::rename(&assets_src, &assets_dest).map_err(|e| format!("io_error: {e}"))?;
+        rewritten.extend(finish_relocation(vault, &assets_src, &assets_dest, db_path, true)?);
+    }
     std::fs::rename(&source, &dest).map_err(|e| format!("io_error: {e}"))?;
-    let rewritten = finish_relocation(vault, &source, &dest, db_path, true)?;
+    for p in finish_relocation(vault, &source, &dest, db_path, true)? {
+        if !rewritten.contains(&p) {
+            rewritten.push(p);
+        }
+    }
     Ok(MoveOutcome { path: dest.to_string_lossy().to_string(), rewritten })
+}
+
+/// `<stem>.<ext>` in `dir`, numbered (" 2"…) until the name is free; with
+/// `assets`, `<stem>_assets/` must be free too.
+fn free_destination(dir: &Path, stem: &str, ext: &str, assets: bool) -> PathBuf {
+    let mut n = 1;
+    loop {
+        let name = if n == 1 { stem.to_string() } else { format!("{stem} {n}") };
+        let candidate = dir.join(if ext.is_empty() { name.clone() } else { format!("{name}.{ext}") });
+        if !candidate.exists() && !(assets && dir.join(format!("{name}_assets")).exists()) {
+            return candidate;
+        }
+        n += 1;
+    }
 }
 
 // ─── Folder tree for the digestion prompt ─────────────────────────────────────

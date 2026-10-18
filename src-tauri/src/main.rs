@@ -76,6 +76,7 @@ fn main() {
             commands::trash_delete,
             commands::archive_source,
             commands::brain_digest,
+            commands::inbox_clip_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

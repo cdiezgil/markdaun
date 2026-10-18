@@ -1,11 +1,13 @@
 import { create } from 'zustand';
-import { inboxDiscard, inboxList, type InboxItem } from '../lib/tauri';
+import { inboxClipUrl, inboxDiscard, inboxList, type ClipSummary, type InboxItem } from '../lib/tauri';
 
 interface InboxState {
   items: InboxItem[];
   /** Vault-relative paths of the selected items. */
   selected: string[];
   loading: boolean;
+  /** A URL is being clipped. */
+  clipping: boolean;
   error: string | null;
 
   load(vaultPath: string): Promise<void>;
@@ -13,12 +15,15 @@ interface InboxState {
   selectAll(): void;
   clearSelection(): void;
   discard(item: InboxItem, vaultPath: string): Promise<void>;
+  /** Clips a web page into the inbox; null (with `error` set) when the URL is invalid. */
+  clipUrl(url: string, vaultPath: string): Promise<ClipSummary | null>;
 }
 
 export const useInboxStore = create<InboxState>((set, get) => ({
   items: [],
   selected: [],
   loading: false,
+  clipping: false,
   error: null,
 
   async load(vaultPath) {
@@ -59,6 +64,19 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       });
     } catch (e) {
       set({ error: String(e) });
+    }
+  },
+
+  async clipUrl(url, vaultPath) {
+    set({ clipping: true, error: null });
+    try {
+      const summary = await inboxClipUrl(url, vaultPath);
+      await get().load(vaultPath);
+      set({ clipping: false });
+      return summary;
+    } catch (e) {
+      set({ clipping: false, error: String(e) });
+      return null;
     }
   },
 }));

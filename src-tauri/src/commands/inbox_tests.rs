@@ -157,6 +157,43 @@ fn archive_moves_to_fuentes_with_collision_suffix_and_rewrites_links() {
 }
 
 #[test]
+fn archiving_a_clipped_note_moves_its_assets_folder_and_keeps_image_links_working() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let write_clip = |name: &str| {
+        fs::write(dir.join(format!("{name}.md")), format!("# {name}\n\n![x]({}_assets/image-1.png)\n", name.replace(' ', "%20"))).unwrap();
+        fs::create_dir_all(dir.join(format!("{name}_assets"))).unwrap();
+        fs::write(dir.join(format!("{name}_assets/image-1.png")), name).unwrap();
+    };
+    write_clip("Mi nota");
+    let out = archive_source_inner(&dir.join("Mi nota.md"), "Area", vault.path(), None).unwrap();
+    let fuentes = vault.path().join("Area/Fuentes");
+    assert!(out.path.ends_with("Area/Fuentes/Mi nota.md"));
+    assert!(!dir.join("Mi nota_assets").exists(), "assets left behind");
+    assert_eq!(fs::read_to_string(fuentes.join("Mi nota_assets/image-1.png")).unwrap(), "Mi nota");
+    let md = fs::read_to_string(fuentes.join("Mi nota.md")).unwrap();
+    assert!(md.contains("![x](Mi%20nota_assets/image-1.png)"), "relative image link survives the move: {md}");
+
+    // Name taken: the note and its assets both get the " 2" suffix.
+    write_clip("Mi nota");
+    let out2 = archive_source_inner(&dir.join("Mi nota.md"), "Area", vault.path(), None).unwrap();
+    assert!(out2.path.ends_with("Area/Fuentes/Mi nota 2.md"), "{}", out2.path);
+    assert_eq!(fs::read_to_string(fuentes.join("Mi nota 2_assets/image-1.png")).unwrap(), "Mi nota");
+    let md2 = fs::read_to_string(fuentes.join("Mi nota 2.md")).unwrap();
+    assert!(md2.contains("![x](Mi%20nota%202_assets/image-1.png)"), "{md2}");
+}
+
+#[test]
+fn archiving_other_sources_ignores_unrelated_assets_folders() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    fs::write(dir.join("a.pdf"), "x").unwrap();
+    fs::create_dir_all(dir.join("b_assets")).unwrap();
+    archive_source_inner(&dir.join("a.pdf"), "", vault.path(), None).unwrap();
+    assert!(dir.join("b_assets").is_dir());
+}
+
+#[test]
 fn archive_into_vault_root_and_rejects_bad_folders() {
     let vault = tempdir().unwrap();
     let dir = inbox_ensure_inner(vault.path()).unwrap();
