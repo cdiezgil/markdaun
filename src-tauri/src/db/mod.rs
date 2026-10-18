@@ -5,7 +5,7 @@ pub use positions::NodePositionsDb;
 pub mod vectors;
 pub use vectors::{Fingerprint, VectorsDb};
 pub mod conversations;
-pub use conversations::{Conversation, ConversationsDb, Message};
+pub use conversations::{Conversation, ConversationsDb, Message, QueryScope};
 
 #[cfg(test)]
 mod tests;

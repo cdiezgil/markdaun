@@ -173,6 +173,23 @@ impl VectorsDb {
         Ok(results)
     }
 
+    /// Top-`k` most similar chunks whose file path satisfies `keep`. The KNN
+    /// runs over every chunk of the vault first (sqlite-vec limits before any
+    /// other filter), so a restricted scope never comes back empty by accident.
+    pub fn search_similar_where(
+        &self,
+        vault_path: &str,
+        query_embedding: &[f32],
+        k: usize,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Vec<SearchResult>, DbError> {
+        let total: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM chunks WHERE vault_path = ?1", rusqlite::params![vault_path], |r| r.get(0))?;
+        let all = self.search_similar(vault_path, query_embedding, (total.max(1)) as usize)?;
+        Ok(all.into_iter().filter(|r| keep(&r.file_path)).take(k).collect())
+    }
+
     /// Stored fingerprints of every indexed file in the vault, keyed by file path.
     pub fn fingerprints(&self, vault_path: &str) -> Result<std::collections::HashMap<String, Fingerprint>, DbError> {
         let mut stmt = self.conn.prepare(

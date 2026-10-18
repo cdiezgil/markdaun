@@ -75,6 +75,8 @@ function installWikilinkRule(md: MarkdownIt): void {
  * `exists` is resolved against `getVaultTree()` at render time and re-resolved
  * whenever `subscribe` fires, so it never goes stale.
  *
+ * Displayed as the label only (the alias when present), without brackets.
+ *
  * Markdown: parsed by a markdown-it inline rule (so loading a note yields
  * nodes) and serialised back to the exact original syntax.
  *
@@ -176,7 +178,7 @@ export function createWikilinkExtension(source: VaultEntry[] | WikilinkOptions) 
           style: found ? EXISTS_STYLE : MISSING_STYLE,
           contenteditable: 'false',
         }),
-        wikilinkToMarkdown(label, alias),
+        alias ?? label,
       ];
     },
 
@@ -194,7 +196,7 @@ export function createWikilinkExtension(source: VaultEntry[] | WikilinkOptions) 
           if (alias !== null) dom.dataset['alias'] = alias;
           else delete dom.dataset['alias'];
           dom.dataset['exists'] = found ? 'true' : 'false';
-          dom.textContent = wikilinkToMarkdown(label, alias);
+          dom.textContent = alias ?? label;
           dom.style.cssText = found ? EXISTS_STYLE : MISSING_STYLE;
         };
         paint();

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useBrainStore, noteStem } from '../../store/brainStore';
+import { useBrainStore } from '../../store/brainStore';
 import { MessageBubble, type NoteContext } from './MessageBubble';
 import { useVaultStore } from '../../store/vaultStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -9,7 +9,8 @@ import { vaultFolders } from '../../lib/vaultFolders';
 import { describeBrainError, VISION_UNSUPPORTED_MESSAGE } from '../../lib/brainErrors';
 import { useLlmStore } from '../../store/llmStore';
 import { supportsVision } from '../../lib/llm/vision';
-import { ArrowUp, AtSign, Paperclip, X } from 'lucide-react';
+import { ArrowUp, Paperclip } from 'lucide-react';
+import { ScopeChip } from './ScopeChip';
 import './brain.css';
 import { attachmentKindOf, chatAttachmentFromAbs, MAX_ATTACHMENTS } from '../../lib/attachments/types';
 import { ENTRY_MIME } from '../VaultTree/TreeNode';
@@ -36,8 +37,8 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
   const pendingPrompt = useBrainStore((s) => s.pendingPrompt);
   const addAttachment = useBrainStore((s) => s.addAttachment);
   const removeAttachment = useBrainStore((s) => s.removeAttachment);
-  const scopeNote = useBrainStore((s) => s.scopeNote);
-  const clearScope = useBrainStore((s) => s.clearScope);
+  const scope = useBrainStore((s) => s.scope);
+  const setScope = useBrainStore((s) => s.setScope);
 
   const activeConn = useLlmStore((s) => s.connections.find((c) => c.id === s.active?.connectionId));
   const activeModel = useLlmStore((s) => s.active?.model ?? '');
@@ -305,35 +306,7 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
                 >
                   <Paperclip size={16} strokeWidth={1.5} />
                 </button>
-                <button
-                  type="button"
-                  data-testid="scope-chip"
-                  title={scopeNote ? 'Volver a toda la bóveda' : 'Brain consulta toda la bóveda'}
-                  onClick={() => scopeNote && clearScope()}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    height: 28,
-                    maxWidth: 360,
-                    padding: '0 10px',
-                    border: '1px solid var(--line)',
-                    borderRadius: 'var(--radius-pill)',
-                    background: 'var(--bg)',
-                    color: 'var(--ink-muted)',
-                    fontFamily: 'var(--font-sans)',
-                    fontSize: 12,
-                    lineHeight: '16px',
-                    fontWeight: 500,
-                    cursor: scopeNote ? 'pointer' : 'default',
-                  }}
-                >
-                  <AtSign size={13} strokeWidth={1.5} aria-hidden="true" />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {scopeNote ? `Esta nota · ${noteStem(scopeNote)}` : 'Toda la bóveda'}
-                  </span>
-                  {scopeNote && <X size={12} strokeWidth={1.5} aria-hidden="true" />}
-                </button>
+                <ScopeChip scope={scope} onChange={(next) => void setScope(next, vaultPath)} vaultPath={vaultPath} disabled={isLoading} />
               </div>
               <button
                 data-testid="chat-send-btn"

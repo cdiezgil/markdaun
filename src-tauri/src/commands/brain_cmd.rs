@@ -1,5 +1,6 @@
 use crate::commands::vault_index::{index_file, list_vault_notes, relative_note_path, vault_note_listing};
-use crate::db::{Conversation, ConversationsDb, Message, VectorsDb};
+use crate::commands::brain_scope::{resolve_context, validate_scope, ScopeContext};
+use crate::db::{Conversation, ConversationsDb, Message, QueryScope, VectorsDb};
 use crate::llm::attachment::{build_attachments, stored_references, AttachmentInput};
 use crate::llm::connection::Connection;
 use crate::llm::error::LlmError;
@@ -32,6 +33,8 @@ pub(crate) fn model_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String>
     std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
     Ok(cache)
 }
+
+type PathFilter = Box<dyn Fn(&str) -> bool>;
 
 // ─── Public DTOs ──────────────────────────────────────────────────────────────
 
@@ -118,6 +121,7 @@ pub async fn brain_query_with_embedding(
         env,
         query_embedding,
         &[],
+        None,
     )
     .await
 }
@@ -139,6 +143,7 @@ pub async fn brain_query_core(
     env: &LlmEnv,
     query_embedding: Result<Vec<f32>, String>,
     attachment_inputs: &[AttachmentInput],
+    scope: Option<&QueryScope>,
 ) -> Result<BrainQueryResult, String> {
     // 0. Validate attachments before anything is persisted or sent.
     let attachments = build_attachments(Path::new(vault_path), attachment_inputs)
@@ -153,14 +158,40 @@ pub async fn brain_query_core(
         format!("{question}\n\n{}", stored_references(&names))
     };
 
-    // 1. Search for similar chunks; any failure degrades to "no context".
-    let search = query_embedding.and_then(|emb| {
-        let vec_db = VectorsDb::open(vectors_db_path).map_err(|e| format!("db_error: {e}"))?;
-        vec_db
-            .search_similar(vault_path, &emb, 5)
+    // 0b. Resolve the scope: the given one, else the conversation's stored one.
+    let conv_db = ConversationsDb::open(db_path).map_err(|e| format!("db_error: {e}"))?;
+    let vault = Path::new(vault_path);
+    let scope = match (scope, conversation_id.as_deref()) {
+        (Some(s), _) => validate_scope(vault, s)?,
+        (None, Some(id)) => {
+            let stored = conv_db.get_scope(id).map_err(|e| format!("db_error: {e}"))?;
+            // A stored scope may have gone stale (note deleted): fall back to the vault.
+            validate_scope(vault, &stored).unwrap_or_default()
+        }
+        (None, None) => QueryScope::Vault,
+    };
+    let context = resolve_context(vault, &scope)?;
+
+    // 1. Context: full text of the scoped notes, or similar chunks (restricted
+    //    to the scope when there is one). Failures degrade to "no context".
+    let search = |filter: Option<PathFilter>| {
+        query_embedding.clone().and_then(|emb| {
+            let vec_db = VectorsDb::open(vectors_db_path).map_err(|e| format!("db_error: {e}"))?;
+            match filter {
+                None => vec_db.search_similar(vault_path, &emb, 5),
+                Some(keep) => vec_db.search_similar_where(vault_path, &emb, 5, &*keep),
+            }
             .map_err(|e| format!("db_error: {e}"))
-    });
-    let (results, warning) = match search {
+        })
+    };
+    let found = match context {
+        ScopeContext::FullText(notes) => Ok(notes),
+        ScopeContext::Retrieve => search(None),
+        ScopeContext::RetrieveIn(files, prefix) => search(Some(Box::new(move |p: &str| {
+            files.iter().any(|f| f == p) || prefix.as_deref().is_some_and(|pre| p.starts_with(pre))
+        }))),
+    };
+    let (results, warning) = match found {
         Ok(r) => (r, None),
         Err(detail) => (Vec::new(), Some(format!("notes_context_unavailable: {detail}"))),
     };
@@ -177,8 +208,7 @@ pub async fn brain_query_core(
         last.attachments = attachments;
     }
 
-    // 3. Open (or create) conversation.
-    let conv_db = ConversationsDb::open(db_path).map_err(|e| format!("db_error: {e}"))?;
+    // 3. Open (or create) conversation and persist its scope.
     let conv_id = match conversation_id {
         Some(id) => id,
         None => {
@@ -188,6 +218,7 @@ pub async fn brain_query_core(
                 .map_err(|e| format!("db_error: {e}"))?
         }
     };
+    conv_db.set_scope(&conv_id, &scope).map_err(|e| format!("db_error: {e}"))?;
 
     // 4. Persist user message.
     conv_db
@@ -258,6 +289,7 @@ async fn embed_query(
 /// If `conversation_id` is None, a new conversation is created.
 /// If the notes context cannot be built, the LLM is still called and `warning` is set.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn brain_query(
     app: tauri::AppHandle,
     env: tauri::State<'_, LlmEnv>,
@@ -266,6 +298,7 @@ pub async fn brain_query(
     vault_path: String,
     conversation_id: Option<String>,
     attachments: Option<Vec<AttachmentInput>>,
+    scope: Option<QueryScope>,
 ) -> Result<BrainQueryResult, String> {
     let db_path = app_db_path(&app)?;
     let vdb_path = vectors_db_path(&app)?;
@@ -288,6 +321,7 @@ pub async fn brain_query(
         &env,
         query_emb,
         attachments.as_deref().unwrap_or(&[]),
+        scope.as_ref(),
     )
     .await
 }
@@ -302,6 +336,21 @@ pub async fn brain_get_conversations(
     let db = ConversationsDb::open(&db_path).map_err(|e| format!("db_error: {e}"))?;
     db.list_conversations(&vault_path)
         .map_err(|e| format!("db_error: {e}"))
+}
+
+/// Change the scope stored with a conversation.
+#[tauri::command]
+pub async fn brain_set_conversation_scope(
+    app: tauri::AppHandle,
+    conversation_id: String,
+    vault_path: String,
+    scope: QueryScope,
+) -> Result<QueryScope, String> {
+    let db_path = app_db_path(&app)?;
+    let scope = validate_scope(Path::new(&vault_path), &scope)?;
+    let db = ConversationsDb::open(&db_path).map_err(|e| format!("db_error: {e}"))?;
+    db.set_scope(&conversation_id, &scope).map_err(|e| format!("db_error: {e}"))?;
+    Ok(scope)
 }
 
 /// Get all messages in a conversation (oldest first).

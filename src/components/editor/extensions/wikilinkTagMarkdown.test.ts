@@ -164,3 +164,24 @@ describe('exists is computed against the current vault', () => {
     expect(opened).toEqual(['/vault/Hay.md']);
   });
 });
+
+describe('wikilink display', () => {
+  const texts = (ed: Editor) =>
+    Array.from(ed.view.dom.querySelectorAll<HTMLElement>('[data-wikilink]')).map((e) => e.textContent);
+
+  it('shows the label without brackets, or the alias when present', () => {
+    const ed = make('Ver [[Primera nota]] y [[Otra|el alias]]');
+    expect(texts(ed)).toEqual(['Primera nota', 'el alias']);
+  });
+
+  it('keeps serializing the exact [[...]] source', () => {
+    const src = 'Ver [[Primera nota]] y [[Otra|el alias]]';
+    expect(md(make(src))).toBe(src);
+  });
+
+  it('static HTML (copy/export) also shows the display text', () => {
+    const ed = make('[[A|b]]');
+    expect(ed.getHTML()).toContain('>b</span>');
+    expect(ed.getHTML()).not.toContain('[[');
+  });
+});
