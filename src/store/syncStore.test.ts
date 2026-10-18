@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock the tauri lib so no real Tauri invoke is needed
 vi.mock('../lib/tauri', () => ({
-  githubConfigure: vi.fn(),
+  githubConnectPreview: vi.fn(),
+  githubConnectApply: vi.fn(),
   githubGetConfig: vi.fn(),
   githubDisconnect: vi.fn(),
   githubPush: vi.fn(),
@@ -11,7 +12,8 @@ vi.mock('../lib/tauri', () => ({
 }));
 
 import {
-  githubConfigure,
+  githubConnectPreview,
+  githubConnectApply,
   githubGetConfig,
   githubDisconnect,
   githubPush,
@@ -20,7 +22,8 @@ import {
 } from '../lib/tauri';
 import { useSyncStore } from './syncStore';
 
-const mockConfigure = vi.mocked(githubConfigure);
+const mockPreview = vi.mocked(githubConnectPreview);
+const mockApply = vi.mocked(githubConnectApply);
 const mockGetConfig = vi.mocked(githubGetConfig);
 const mockDisconnect = vi.mocked(githubDisconnect);
 const mockPush = vi.mocked(githubPush);
@@ -36,82 +39,165 @@ describe('useSyncStore', () => {
       isLoading: false,
       error: null,
       connectAction: null,
+      pendingConnect: null,
+      pendingDeletion: null,
+      conflicts: [],
+      vaultChangeCount: 0,
     });
     vi.clearAllMocks();
     // Default: status returns false (no changes)
     mockStatus.mockResolvedValue(false);
   });
 
-  // ─── TC-15: connect invokes configure then status ─────────────────────────
+  // ─── connect = preview first, apply only after the user's choice ─────────
 
-  it('TC-15: connect invokes github_configure then github_status', async () => {
-    mockConfigure.mockResolvedValue('pushed');
+  const URL = 'https://github.com/u/r';
 
-    await useSyncStore.getState().connect('https://github.com/u/r', 'token', '/vault');
+  it('TC-15: connect on an empty remote previews then applies directly (no dialog)', async () => {
+    mockPreview.mockResolvedValue({ case: 'remote_empty', remoteCount: 0, localCount: 3 });
+    mockApply.mockResolvedValue({ action: 'pushed', conflicts: [] });
 
-    expect(mockConfigure).toHaveBeenCalledWith(
-      'https://github.com/u/r',
-      'token',
-      '/vault',
-    );
+    await useSyncStore.getState().connect(URL, 'token', '/vault');
+
+    expect(mockPreview).toHaveBeenCalledWith(URL, 'token', '/vault');
+    expect(mockApply).toHaveBeenCalledWith(URL, 'token', '/vault', 'sync');
+    const s = useSyncStore.getState();
+    expect(s.config.isConnected).toBe(true);
+    expect(s.connectAction).toBe('pushed');
+    expect(s.pendingConnect).toBeNull();
     expect(mockStatus).toHaveBeenCalled();
   });
 
-  it('TC-15b: connect sets isConnected=true and connectAction on success', async () => {
-    mockConfigure.mockResolvedValue('cloned');
+  it('TC-15b: remote with notes + empty vault asks first and applies NOTHING yet', async () => {
+    mockPreview.mockResolvedValue({ case: 'local_empty', remoteCount: 1000, localCount: 0 });
 
-    await useSyncStore.getState().connect('https://github.com/u/r', 'pat', '/vault');
+    await useSyncStore.getState().connect(URL, 'token', '/vault');
 
-    const { config, connectAction } = useSyncStore.getState();
-    expect(config.isConnected).toBe(true);
-    expect(config.repoUrl).toBe('https://github.com/u/r');
-    expect(connectAction).toBe('cloned');
+    const s = useSyncStore.getState();
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(s.config.isConnected).toBe(false);
+    expect(s.pendingConnect?.preview).toEqual({
+      case: 'local_empty',
+      remoteCount: 1000,
+      localCount: 0,
+    });
+    expect(s.isLoading).toBe(false);
   });
 
-  it('TC-15c: connect sets error on failure', async () => {
-    mockConfigure.mockRejectedValue('auth_failed');
+  it('TC-15c: confirmConnect applies the choice, then clears the dialog', async () => {
+    mockPreview.mockResolvedValue({ case: 'local_empty', remoteCount: 5, localCount: 0 });
+    mockApply.mockResolvedValue({ action: 'cloned', conflicts: [] });
+    await useSyncStore.getState().connect(URL, 'token', '/vault');
 
-    await useSyncStore.getState().connect('https://github.com/u/r', 'bad', '/vault');
+    await useSyncStore.getState().confirmConnect('download');
 
-    const { error, config } = useSyncStore.getState();
+    expect(mockApply).toHaveBeenCalledWith(URL, 'token', '/vault', 'download');
+    const s = useSyncStore.getState();
+    expect(s.pendingConnect).toBeNull();
+    expect(s.config).toEqual({ repoUrl: URL, isConnected: true });
+    expect(s.connectAction).toBe('cloned');
+    expect(s.vaultChangeCount).toBe(1);
+  });
+
+  it('TC-15d: both sides with notes -> merge result surfaces conflict copies', async () => {
+    mockPreview.mockResolvedValue({ case: 'both_have_content', remoteCount: 5, localCount: 3 });
+    mockApply.mockResolvedValue({ action: 'merged', conflicts: ['a (conflicto 2026-10-18 23-05).md'] });
+    await useSyncStore.getState().connect(URL, 'token', '/vault');
+
+    await useSyncStore.getState().confirmConnect('sync');
+
+    expect(useSyncStore.getState().conflicts).toEqual(['a (conflicto 2026-10-18 23-05).md']);
+  });
+
+  it('TC-15e: cancelConnect applies nothing and forgets the PAT', async () => {
+    mockPreview.mockResolvedValue({ case: 'both_have_content', remoteCount: 5, localCount: 3 });
+    await useSyncStore.getState().connect(URL, 'token', '/vault');
+
+    useSyncStore.getState().cancelConnect();
+
+    expect(mockApply).not.toHaveBeenCalled();
+    const s = useSyncStore.getState();
+    expect(s.pendingConnect).toBeNull();
+    expect(s.config.isConnected).toBe(false);
+  });
+
+  it('TC-15f: connect sets error when the preview fails', async () => {
+    mockPreview.mockRejectedValue('auth_failed');
+
+    await useSyncStore.getState().connect(URL, 'bad', '/vault');
+
+    const { error, config, pendingConnect } = useSyncStore.getState();
     expect(error).toBe('auth_failed');
     expect(config.isConnected).toBe(false);
+    expect(pendingConnect).toBeNull();
   });
 
   // ─── TC-16: push invokes github_push then github_status ───────────────────
 
   it('TC-16: push invokes github_push then github_status', async () => {
-    mockPush.mockResolvedValue(undefined);
+    mockPush.mockResolvedValue({ conflicts: [], needsConfirmation: null });
 
     await useSyncStore.getState().push('/vault');
 
-    const pushIndex = vi
-      .mocked(mockPush)
-      .mock.invocationCallOrder[0];
-    const statusIndex = vi
-      .mocked(mockStatus)
-      .mock.invocationCallOrder[0];
+    expect(mockPush).toHaveBeenCalledWith(false);
+    const pushIndex = vi.mocked(mockPush).mock.invocationCallOrder[0];
+    const statusIndex = vi.mocked(mockStatus).mock.invocationCallOrder[0];
     expect(pushIndex).toBeDefined();
     expect(statusIndex).toBeDefined();
     expect(pushIndex).toBeLessThan(statusIndex);
   });
 
+  it('TC-16b: a push that needs confirmation stores the warning and pushes nothing more', async () => {
+    mockPush.mockResolvedValue({ conflicts: [], needsConfirmation: { deleted: 15, total: 20 } });
+
+    await useSyncStore.getState().push('/vault');
+
+    expect(useSyncStore.getState().pendingDeletion).toEqual({ deleted: 15, total: 20 });
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  it('TC-16c: confirmDeletion pushes again with confirmDeletions=true', async () => {
+    useSyncStore.setState({ pendingDeletion: { deleted: 15, total: 20 } });
+    mockPush.mockResolvedValue({ conflicts: [], needsConfirmation: null });
+
+    await useSyncStore.getState().confirmDeletion('/vault');
+
+    expect(mockPush).toHaveBeenCalledWith(true);
+    expect(useSyncStore.getState().pendingDeletion).toBeNull();
+  });
+
+  it('TC-16d: cancelDeletion pushes nothing', () => {
+    useSyncStore.setState({ pendingDeletion: { deleted: 15, total: 20 } });
+
+    useSyncStore.getState().cancelDeletion();
+
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(useSyncStore.getState().pendingDeletion).toBeNull();
+  });
+
   // ─── TC-17: pull invokes github_pull then github_status ───────────────────
 
   it('TC-17: pull invokes github_pull then github_status', async () => {
-    mockPull.mockResolvedValue(undefined);
+    mockPull.mockResolvedValue({ conflicts: [], needsConfirmation: null });
 
     await useSyncStore.getState().pull('/vault');
 
-    const pullIndex = vi
-      .mocked(mockPull)
-      .mock.invocationCallOrder[0];
-    const statusIndex = vi
-      .mocked(mockStatus)
-      .mock.invocationCallOrder[0];
+    const pullIndex = vi.mocked(mockPull).mock.invocationCallOrder[0];
+    const statusIndex = vi.mocked(mockStatus).mock.invocationCallOrder[0];
     expect(pullIndex).toBeDefined();
     expect(statusIndex).toBeDefined();
     expect(pullIndex).toBeLessThan(statusIndex);
+    expect(useSyncStore.getState().vaultChangeCount).toBe(1);
+  });
+
+  it('TC-17b: pull exposes conflicts until dismissed', async () => {
+    mockPull.mockResolvedValue({ conflicts: ['n (conflicto x).md'], needsConfirmation: null });
+
+    await useSyncStore.getState().pull('/vault');
+    expect(useSyncStore.getState().conflicts).toEqual(['n (conflicto x).md']);
+
+    useSyncStore.getState().dismissConflicts();
+    expect(useSyncStore.getState().conflicts).toEqual([]);
   });
 
   // ─── TC-18: disconnect resets config ──────────────────────────────────────

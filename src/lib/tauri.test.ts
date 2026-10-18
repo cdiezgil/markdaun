@@ -9,7 +9,8 @@ import {
   getActiveVault,
   listVaultTree,
   convertAssetSrc,
-  githubConfigure,
+  githubConnectPreview,
+githubConnectApply,
   githubGetConfig,
   githubDisconnect,
   githubPush,
@@ -126,22 +127,31 @@ describe('convertAssetSrc', () => {
 
 // ── GitHub Sync wrappers ──────────────────────────────────────────────────────
 
-describe('githubConfigure', () => {
-  it('TC-GH-01: invokes github_configure with correct params and returns "pushed"', async () => {
-    mockInvoke.mockResolvedValueOnce('pushed');
-    const result = await githubConfigure('https://github.com/u/r', 'token123', '/vault');
-    expect(mockInvoke).toHaveBeenCalledWith('github_configure', {
+describe('githubConnectPreview', () => {
+  it('TC-GH-01: invokes github_connect_preview with camelCase args and returns the preview', async () => {
+    const preview = { case: 'local_empty', remoteCount: 1000, localCount: 0 };
+    mockInvoke.mockResolvedValueOnce(preview);
+    const result = await githubConnectPreview('https://github.com/u/r', 'token123', '/vault');
+    expect(mockInvoke).toHaveBeenCalledWith('github_connect_preview', {
       repoUrl: 'https://github.com/u/r',
       pat: 'token123',
       vaultPath: '/vault',
     });
-    expect(result).toBe('pushed');
+    expect(result).toEqual(preview);
   });
+});
 
-  it('TC-GH-02: returns "cloned" when the vault is empty and remote is cloned', async () => {
-    mockInvoke.mockResolvedValueOnce('cloned');
-    const result = await githubConfigure('https://github.com/u/r', 'token123', '/vault');
-    expect(result).toBe('cloned');
+describe('githubConnectApply', () => {
+  it('TC-GH-02: invokes github_connect_apply with the user choice', async () => {
+    mockInvoke.mockResolvedValueOnce({ action: 'cloned', conflicts: [] });
+    const result = await githubConnectApply('https://github.com/u/r', 'token123', '/vault', 'download');
+    expect(mockInvoke).toHaveBeenCalledWith('github_connect_apply', {
+      repoUrl: 'https://github.com/u/r',
+      pat: 'token123',
+      vaultPath: '/vault',
+      choice: 'download',
+    });
+    expect(result.action).toBe('cloned');
   });
 });
 
@@ -169,10 +179,17 @@ describe('githubDisconnect', () => {
 });
 
 describe('githubPush', () => {
-  it('TC-GH-06: invokes github_push', async () => {
-    mockInvoke.mockResolvedValueOnce(undefined);
-    await githubPush();
-    expect(mockInvoke).toHaveBeenCalledWith('github_push');
+  it('TC-GH-06: invokes github_push without confirmation by default', async () => {
+    mockInvoke.mockResolvedValueOnce({ conflicts: [], needsConfirmation: null });
+    const result = await githubPush();
+    expect(mockInvoke).toHaveBeenCalledWith('github_push', { confirmDeletions: false });
+    expect(result.needsConfirmation).toBeNull();
+  });
+
+  it('TC-GH-06b: passes confirmDeletions when the user confirmed', async () => {
+    mockInvoke.mockResolvedValueOnce({ conflicts: [], needsConfirmation: null });
+    await githubPush(true);
+    expect(mockInvoke).toHaveBeenCalledWith('github_push', { confirmDeletions: true });
   });
 
   it('TC-GH-07: propagates errors from the backend', async () => {
@@ -182,9 +199,10 @@ describe('githubPush', () => {
 });
 
 describe('githubPull', () => {
-  it('TC-GH-08: invokes github_pull', async () => {
-    mockInvoke.mockResolvedValueOnce(undefined);
-    await githubPull();
+  it('TC-GH-08: invokes github_pull and returns the conflicts', async () => {
+    mockInvoke.mockResolvedValueOnce({ conflicts: ['a (conflicto x).md'], needsConfirmation: null });
+    const r = await githubPull();
+    expect(r.conflicts).toEqual(['a (conflicto x).md']);
     expect(mockInvoke).toHaveBeenCalledWith('github_pull');
   });
 

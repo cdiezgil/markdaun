@@ -1,5 +1,8 @@
 use crate::db::ConfigDb;
-use crate::git::{git_connect_inner, git_pull_inner, git_push_inner, git_status_inner};
+use crate::git::{
+    git_connect_apply_inner, git_connect_preview_inner, git_pull_inner, git_push_inner,
+    git_status_inner, ConnectChoice, ConnectPreview, ConnectResult, SyncResult,
+};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
@@ -26,26 +29,32 @@ fn validate_https_url(url: &str) -> Result<(), String> {
 
 // ─── Inner helpers (DB + git only, no keyring — fully testable) ───────────────
 
-/// Connect vault to remote: run git_connect_inner and persist the repo URL in DB.
+/// Look at the remote without touching the vault (nothing is persisted).
+pub fn connect_preview_inner(
+    repo_url: &str,
+    pat: &str,
+    vault_path: &str,
+) -> Result<ConnectPreview, String> {
+    git_connect_preview_inner(Path::new(vault_path), repo_url, pat)
+        .map_err(|e| format!("git_error: {e}"))
+}
+
+/// Connect the vault after the user confirmed `choice`, and persist the repo URL in DB.
 /// The PAT is intentionally NOT stored here; the Tauri command layer handles keyring.
-/// Returns "pushed" or "cloned".
 pub fn configure_inner(
     db_path: &Path,
     repo_url: &str,
     pat: &str,
     vault_path: &str,
-) -> Result<String, String> {
-    let action = git_connect_inner(Path::new(vault_path), repo_url, pat)
+    choice: ConnectChoice,
+) -> Result<ConnectResult, String> {
+    let result = git_connect_apply_inner(Path::new(vault_path), repo_url, pat, choice)
         .map_err(|e| format!("git_error: {e}"))?;
 
     let db = ConfigDb::open(db_path).map_err(|e| e.to_string())?;
     db.set("github_repo_url", repo_url)
         .map_err(|e| e.to_string())?;
-
-    match action {
-        crate::git::ConnectAction::Pushed => Ok("pushed".to_string()),
-        crate::git::ConnectAction::Cloned => Ok("cloned".to_string()),
-    }
+    Ok(result)
 }
 
 /// Return the stored `repo_url`, or `None` if not configured.
@@ -67,15 +76,26 @@ pub fn disconnect_inner(db_path: &Path) -> Result<(), String> {
 // ─── Tauri commands ────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn github_configure(
+pub async fn github_connect_preview(
+    repo_url: String,
+    pat: String,
+    vault_path: String,
+) -> Result<ConnectPreview, String> {
+    validate_https_url(&repo_url)?;
+    connect_preview_inner(&repo_url, &pat, &vault_path)
+}
+
+#[tauri::command]
+pub async fn github_connect_apply(
     app: tauri::AppHandle,
     repo_url: String,
     pat: String,
     vault_path: String,
-) -> Result<String, String> {
+    choice: ConnectChoice,
+) -> Result<ConnectResult, String> {
     validate_https_url(&repo_url)?;
     let db_path = app_db_path(&app)?;
-    let result = configure_inner(&db_path, &repo_url, &pat, &vault_path)?;
+    let result = configure_inner(&db_path, &repo_url, &pat, &vault_path, choice)?;
 
     // Store PAT in keyring AFTER successful git operation — never in DB
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
@@ -106,7 +126,10 @@ pub async fn github_disconnect(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn github_push(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn github_push(
+    app: tauri::AppHandle,
+    confirm_deletions: Option<bool>,
+) -> Result<SyncResult, String> {
     let db_path = app_db_path(&app)?;
     let db = ConfigDb::open(&db_path).map_err(|e| e.to_string())?;
 
@@ -127,12 +150,17 @@ pub async fn github_push(app: tauri::AppHandle) -> Result<(), String> {
         .get_password()
         .map_err(|e| format!("keyring_error: {e}"))?;
 
-    git_push_inner(Path::new(&vault_path), &repo_url, &pat)
+    git_push_inner(
+        Path::new(&vault_path),
+        &repo_url,
+        &pat,
+        confirm_deletions.unwrap_or(false),
+    )
         .map_err(|e| format!("git_error: {e}"))
 }
 
 #[tauri::command]
-pub async fn github_pull(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn github_pull(app: tauri::AppHandle) -> Result<SyncResult, String> {
     let db_path = app_db_path(&app)?;
     let db = ConfigDb::open(&db_path).map_err(|e| e.to_string())?;
 

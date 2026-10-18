@@ -10,6 +10,7 @@
 
 use crate::commands::sync_cmd::{configure_inner, disconnect_inner, get_config_inner};
 use crate::db::ConfigDb;
+use crate::git::ConnectChoice;
 use tempfile::TempDir;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -57,6 +58,7 @@ fn pat_stored_in_keyring_not_db() {
         &remote_url,
         "my-secret-pat",
         vault.path().to_str().unwrap(),
+        ConnectChoice::Sync,
     );
     assert!(result.is_ok(), "TC-12: configure_inner should succeed");
 
@@ -93,6 +95,7 @@ fn get_config_does_not_return_pat() {
         &remote_url,
         "super-secret",
         vault.path().to_str().unwrap(),
+        ConnectChoice::Sync,
     )
     .unwrap();
 
@@ -119,6 +122,7 @@ fn disconnect_removes_url_and_pat() {
         &remote_url,
         "another-pat",
         vault.path().to_str().unwrap(),
+        ConnectChoice::Sync,
     )
     .unwrap();
 

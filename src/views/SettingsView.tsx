@@ -15,31 +15,15 @@ export function SettingsView(): JSX.Element {
   const disconnect = useSyncStore((s) => s.disconnect);
 
   const vaultPath = useVaultStore((s) => s.vaultPath);
-  const tree = useVaultStore((s) => s.tree);
 
   const [repoUrl, setRepoUrl] = useState('');
   const [pat, setPat] = useState('');
-  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
-  const vaultHasFiles = tree.length > 0;
-
+  // Connecting only previews the remote; any decision is asked by <SyncDialogs />.
   const handleConnect = () => {
     if (!repoUrl || !pat || !vaultPath) return;
-    if (vaultHasFiles) {
-      // Show confirm before overwriting remote
-      setShowOverwriteConfirm(true);
-    } else {
-      // Empty vault: clone directly
-      connect(repoUrl, pat, vaultPath);
-    }
-  };
-
-  const handleConfirmConnect = () => {
-    setShowOverwriteConfirm(false);
-    if (vaultPath) {
-      connect(repoUrl, pat, vaultPath);
-    }
+    connect(repoUrl, pat, vaultPath);
   };
 
   const handleDisconnect = () => {
@@ -203,16 +187,6 @@ export function SettingsView(): JSX.Element {
       <VoiceSettings />
 
       <Trash />
-
-      {/* Overwrite confirm dialog */}
-      <ConfirmDialog
-        open={showOverwriteConfirm}
-        title="Sobrescribir repositorio remoto"
-        message="Los ficheros actuales del vault se subirán al repositorio remoto, sobrescribiendo su contenido. ¿Continuar?"
-        confirmLabel="Conectar y subir"
-        onConfirm={handleConfirmConnect}
-        onCancel={() => setShowOverwriteConfirm(false)}
-      />
 
       {/* Disconnect confirm dialog */}
       <ConfirmDialog
