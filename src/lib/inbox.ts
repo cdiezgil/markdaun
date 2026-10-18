@@ -1,4 +1,4 @@
-import type { InboxKind } from './tauri';
+import type { InboxKind, QuickSummary } from './tauri';
 
 /** Human file size with a decimal comma (es-ES): 512 B, 1,5 KB, 5 MB. */
 export function formatSize(bytes: number): string {
@@ -35,4 +35,12 @@ export function inboxErrorMessage(error: string): string {
 
 export function pluralize(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Confirmation shown in the main window after a quick capture. */
+export function captureToast(s: QuickSummary): string {
+  if (s.kind === 'clip' && s.clipped === false) {
+    return `No se pudo recortar la página (${s.failure ?? 'motivo desconocido'}). Guardé el enlace en Entrada.`;
+  }
+  return 'Guardado en Entrada';
 }

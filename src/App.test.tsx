@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { listen } from '@tauri-apps/api/event';
 import { App } from './App';
 import { useVaultStore } from './store/vaultStore';
 import React from 'react';
 
 const mockInvoke = vi.mocked(invoke);
 const mockGetCurrentWindow = vi.mocked(getCurrentWindow);
+const mockListen = vi.mocked(listen);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -87,78 +89,121 @@ describe('Brain sidebar', () => {
   });
 });
 
-describe('guarda de cierre de ventana', () => {
-  let closeHandler: ((event: { preventDefault(): void }) => void) | undefined;
-  const mockClose = vi.fn().mockResolvedValue(undefined);
+describe('presencia en la barra de menús y guarda de salida', () => {
+  const handlers = new Map<string, (e: { payload?: unknown }) => void>();
 
   beforeEach(() => {
-    closeHandler = undefined;
-    mockGetCurrentWindow.mockReturnValue({
-      onCloseRequested: vi.fn((cb: (event: { preventDefault(): void }) => void) => {
-        closeHandler = cb;
-        return Promise.resolve(() => {});
-      }),
-      close: mockClose,
-    } as unknown as ReturnType<typeof getCurrentWindow>);
+    handlers.clear();
+    mockListen.mockImplementation((async (name: string, cb: (e: { payload?: unknown }) => void) => {
+      handlers.set(name, cb);
+      return () => {};
+    }) as never);
   });
 
-  function triggerClose() {
-    const event = { preventDefault: vi.fn() };
-    closeHandler!(event);
-    return event;
+  async function setSync(hasChanges: boolean) {
+    const { useSyncStore } = await import('./store/syncStore');
+    useSyncStore.setState({
+      config: { repoUrl: 'https://github.com/x/y', isConnected: true },
+      status: { hasChanges },
+    });
   }
 
-  it('con sync conectado y cambios pendientes, el cierre se intercepta y muestra el diálogo', async () => {
-    const { useSyncStore } = await import('./store/syncStore');
-    useSyncStore.setState({
-      config: { repoUrl: 'https://github.com/x/y', isConnected: true },
-      status: { hasChanges: true },
-    });
+  const requestQuit = async () => {
+    await waitFor(() => expect(handlers.has('request-quit')).toBe(true));
+    await act(async () => handlers.get('request-quit')!({}));
+  };
+
+  it('ya no intercepta el cierre desde JS: ocultar la ventana lo hace el backend', async () => {
+    mockInvoke.mockResolvedValue(null);
+    const onCloseRequested = vi.fn().mockResolvedValue(() => {});
+    mockGetCurrentWindow.mockReturnValue({
+      onDragDropEvent: vi.fn().mockResolvedValue(() => {}),
+      onCloseRequested,
+    } as unknown as ReturnType<typeof getCurrentWindow>);
+    render(<App />);
+    await waitFor(() => expect(handlers.has('request-quit')).toBe(true));
+    expect(onCloseRequested).not.toHaveBeenCalled();
+  });
+
+  it('Salir con sync conectado y cambios pendientes muestra el diálogo y no sale todavía', async () => {
+    await setSync(true);
     mockInvoke.mockResolvedValue(null);
     render(<App />);
-
-    await waitFor(() => expect(closeHandler).toBeDefined());
-    const event = triggerClose();
-
-    expect(event.preventDefault).toHaveBeenCalled();
+    await requestQuit();
     expect(await screen.findByTestId('exit-dialog')).toBeInTheDocument();
+    expect(mockInvoke).not.toHaveBeenCalledWith('quit_app');
   });
 
-  it('"Salir sin sincronizar" cierra la ventana sin re-interceptar el cierre', async () => {
-    const { useSyncStore } = await import('./store/syncStore');
-    useSyncStore.setState({
-      config: { repoUrl: 'https://github.com/x/y', isConnected: true },
-      status: { hasChanges: true },
-    });
+  it('"Salir sin sincronizar" sale de verdad', async () => {
+    await setSync(true);
     mockInvoke.mockResolvedValue(null);
     render(<App />);
-
-    await waitFor(() => expect(closeHandler).toBeDefined());
-    triggerClose();
+    await requestQuit();
     const { default: userEvent } = await import('@testing-library/user-event');
-    const user = userEvent.setup();
-    const quitButton = await screen.findByRole('button', { name: /salir sin sincronizar/i });
-    await user.click(quitButton);
-
-    await waitFor(() => expect(mockClose).toHaveBeenCalled());
-    // La segunda pasada por el guarda (la de window.close()) no debe re-abrir el diálogo
-    triggerClose();
+    await userEvent.setup().click(await screen.findByRole('button', { name: /salir sin sincronizar/i }));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('quit_app'));
     expect(screen.queryByTestId('exit-dialog')).toBeNull();
   });
 
-  it('sin cambios pendientes, el cierre no se intercepta', async () => {
-    const { useSyncStore } = await import('./store/syncStore');
-    useSyncStore.setState({
-      config: { repoUrl: 'https://github.com/x/y', isConnected: true },
-      status: { hasChanges: false },
-    });
+  it('"Cancelar" cierra el diálogo y la app sigue viva', async () => {
+    await setSync(true);
     mockInvoke.mockResolvedValue(null);
     render(<App />);
-
-    await waitFor(() => expect(closeHandler).toBeDefined());
-    const event = triggerClose();
-
-    expect(event.preventDefault).not.toHaveBeenCalled();
+    await requestQuit();
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.setup().click(await screen.findByRole('button', { name: /cancelar/i }));
     expect(screen.queryByTestId('exit-dialog')).toBeNull();
+    expect(mockInvoke).not.toHaveBeenCalledWith('quit_app');
+  });
+
+  it('sin cambios pendientes, Salir sale directamente', async () => {
+    await setSync(false);
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+    await requestQuit();
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('quit_app'));
+    expect(screen.queryByTestId('exit-dialog')).toBeNull();
+  });
+
+  it('sin sync conectado, Salir sale directamente', async () => {
+    const { useSyncStore } = await import('./store/syncStore');
+    useSyncStore.setState({ config: { repoUrl: '', isConnected: false }, status: { hasChanges: true } });
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+    await requestQuit();
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('quit_app'));
+  });
+});
+
+describe('capturas rápidas', () => {
+  const handlers = new Map<string, (e: { payload?: unknown }) => void>();
+  beforeEach(() => {
+    handlers.clear();
+    mockListen.mockImplementation((async (name: string, cb: (e: { payload?: unknown }) => void) => {
+      handlers.set(name, cb);
+      return () => {};
+    }) as never);
+  });
+
+  it('muestra "Guardado en Entrada" y refresca la entrada cuando llega una captura', async () => {
+    mockInvoke.mockResolvedValue([] as never);
+    useVaultStore.setState({ vaultPath: '/v', tree: [], isLoading: false, error: null });
+    render(<App />);
+    await waitFor(() => expect(handlers.has('inbox-captured')).toBe(true));
+    await act(async () =>
+      handlers.get('inbox-captured')!({ payload: { kind: 'note', rel_path: 'Entrada/C.md', clipped: null, failure: null } }),
+    );
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Guardado en Entrada');
+    expect(mockInvoke).toHaveBeenCalledWith('inbox_list', { vaultPath: '/v' });
+  });
+
+  it('avisa cuando solo se pudo guardar el enlace', async () => {
+    mockInvoke.mockResolvedValue([] as never);
+    render(<App />);
+    await waitFor(() => expect(handlers.has('inbox-captured')).toBe(true));
+    await act(async () =>
+      handlers.get('inbox-captured')!({ payload: { kind: 'clip', rel_path: 'Entrada/h.md', clipped: false, failure: 'HTTP 404' } }),
+    );
+    expect(await screen.findByTestId('toast')).toHaveTextContent('enlace');
   });
 });

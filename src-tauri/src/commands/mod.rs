@@ -65,3 +65,8 @@ pub mod capture_cmd;
 pub use capture_cmd::*;
 #[cfg(test)]
 mod capture_cmd_tests;
+
+pub mod quick_cmd;
+pub use quick_cmd::*;
+#[cfg(test)]
+mod quick_cmd_tests;
