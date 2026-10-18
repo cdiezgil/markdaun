@@ -51,7 +51,8 @@ export function buildEditorExtensions({
       protocols: ['https', 'http', 'mailto'],
       validate: (href) => /^https?:\/\//i.test(href) || href.startsWith('mailto:'),
     }),
-    Image.configure({ inline: false, allowBase64: false }),
+    // The typing rule for `![alt](path)` lives in MarkdownTyping (it resolves relative paths).
+    Image.extend({ addInputRules: () => [] }).configure({ inline: false, allowBase64: false }),
     Table.configure({ resizable: false }),
     TableRow,
     TableCell,
