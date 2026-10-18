@@ -31,7 +31,7 @@ function ProposalCard({
   ctx,
 }: {
   stateKey: string;
-  proposal: { path: string; mode: 'create' | 'append'; content: string };
+  proposal: { path: string; mode: 'create' | 'append'; content: string; adjusted?: boolean };
   ctx: NoteContext;
 }): JSX.Element {
   const saved = useNoteProposalStore((s) => s.states[stateKey]);

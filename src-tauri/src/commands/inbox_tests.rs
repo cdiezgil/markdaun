@@ -1,5 +1,5 @@
 use super::inbox::{
-    archive_source_inner, folder_tree, inbox_discard_inner, inbox_ensure_inner, inbox_list_inner,
+    archive_source_inner, folder_tree, last_area_get, last_area_set, list_areas, inbox_discard_inner, inbox_ensure_inner, inbox_list_inner,
     trash_delete_inner, trash_list_inner, trash_restore_inner, InboxKind,
 };
 use std::fs;
@@ -237,4 +237,35 @@ fn folder_tree_excludes_entrada_fuentes_hidden_and_respects_depth() {
     let mut sorted = tree.clone();
     sorted.sort();
     assert_eq!(tree, sorted);
+}
+
+// ── areas ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn areas_are_top_level_folders_without_entrada_or_hidden_ones() {
+    let vault = tempdir().unwrap();
+    for d in ["Mutua/Sub", "Personal", "Entrada", ".markdaun", ".git", "Zeta"] {
+        fs::create_dir_all(vault.path().join(d)).unwrap();
+    }
+    fs::write(vault.path().join("suelta.md"), "x").unwrap();
+    assert_eq!(list_areas(vault.path()), ["Mutua", "Personal", "Zeta"]);
+}
+
+#[test]
+fn a_vault_without_folders_has_no_areas() {
+    let vault = tempdir().unwrap();
+    assert!(list_areas(vault.path()).is_empty());
+}
+
+#[test]
+fn last_area_is_remembered_per_vault() {
+    let db = tempfile::NamedTempFile::new().unwrap();
+    assert_eq!(last_area_get(db.path(), "/v/a"), None);
+    last_area_set(db.path(), "/v/a", "Mutua").unwrap();
+    last_area_set(db.path(), "/v/b", "Personal").unwrap();
+    assert_eq!(last_area_get(db.path(), "/v/a").as_deref(), Some("Mutua"));
+    assert_eq!(last_area_get(db.path(), "/v/b").as_deref(), Some("Personal"));
+    // The vault root is a valid area, stored as the empty string.
+    last_area_set(db.path(), "/v/a", "").unwrap();
+    assert_eq!(last_area_get(db.path(), "/v/a").as_deref(), Some(""));
 }

@@ -58,6 +58,12 @@ beforeEach(() => {
 });
 
 describe('brainStore.digest', () => {
+  it('passes the chosen area to the backend', async () => {
+    route([RESULT('c1')]);
+    await useBrainStore.getState().digest([item('a.md', 'md')], '/v', 'Mutua');
+    expect(mockInvoke).toHaveBeenCalledWith('brain_digest', expect.objectContaining({ sourcePath: 'Entrada/a.md', area: 'Mutua' }));
+  });
+
   it('digests a text source and opens the new conversation', async () => {
     route([RESULT('c1')]);
     await useBrainStore.getState().digest([item('a.md', 'md')], '/v');
@@ -66,6 +72,7 @@ describe('brainStore.digest', () => {
       vaultPath: '/v',
       attachments: null,
       sourceText: null,
+      area: null,
     });
     const s = useBrainStore.getState();
     expect(s.currentConversationId).toBe('c1');
@@ -89,6 +96,7 @@ describe('brainStore.digest', () => {
       vaultPath: '/v',
       attachments: [{ vaultPath: 'Entrada/b.pdf', derived: { images: [], text: 'hola', pageCount: 3 } }],
       sourceText: null,
+      area: null,
     });
   });
 
@@ -104,6 +112,7 @@ describe('brainStore.digest', () => {
       vaultPath: '/v',
       attachments: null,
       sourceText: 'texto largo',
+      area: null,
     });
   });
 

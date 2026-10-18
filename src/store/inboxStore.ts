@@ -1,5 +1,14 @@
 import { create } from 'zustand';
-import { inboxClipUrl, inboxDiscard, inboxList, type ClipSummary, type InboxItem } from '../lib/tauri';
+import {
+  inboxClipUrl,
+  inboxDiscard,
+  inboxGetLastArea,
+  inboxList,
+  inboxListAreas,
+  inboxSetLastArea,
+  type ClipSummary,
+  type InboxItem,
+} from '../lib/tauri';
 
 interface InboxState {
   items: InboxItem[];
@@ -9,7 +18,13 @@ interface InboxState {
   /** A URL is being clipped. */
   clipping: boolean;
   error: string | null;
+  /** Digestion areas (top-level folders) of the vault. */
+  areas: string[];
+  /** Area of the previous digestion ('' = vault root); null if none yet. */
+  lastArea: string | null;
 
+  loadAreas(vaultPath: string): Promise<void>;
+  rememberArea(vaultPath: string, area: string): Promise<void>;
   load(vaultPath: string): Promise<void>;
   toggle(relPath: string): void;
   selectAll(): void;
@@ -25,6 +40,26 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   loading: false,
   clipping: false,
   error: null,
+  areas: [],
+  lastArea: null,
+
+  async loadAreas(vaultPath) {
+    try {
+      const [areas, lastArea] = await Promise.all([inboxListAreas(vaultPath), inboxGetLastArea(vaultPath)]);
+      set({ areas, lastArea: lastArea ?? null });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async rememberArea(vaultPath, area) {
+    set({ lastArea: area });
+    try {
+      await inboxSetLastArea(vaultPath, area);
+    } catch {
+      /* remembering the area is a convenience */
+    }
+  },
 
   async load(vaultPath) {
     set({ loading: true });

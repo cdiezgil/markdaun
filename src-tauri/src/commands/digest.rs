@@ -188,9 +188,30 @@ fn folder_listing(folders: &[String]) -> String {
     out
 }
 
-fn system_prompt(source_name: &str, extra: &str, folders: &[String], vault_notes: &[String]) -> String {
+/// Folders of `area` (the area itself and everything under it). The vault
+/// root ('') has no folders to offer.
+pub fn area_folders(folders: &[String], area: &str) -> Vec<String> {
+    if area.is_empty() {
+        return Vec::new();
+    }
+    let prefix = format!("{area}/");
+    folders.iter().filter(|f| f.as_str() == area || f.starts_with(&prefix)).cloned().collect()
+}
+
+fn area_instruction(area: Option<&str>) -> String {
+    match area {
+        None => String::new(),
+        Some("") => "\n\nÁREA ELEGIDA POR EL USUARIO: la raíz de la bóveda. Todas las notas que propongas deben ir en la raíz de la bóveda, sin carpetas.".to_string(),
+        Some(a) => format!(
+            "\n\nÁREA ELEGIDA POR EL USUARIO: «{a}». El usuario ya ha clasificado esta fuente: TODAS las notas que propongas deben estar dentro de la carpeta «{a}/» (puedes usar o proponer subcarpetas dentro de ella). No uses rutas fuera de esa área."
+        ),
+    }
+}
+
+fn system_prompt(source_name: &str, extra: &str, folders: &[String], vault_notes: &[String], area: Option<&str>) -> String {
     format!(
-        "Eres un asistente de conocimiento personal que organiza el material entrante del usuario.\n\n{NOTE_BLOCK_INSTRUCTION}\n\n{DIGEST_INSTRUCTION}{extra}\n\nArchivo fuente: «{source_name}».\n\n{}\n\n{}",
+        "Eres un asistente de conocimiento personal que organiza el material entrante del usuario.\n\n{NOTE_BLOCK_INSTRUCTION}\n\n{DIGEST_INSTRUCTION}{extra}{}\n\nArchivo fuente: «{source_name}».\n\n{}\n\n{}",
+        area_instruction(area),
         folder_listing(folders),
         vault_note_listing(vault_notes),
     )
@@ -204,6 +225,7 @@ pub fn build_digest_messages(
     part: Option<(usize, usize)>,
     folders: &[String],
     vault_notes: &[String],
+    area: Option<&str>,
 ) -> Vec<ChatMessage> {
     let extra = if part.is_some() {
         "\n\nLa fuente es muy larga y se digiere por partes: en este turno solo recibes una parte. Propón las notas CANDIDATAS que salgan de esta parte (un turno posterior las consolidará); no repitas contenido de otras partes."
@@ -218,7 +240,7 @@ pub fn build_digest_messages(
         (None, _) => format!("Digiere el archivo adjunto «{source_name}»."),
     };
     vec![
-        ChatMessage::text("system", system_prompt(source_name, extra, folders, vault_notes)),
+        ChatMessage::text("system", system_prompt(source_name, extra, folders, vault_notes, area)),
         ChatMessage::text("user", user),
     ]
 }
@@ -230,6 +252,7 @@ pub fn build_consolidation_messages(
     candidates: &[NoteBlock],
     folders: &[String],
     vault_notes: &[String],
+    area: Option<&str>,
 ) -> Vec<ChatMessage> {
     let extra = "\n\nEstás en el turno de CONSOLIDACION de una fuente digerida por partes.";
     let mut user = format!(
@@ -250,9 +273,46 @@ pub fn build_consolidation_messages(
         "\n\nResponde SOLO con líneas de estas formas (una por línea):\nFUSIONAR: 2, 5 => Carpeta/nueva.md   (une candidatas duplicadas o solapadas en una sola nota)\nDESCARTAR: 3   (candidata redundante)\nLas candidatas que no menciones se conservan tal cual. Si la fuente es larga o multitema, añade además UNA nota índice que enlace las demás con [[wikilinks]] a sus rutas finales, como bloque markdaun-note con mode=\"create\", terminada con la línea Fuente:.",
     );
     vec![
-        ChatMessage::text("system", system_prompt(source_name, extra, folders, vault_notes)),
+        ChatMessage::text("system", system_prompt(source_name, extra, folders, vault_notes, area)),
         ChatMessage::text("user", user),
     ]
+}
+
+// ─── Area enforcement ─────────────────────────────────────────────────────────
+
+/// Moves a path into `area`: another area's first segment is replaced, any
+/// other path is placed under the area.
+fn into_area(path: &str, area: &str, areas: &[String]) -> String {
+    let prefix = format!("{area}/");
+    if path.starts_with(&prefix) {
+        return path.to_string();
+    }
+    let rest = match path.split_once('/') {
+        Some((first, rest)) if areas.iter().any(|a| a == first) => rest,
+        _ => path,
+    };
+    format!("{prefix}{rest}")
+}
+
+/// Rewrites proposal blocks whose path falls outside `area` into it and flags
+/// them with `adjusted="true"` so the card can say so. No-op without an area
+/// or for the vault root.
+pub fn enforce_area(answer: &str, area: Option<&str>, areas: &[String]) -> String {
+    let Some(area) = area.filter(|a| !a.is_empty()) else { return answer.to_string() };
+    answer
+        .split_inclusive('\n')
+        .map(|line| {
+            let Some(attrs) = line.strip_prefix("```markdaun-note") else { return line.to_string() };
+            let Some(path) = attr(attrs, "path") else { return line.to_string() };
+            let fixed = into_area(&path, area, areas);
+            if fixed == path {
+                return line.to_string();
+            }
+            let tail = if line.ends_with('\n') { "\n" } else { "" };
+            let rest = attrs.trim_end().replacen(&format!("path=\"{path}\""), &format!("path=\"{fixed}\" adjusted=\"true\""), 1);
+            format!("```markdaun-note{rest}{tail}")
+        })
+        .collect()
 }
 
 // ─── Consolidation plan ───────────────────────────────────────────────────────
@@ -379,6 +439,9 @@ pub struct DigestRequest<'a> {
     /// limit); otherwise the prompt only mentions them.
     pub images: &'a [ExtractedImage],
     pub chunk_chars: usize,
+    /// Area chosen by the user (top-level folder; '' = vault root). `None`
+    /// leaves the whole folder tree open to the model.
+    pub area: Option<&'a str>,
 }
 
 /// Picks the extracted images to attach and the note for the prompt about the
@@ -447,7 +510,11 @@ pub async fn digest_core(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| req.source_rel.to_string());
-    let folders = folder_tree(vault, FOLDER_DEPTH);
+    let areas = super::inbox::list_areas(vault);
+    let folders = match req.area {
+        Some(a) => area_folders(&folder_tree(vault, FOLDER_DEPTH), a),
+        None => folder_tree(vault, FOLDER_DEPTH),
+    };
     let vault_notes: Vec<String> = list_vault_notes(vault)
         .iter()
         .map(|f| relative_note_path(vault, f))
@@ -474,7 +541,7 @@ pub async fn digest_core(
     let total = chunks.len().max(1);
 
     let answer = if total == 1 {
-        let mut messages = build_digest_messages(&name, chunks.first().map(String::as_str), None, &folders, &vault_notes);
+        let mut messages = build_digest_messages(&name, chunks.first().map(String::as_str), None, &folders, &vault_notes, req.area);
         if let Some(last) = messages.last_mut() {
             last.attachments = attachments.clone();
         }
@@ -484,7 +551,7 @@ pub async fn digest_core(
         let mut raw: Vec<String> = Vec::new();
         for (i, chunk) in chunks.iter().enumerate() {
             progress(DigestProgress { source: req.source_rel.to_string(), part: i + 1, total, consolidating: false });
-            let mut messages = build_digest_messages(&name, Some(chunk), Some((i + 1, total)), &folders, &vault_notes);
+            let mut messages = build_digest_messages(&name, Some(chunk), Some((i + 1, total)), &folders, &vault_notes, req.area);
             if i == 0 {
                 if let Some(last) = messages.last_mut() {
                     last.attachments = attachments.clone();
@@ -498,7 +565,7 @@ pub async fn digest_core(
             raw.join("\n\n")
         } else {
             progress(DigestProgress { source: req.source_rel.to_string(), part: total, total, consolidating: true });
-            let messages = build_consolidation_messages(&name, &candidates, &folders, &vault_notes);
+            let messages = build_consolidation_messages(&name, &candidates, &folders, &vault_notes, req.area);
             let finals = match engines::chat(conn, model, &messages, secret, env).await {
                 Ok(plan) => apply_consolidation_plan(&candidates, &plan),
                 // Consolidation is an optimisation: keep every candidate.
@@ -509,9 +576,15 @@ pub async fn digest_core(
         }
     };
 
+    let answer = enforce_area(&answer, req.area, &areas);
+    let title = match req.area {
+        Some("") => format!("Digerir: {name} · raíz"),
+        Some(a) => format!("Digerir: {name} · {a}"),
+        None => format!("Digerir: {name}"),
+    };
     let db = ConversationsDb::open(db_path).map_err(|e| format!("db_error: {e}"))?;
     let conv_id = db
-        .create_digest_conversation(req.vault_path, &format!("Digerir: {name}"), req.source_rel)
+        .create_digest_conversation(req.vault_path, &title, req.source_rel)
         .map_err(|e| format!("db_error: {e}"))?;
     db.set_scope(&conv_id, &QueryScope::Vault).map_err(|e| format!("db_error: {e}"))?;
     let mut stored = format!("Digerir «{name}»");
@@ -539,7 +612,8 @@ fn is_text_source(rel: &str) -> bool {
 /// Digests one inbox source with the active connection. `.md`/`.txt` are read
 /// here; for PDFs the frontend may pass its extracted text (`source_text`)
 /// when the file exceeds the attachment limits; otherwise PDFs and images go
-/// through `attachments`. Emits `digest-progress` for multi-part sources.
+/// through `attachments`. `area` is the top-level folder the user chose ('' =
+/// vault root); proposals are kept inside it. Emits `digest-progress` for multi-part sources.
 #[tauri::command]
 pub async fn brain_digest(
     app: tauri::AppHandle,
@@ -548,6 +622,7 @@ pub async fn brain_digest(
     vault_path: String,
     attachments: Option<Vec<AttachmentInput>>,
     source_text: Option<String>,
+    area: Option<String>,
 ) -> Result<DigestResult, String> {
     let db_path = app_db_path(&app)?;
     let (conn, model, secret) = resolve_active(&db_path, &env)?;
@@ -579,6 +654,7 @@ pub async fn brain_digest(
         attachments: &inputs,
         images: &images,
         chunk_chars: DIGEST_CHUNK_CHARS,
+        area: area.as_deref(),
     };
     let emitter = app.clone();
     digest_core(&db_path, &req, &conn, &model, secret.as_deref(), &env, &move |p| {

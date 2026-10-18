@@ -424,13 +424,29 @@ export async function brainDigest(
   vaultPath: string,
   attachments?: AttachmentInput[],
   sourceText?: string,
+  area?: string,
 ): Promise<DigestResult> {
   return invoke<DigestResult>('brain_digest', {
     sourcePath,
     vaultPath,
     attachments: attachments && attachments.length > 0 ? attachments : null,
     sourceText: sourceText ?? null,
+    area: area ?? null,
   });
+}
+
+/** Digestion areas: the vault's top-level folders (without `Entrada/`). */
+export async function inboxListAreas(vaultPath: string): Promise<string[]> {
+  return invoke<string[]>('inbox_list_areas', { vaultPath });
+}
+
+/** Area used by the previous digestion ('' = vault root); null if never set. */
+export async function inboxGetLastArea(vaultPath: string): Promise<string | null> {
+  return invoke<string | null>('inbox_get_last_area', { vaultPath });
+}
+
+export async function inboxSetLastArea(vaultPath: string, area: string): Promise<void> {
+  return invoke<void>('inbox_set_last_area', { vaultPath, area });
 }
 
 /** Subscribe to multi-part digestion progress (`digest-progress`). */

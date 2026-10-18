@@ -6,6 +6,7 @@ import { useInboxStore } from '../../store/inboxStore';
 import { useBrainStore } from '../../store/brainStore';
 import { useLlmStore } from '../../store/llmStore';
 import { formatDate, formatSize, inboxErrorMessage, kindLabel, pluralize } from '../../lib/inbox';
+import { AreaMenu } from './AreaMenu';
 import type { ClipSummary, InboxItem } from '../../lib/tauri';
 
 const SMALL: React.CSSProperties = {
@@ -49,6 +50,10 @@ export function InboxView(): JSX.Element {
   const discard = useInboxStore((s) => s.discard);
   const clipUrl = useInboxStore((s) => s.clipUrl);
   const clipping = useInboxStore((s) => s.clipping);
+  const areas = useInboxStore((s) => s.areas);
+  const lastArea = useInboxStore((s) => s.lastArea);
+  const loadAreas = useInboxStore((s) => s.loadAreas);
+  const rememberArea = useInboxStore((s) => s.rememberArea);
   const llmLoaded = useLlmStore((s) => s.loaded);
   const llmActive = useLlmStore((s) => s.active);
   const loadLlm = useLlmStore((s) => s.load);
@@ -56,23 +61,47 @@ export function InboxView(): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [url, setUrl] = useState('');
   const [lastClip, setLastClip] = useState<ClipSummary | null>(null);
+  /** Items waiting for the user to pick an area; `anchor` is the row that opened the menu. */
+  const [choosing, setChoosing] = useState<{ list: InboxItem[]; anchor: string } | null>(null);
 
   useEffect(() => {
     void loadLlm();
   }, [loadLlm]);
 
   useEffect(() => {
-    if (vaultPath) void load(vaultPath);
-  }, [vaultPath, load]);
+    if (vaultPath) {
+      void load(vaultPath);
+      void loadAreas(vaultPath);
+    }
+  }, [vaultPath, load, loadAreas]);
 
   const noConnection = llmLoaded && !llmActive;
 
-  const digest = (list: InboxItem[]) => {
+  const askArea = (list: InboxItem[], anchor: string) => {
     if (!vaultPath || list.length === 0 || noConnection) return;
-    void useBrainStore.getState().digest(list, vaultPath);
+    setChoosing({ list, anchor });
+  };
+
+  const digestIn = (area: string) => {
+    if (!vaultPath || !choosing) return;
+    const { list } = choosing;
+    setChoosing(null);
+    void rememberArea(vaultPath, area);
+    void useBrainStore.getState().digest(list, vaultPath, area);
     clearSelection();
     navigate('/brain');
   };
+
+  const menu = (anchor: string) =>
+    choosing?.anchor === anchor ? (
+      <AreaMenu
+        areas={areas}
+        lastArea={lastArea}
+        count={choosing.list.length}
+        onChoose={digestIn}
+        onClose={() => setChoosing(null)}
+      />
+    ) : null;
 
   const submitUrl = async () => {
     const value = url.trim();
@@ -97,14 +126,14 @@ export function InboxView(): JSX.Element {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
         <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400 }}>Entrada</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
           <button data-testid="add-url" onClick={() => setAdding((v) => !v)} style={BUTTON}>
             <Link2 size={14} strokeWidth={1.5} /> Añadir URL
           </button>
           {chosen.length > 0 && (
             <button
               data-testid="digest-selected"
-              onClick={() => digest(chosen)}
+              onClick={() => askArea(chosen, 'selected')}
               disabled={noConnection}
               style={{
                 ...BUTTON,
@@ -117,6 +146,7 @@ export function InboxView(): JSX.Element {
               <Sparkles size={14} strokeWidth={1.5} /> Digerir seleccionados ({chosen.length})
             </button>
           )}
+          {menu('selected')}
         </div>
       </div>
       <p style={{ ...SMALL, margin: 'var(--space-2) 0 var(--space-4)' }}>
@@ -238,14 +268,17 @@ export function InboxView(): JSX.Element {
                   </div>
                 </div>
                 {it.supported && (
-                  <button
-                    data-testid={`digest-${it.name}`}
-                    onClick={() => digest([it])}
-                    disabled={noConnection}
-                    style={{ ...BUTTON, opacity: noConnection ? 0.5 : 1 }}
-                  >
-                    <Sparkles size={14} strokeWidth={1.5} color="var(--daun)" /> Digerir
-                  </button>
+                  <span style={{ position: 'relative', display: 'inline-flex' }}>
+                    <button
+                      data-testid={`digest-${it.name}`}
+                      onClick={() => askArea([it], it.rel_path)}
+                      disabled={noConnection}
+                      style={{ ...BUTTON, opacity: noConnection ? 0.5 : 1 }}
+                    >
+                      <Sparkles size={14} strokeWidth={1.5} color="var(--daun)" /> Digerir
+                    </button>
+                    {menu(it.rel_path)}
+                  </span>
                 )}
                 <button
                   data-testid={`discard-${it.name}`}

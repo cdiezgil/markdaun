@@ -5,7 +5,7 @@
 use super::brain_cmd::app_db_path;
 use super::fs_ops::{assert_within_vault, finish_relocation, MoveOutcome};
 use super::vault_index::spawn_index_update;
-use crate::db::ConversationsDb;
+use crate::db::{ConfigDb, ConversationsDb};
 use crate::fs::naming::unique_name;
 use crate::fs::tree::APP_DIR;
 use serde::Serialize;
@@ -319,6 +319,38 @@ pub fn folder_tree(vault: &Path, max_depth: usize) -> Vec<String> {
     out
 }
 
+// ─── Areas ────────────────────────────────────────────────────────────────────
+
+/// Digestion areas: the vault's top-level folders, sorted, without `Entrada/`
+/// and hidden folders. The vault root itself is an implicit extra area ('').
+pub fn list_areas(vault: &Path) -> Vec<String> {
+    let mut out: Vec<String> = std::fs::read_dir(vault)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| !n.starts_with('.') && n != INBOX_DIR)
+        .collect();
+    out.sort();
+    out
+}
+
+fn last_area_key(vault_path: &str) -> String {
+    format!("last_digest_area:{vault_path}")
+}
+
+/// The area used by the previous digestion in this vault ('' = vault root).
+pub fn last_area_get(db_path: &Path, vault_path: &str) -> Option<String> {
+    ConfigDb::open(db_path).ok()?.get(&last_area_key(vault_path)).ok().flatten()
+}
+
+pub fn last_area_set(db_path: &Path, vault_path: &str, area: &str) -> Result<(), String> {
+    ConfigDb::open(db_path)
+        .and_then(|db| db.set(&last_area_key(vault_path), area))
+        .map_err(|e| format!("db_error: {e}"))
+}
+
 // ─── Tauri commands ───────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -378,4 +410,21 @@ pub async fn archive_source(
     added.extend(out.rewritten.iter().filter(|p| **p != out.path).cloned());
     spawn_index_update(&app, vault_path, vec![path], added);
     Ok(out)
+}
+
+#[tauri::command]
+pub async fn inbox_list_areas(vault_path: String) -> Result<Vec<String>, String> {
+    Ok(list_areas(Path::new(&vault_path)))
+}
+
+#[tauri::command]
+pub async fn inbox_get_last_area(app: tauri::AppHandle, vault_path: String) -> Result<Option<String>, String> {
+    let db = app_db_path(&app)?;
+    Ok(last_area_get(&db, &vault_path))
+}
+
+#[tauri::command]
+pub async fn inbox_set_last_area(app: tauri::AppHandle, vault_path: String, area: String) -> Result<(), String> {
+    let db = app_db_path(&app)?;
+    last_area_set(&db, &vault_path, &area)
 }

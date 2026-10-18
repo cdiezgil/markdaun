@@ -33,6 +33,19 @@ function setup(proposal: NoteProposal = create, over: Partial<React.ComponentPro
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe('NoteProposalCard', () => {
+  it('says when the path was adjusted into the chosen area, and keeps the folder editable', async () => {
+    backend();
+    setup({ ...create, adjusted: true });
+    expect(screen.getByTestId('proposal-adjusted')).toHaveTextContent('Ruta ajustada al área');
+    expect(screen.getByTestId('proposal-path')).not.toHaveAttribute('readonly');
+  });
+
+  it('shows no notice for untouched paths', async () => {
+    backend();
+    setup();
+    expect(screen.queryByTestId('proposal-adjusted')).toBeNull();
+  });
+
   it('create: shows editable path, preview, and creates on click', async () => {
     backend();
     const { onWritten, onOpen } = setup();
