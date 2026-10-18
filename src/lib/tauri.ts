@@ -123,6 +123,10 @@ export interface BrainConversation {
   title: string;
   created_at: string;
   scope?: QueryScope;
+  /** Digestion conversations: vault-relative path of the source being digested. */
+  digest_source?: string | null;
+  /** The digested source was already moved to its `Fuentes/` folder. */
+  digest_archived?: boolean;
 }
 
 export interface BrainMessage {
@@ -301,4 +305,117 @@ export interface IndexProgress {
 /** Subscribe to Second Brain indexing progress (`brain-index-progress`). */
 export async function onBrainIndexProgress(cb: (p: IndexProgress) => void): Promise<() => void> {
   return listen<IndexProgress>('brain-index-progress', (event) => cb(event.payload));
+}
+
+// ── Inbox, trash and digestion ─────────────────────────────────────────────────
+
+export type InboxKind = 'md' | 'txt' | 'pdf' | 'image' | 'other';
+
+export interface InboxItem {
+  name: string;
+  /** Absolute path. */
+  path: string;
+  /** Vault-relative path (`Entrada/<name>`). */
+  rel_path: string;
+  kind: InboxKind;
+  size: number;
+  added_ms: number;
+  /** Digestion handles this type (otherwise only *Descartar*). */
+  supported: boolean;
+}
+
+export interface TrashItem {
+  id: string;
+  name: string;
+  /** Vault-relative location it came from. */
+  original_path: string;
+  deleted_ms: number;
+  size: number;
+}
+
+export interface DigestResult {
+  answer: string;
+  conversation_id: string;
+  message_id: string;
+  parts: number;
+}
+
+export interface DigestProgress {
+  /** Vault-relative source being digested. */
+  source: string;
+  part: number;
+  total: number;
+  /** The final consolidation turn is running. */
+  consolidating: boolean;
+}
+
+export interface ArchiveOutcome {
+  path: string;
+  rewritten: string[];
+}
+
+/** Creates `Entrada/` when missing; returns its absolute path. */
+export async function inboxEnsure(vaultPath: string): Promise<string> {
+  return invoke<string>('inbox_ensure', { vaultPath });
+}
+
+export async function inboxList(vaultPath: string): Promise<InboxItem[]> {
+  return invoke<InboxItem[]>('inbox_list', { vaultPath });
+}
+
+/** Moves an inbox item to the vault trash (nothing is deleted). */
+export async function inboxDiscard(path: string, vaultPath: string): Promise<void> {
+  return invoke<void>('inbox_discard', { path, vaultPath });
+}
+
+export async function trashList(vaultPath: string): Promise<TrashItem[]> {
+  return invoke<TrashItem[]>('trash_list', { vaultPath });
+}
+
+/** Puts a trashed item back; returns its absolute path. */
+export async function trashRestore(id: string, vaultPath: string): Promise<string> {
+  return invoke<string>('trash_restore', { id, vaultPath });
+}
+
+export async function trashDelete(id: string, vaultPath: string): Promise<void> {
+  return invoke<void>('trash_delete', { id, vaultPath });
+}
+
+/** Moves a digested source to `<targetFolder>/Fuentes/` rewriting links. */
+export async function archiveSource(
+  path: string,
+  targetFolder: string,
+  vaultPath: string,
+  conversationId?: string,
+): Promise<ArchiveOutcome> {
+  return invoke<ArchiveOutcome>('archive_source', {
+    path,
+    targetFolder,
+    vaultPath,
+    conversationId: conversationId ?? null,
+  });
+}
+
+/**
+ * Digest one inbox source into a dedicated conversation. `.md`/`.txt` are read
+ * by the backend; PDFs and images travel as `attachments`, or as `sourceText`
+ * when a PDF is too large to attach.
+ */
+export async function brainDigest(
+  sourcePath: string,
+  vaultPath: string,
+  attachments?: AttachmentInput[],
+  sourceText?: string,
+): Promise<DigestResult> {
+  return invoke<DigestResult>('brain_digest', {
+    sourcePath,
+    vaultPath,
+    attachments: attachments && attachments.length > 0 ? attachments : null,
+    sourceText: sourceText ?? null,
+  });
+}
+
+/** Subscribe to multi-part digestion progress (`digest-progress`). */
+export async function onDigestProgress(cb: (p: DigestProgress) => void): Promise<() => void> {
+  return listen<DigestProgress>('digest-progress', (event) => cb(event.payload));
 }

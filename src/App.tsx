@@ -18,6 +18,7 @@ import { TopBar } from './components/Shell/TopBar';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { useLlmStore } from './store/llmStore';
 import { viewForPath } from './lib/shell';
+import { InboxView } from './components/Inbox/InboxView';
 
 function AppLayout() {
   const [showExitDialog, setShowExitDialog] = useState(false);
@@ -79,6 +80,7 @@ function AppLayout() {
           <Route path="/graph" element={<GraphView />} />
           <Route path="/settings" element={<SettingsView />} />
           <Route path="/brain" element={<SecondBrainView />} />
+          <Route path="/inbox" element={<InboxView />} />
         </Routes>
         </main>
       </div>
