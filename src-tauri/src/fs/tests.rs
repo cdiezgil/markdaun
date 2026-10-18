@@ -107,3 +107,29 @@ fn walk_vault_hides_markdaun_folder() {
     assert!(find_entry(&tree, ".markdaun").is_none());
     assert!(find_entry(&tree, "note.md").is_some());
 }
+
+/// Hidden entries (`.git`, `.gitignore`, `.DS_Store`…) never show in the tree,
+/// at any depth; regular notes next to them still do.
+#[test]
+fn walk_vault_hides_dot_entries() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join(".git/objects")).unwrap();
+    fs::write(root.join(".git/HEAD"), b"ref: refs/heads/main").unwrap();
+    fs::write(root.join(".gitignore"), b".markdaun/").unwrap();
+    fs::write(root.join(".DS_Store"), b"").unwrap();
+    fs::create_dir_all(root.join("Mutua")).unwrap();
+    fs::write(root.join("Mutua/.DS_Store"), b"").unwrap();
+    fs::write(root.join("Mutua/plan.md"), b"").unwrap();
+    fs::write(root.join("note.md"), b"").unwrap();
+
+    let tree = walk_vault(root).unwrap();
+    assert!(find_entry(&tree, ".git").is_none());
+    assert!(find_entry(&tree, ".gitignore").is_none());
+    assert!(find_entry(&tree, ".DS_Store").is_none());
+    assert!(find_entry(&tree, "note.md").is_some());
+    let mutua = find_entry(&tree, "Mutua").expect("Mutua folder");
+    let children = mutua.children.as_ref().unwrap();
+    assert!(find_entry(children, ".DS_Store").is_none());
+    assert!(find_entry(children, "plan.md").is_some());
+}

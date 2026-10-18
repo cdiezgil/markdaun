@@ -65,8 +65,9 @@ fn build_tree(dir: &Path) -> Result<Vec<VaultEntry>, FsError> {
     for entry in entries {
         let meta = entry.metadata()?;
         let name = entry.file_name().to_string_lossy().to_string();
-        // The app's own folder (trash, internals) is never part of the vault tree.
-        if name == APP_DIR {
+        // Hidden entries (`.git`, `.gitignore`, `.DS_Store`, the app's own
+        // `.markdaun/`…) are never part of the vault tree.
+        if name.starts_with('.') {
             continue;
         }
         let canonical = entry.path().canonicalize()?;
