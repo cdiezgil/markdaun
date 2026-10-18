@@ -1,4 +1,5 @@
 use crate::db::config::DbError;
+use crate::fs::relink::remap_prefix;
 use rusqlite::Connection;
 use std::path::Path;
 
@@ -134,6 +135,41 @@ impl ConversationsDb {
         Ok(())
     }
 
+    /// After `old_rel` (a note or folder, vault-relative) moved to `new_rel`,
+    /// points every stored scope that referenced it at the new location.
+    /// Returns how many conversations changed.
+    pub fn remap_scope_paths(&self, vault_path: &str, old_rel: &str, new_rel: &str) -> Result<usize, DbError> {
+        let rows: Vec<(String, Option<String>)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, scope FROM conversations WHERE vault_path = ?1 AND scope IS NOT NULL")?;
+            let mapped = stmt.query_map(rusqlite::params![vault_path], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            mapped.filter_map(|r| r.ok()).collect()
+        };
+        let mut changed = 0;
+        for (id, raw) in rows {
+            let scope = parse_scope(raw);
+            let remapped = match &scope {
+                QueryScope::Vault => None,
+                QueryScope::Notes { paths } => {
+                    let new_paths: Vec<String> = paths
+                        .iter()
+                        .map(|p| remap_prefix(p, old_rel, new_rel).unwrap_or_else(|| p.clone()))
+                        .collect();
+                    (new_paths != *paths).then_some(QueryScope::Notes { paths: new_paths })
+                }
+                QueryScope::Folder { path } => {
+                    remap_prefix(path, old_rel, new_rel).map(|path| QueryScope::Folder { path })
+                }
+            };
+            if let Some(s) = remapped {
+                self.set_scope(&id, &s)?;
+                changed += 1;
+            }
+        }
+        Ok(changed)
+    }
+
     /// Delete a conversation and all its messages (CASCADE).
     pub fn delete_conversation(&self, id: &str) -> Result<(), DbError> {
         self.conn.execute(
@@ -215,6 +251,34 @@ mod tests {
         )
         .unwrap();
         ConversationsDb { conn }
+    }
+
+    #[test]
+    fn remap_scope_paths_updates_notes_and_folder_scopes() {
+        let db = make_db();
+        let notes = db.create_conversation("/vault", "n").unwrap();
+        db.set_scope(&notes, &QueryScope::Notes { paths: vec!["a/Old.md".into(), "keep.md".into()] }).unwrap();
+        let folder = db.create_conversation("/vault", "f").unwrap();
+        db.set_scope(&folder, &QueryScope::Folder { path: "proj/sub".into() }).unwrap();
+        let vault_scope = db.create_conversation("/vault", "v").unwrap();
+        let other_vault = db.create_conversation("/otra", "o").unwrap();
+        db.set_scope(&other_vault, &QueryScope::Notes { paths: vec!["a/Old.md".into()] }).unwrap();
+
+        assert_eq!(db.remap_scope_paths("/vault", "a/Old.md", "a/New.md").unwrap(), 1);
+        assert_eq!(db.remap_scope_paths("/vault", "proj", "arch/proj").unwrap(), 1);
+        assert_eq!(db.remap_scope_paths("/vault", "nada", "x").unwrap(), 0);
+
+        assert_eq!(
+            db.get_scope(&notes).unwrap(),
+            QueryScope::Notes { paths: vec!["a/New.md".into(), "keep.md".into()] }
+        );
+        assert_eq!(db.get_scope(&folder).unwrap(), QueryScope::Folder { path: "arch/proj/sub".into() });
+        assert_eq!(db.get_scope(&vault_scope).unwrap(), QueryScope::Vault);
+        assert_eq!(
+            db.get_scope(&other_vault).unwrap(),
+            QueryScope::Notes { paths: vec!["a/Old.md".into()] },
+            "other vaults are untouched"
+        );
     }
 
     /// TC-07: create_conversation returns UUID and list shows it.

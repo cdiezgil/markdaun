@@ -17,6 +17,8 @@ import { HighlightExtension } from './extensions/HighlightExtension';
 import { TagExtension } from './extensions/TagExtension';
 import { convertAssetSrc } from '../../lib/tauri';
 import BacklinksSection from './BacklinksSection';
+import { useH1Follow } from '../../hooks/useH1Follow';
+import { firstH1ContentEnd } from '../../lib/h1Follow';
 
 import './editor.css';
 
@@ -36,8 +38,15 @@ export function noteCaption(notePath: string, vaultPath: string | null, savedAt:
 }
 
 export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
-  const { activeNoteContent, activeNotePath, vaultPath, lastSavedAt, setContent, setSelectionText } =
-    useEditorStore();
+  const {
+    activeNoteContent,
+    activeNotePath,
+    vaultPath,
+    lastSavedAt,
+    loadVersion,
+    setContent,
+    setSelectionText,
+  } = useEditorStore();
 
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
 
@@ -106,14 +115,23 @@ export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
-  // Reload content when activeNotePath changes
+  // Reload content when a note is (re)loaded. A rename changes the path but
+  // not the content, so it must not reset the cursor or unsaved edits.
   useEffect(() => {
     if (!editor) return;
     if (activeNoteContent !== null) {
       editor.commands.setContent(activeNoteContent);
     }
+    // A brand-new note opens with the cursor in its empty H1.
+    if (useEditorStore.getState().focusTitleOnOpen) {
+      const end = firstH1ContentEnd(editor);
+      if (end !== null) editor.commands.focus(end);
+      useEditorStore.setState({ focusTitleOnOpen: false });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeNotePath]);
+  }, [loadVersion]);
+
+  useH1Follow(editor);
 
   // Handle drag-and-drop of images
   const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {

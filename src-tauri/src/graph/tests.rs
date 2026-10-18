@@ -69,6 +69,18 @@ fn extracts_md_link() {
     assert_eq!(links[0].1, c.canonicalize().unwrap(), "TC-04: target should be sub/c.md");
 }
 
+#[test]
+fn extracts_url_encoded_md_link() {
+    let vault = tempdir().unwrap();
+    let a = create_file(vault.path(), "a.md", "[ver](Nota%20dos.md)");
+    let b = create_file(vault.path(), "Nota dos.md", "# B");
+    let all_files = vec![a.clone(), b.clone()];
+
+    let links = extract_links(&a, vault.path(), &all_files);
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].1, b.canonicalize().unwrap());
+}
+
 // ── TC-05: External URL ignored ───────────────────────────────────────────────
 
 #[test]

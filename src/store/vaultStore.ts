@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { useEditorStore } from './editorStore';
 
 export interface VaultEntry {
   name: string;
@@ -14,6 +15,13 @@ interface VaultState {
   tree: VaultEntry[];
   isLoading: boolean;
   error: string | null;
+  /** Folder new notes are created in (null = vault root). */
+  selectedFolder: string | null;
+  selectFolder(path: string | null): void;
+  /** A note was clicked: its folder becomes the selected one. */
+  selectNoteLocation(notePath: string): void;
+  /** Creates `Sin título.md` without asking; returns its path. */
+  createUntitledNote(parentPath?: string): Promise<string>;
   openVault(): Promise<void>;
   loadVault(): Promise<void>;
   refreshTree(): Promise<void>;
@@ -25,11 +33,55 @@ interface VaultState {
   importFileData(destFolderPath: string, fileName: string, contents: Uint8Array): Promise<void>;
 }
 
+interface MoveOutcome {
+  path: string;
+  rewritten: string[];
+}
+
+/** Forgets the selected folder when it lives under a renamed/moved entry. */
+function clearSelectionUnder(
+  path: string,
+  set: (partial: Partial<VaultState>) => void,
+  get: () => VaultState,
+) {
+  const sel = get().selectedFolder;
+  if (sel && (sel === path || sel.startsWith(path + '/'))) set({ selectedFolder: null });
+}
+
 export const useVaultStore = create<VaultState>((set, get) => ({
   vaultPath: null,
   tree: [],
   isLoading: false,
   error: null,
+  selectedFolder: null,
+
+  selectFolder(path) {
+    set({ selectedFolder: path });
+  },
+
+  selectNoteLocation(notePath) {
+    const { vaultPath } = get();
+    const dir = notePath.substring(0, notePath.lastIndexOf('/'));
+    set({ selectedFolder: !dir || dir === vaultPath ? null : dir });
+  },
+
+  async createUntitledNote(parentPath) {
+    const { vaultPath, selectedFolder } = get();
+    set({ error: null });
+    try {
+      const path = await invoke<string>('create_untitled_note', {
+        parentPath: parentPath ?? selectedFolder ?? vaultPath,
+        vaultPath,
+      });
+      useEditorStore.setState({ focusTitleOnOpen: true });
+      await get().refreshTree();
+      await useEditorStore.getState().refreshVaultTree();
+      return path;
+    } catch (e) {
+      set({ error: typeof e === 'string' ? e : String(e) });
+      throw e;
+    }
+  },
 
   async openVault() {
     set({ error: null });
@@ -107,12 +159,12 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { vaultPath } = get();
     set({ error: null });
     try {
-      await invoke<string>('rename_entry', {
-        path,
-        newName: newName,
-        vaultPath: vaultPath,
-      });
+      const out = await useEditorStore.getState().runRelocation(() =>
+        invoke<MoveOutcome>('rename_entry', { path, newName: newName, vaultPath: vaultPath }),
+      );
+      clearSelectionUnder(path, set, get);
       await get().refreshTree();
+      if (out) await useEditorStore.getState().applyRelocation(path, out.path, out.rewritten ?? []);
     } catch (e) {
       set({ error: typeof e === 'string' ? e : String(e) });
       throw e;
@@ -138,12 +190,16 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { vaultPath } = get();
     set({ error: null });
     try {
-      await invoke<string>('move_entry', {
-        sourcePath: sourcePath,
-        destFolderPath: destFolderPath,
-        vaultPath: vaultPath,
-      });
+      const out = await useEditorStore.getState().runRelocation(() =>
+        invoke<MoveOutcome>('move_entry', {
+          sourcePath: sourcePath,
+          destFolderPath: destFolderPath,
+          vaultPath: vaultPath,
+        }),
+      );
+      clearSelectionUnder(sourcePath, set, get);
       await get().refreshTree();
+      if (out) await useEditorStore.getState().applyRelocation(sourcePath, out.path, out.rewritten ?? []);
     } catch (e) {
       set({ error: typeof e === 'string' ? e : String(e) });
       throw e;

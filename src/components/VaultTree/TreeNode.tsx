@@ -64,6 +64,8 @@ export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNod
   const deleteEntry = useVaultStore((s) => s.deleteEntry);
   const moveEntry = useVaultStore((s) => s.moveEntry);
   const refreshTree = useVaultStore((s) => s.refreshTree);
+  const selectFolder = useVaultStore((s) => s.selectFolder);
+  const selectNoteLocation = useVaultStore((s) => s.selectNoteLocation);
   const { navigateToFile } = useFileNavigation();
 
   const activeNotePath = useEditorStore((s) => s.activeNotePath);
@@ -78,8 +80,10 @@ export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNod
 
   function handleClick() {
     if (entry.kind === 'folder') {
+      selectFolder(entry.path);
       setExpanded((v) => !v);
     } else {
+      selectNoteLocation(entry.path);
       navigateToFile(entry);
     }
   }
