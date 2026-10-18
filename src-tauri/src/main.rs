@@ -9,6 +9,7 @@ mod fs;
 mod graph;
 mod git;
 mod llm;
+mod voice;
 
 fn main() {
     let app = tauri::Builder::default()
@@ -21,6 +22,8 @@ fn main() {
         .manage(llm::validate::ValidationStore::default())
         .manage(std::sync::Arc::new(llm::EmbedderState::default()))
         .manage(commands::vault_index::IndexLocks::default())
+        .manage(voice::jobs::VoiceJobs::default())
+        .manage(voice::transcribe::EngineState::default())
         .manage(capture::shortcut::ShortcutState::default())
         .manage(capture::lifecycle::QuitFlag::default())
         .on_window_event(|window, event| {
@@ -108,6 +111,11 @@ fn main() {
             commands::inbox_clip_url,
             commands::quick_capture_save,
             commands::quick_capture_hide,
+            commands::quick_capture_save_audio,
+            commands::voice_retry,
+            commands::voice_get_config,
+            commands::voice_set_model,
+            commands::voice_download_model,
             commands::quick_capture_get_config,
             commands::quick_capture_set_shortcut,
             commands::quit_app,
