@@ -1,14 +1,16 @@
 # Cargo configuration for MarkDaun (src-tauri)
 #
-# ONNX Runtime (fastembed/ort):
-# ─────────────────────────────
-# CI/CD: uses ORT_STRATEGY=download (set in workflow env).
+# ONNX Runtime (fastembed/ort) — Desarrollo local
+# ─────────────────────────────────────────────────
+# La librería estática de ONNX Runtime se pre-descarga en src-tauri/.ort/
+# (excluida de git con .gitignore).
 #
-# Local development — option A (recommended): let ort download on first build:
-#   ORT_STRATEGY=download cargo build
-#
-# Local development — option B (offline/fast): pre-download and set path:
+# Para descargarlo:
 #   macOS ARM:
 #     mkdir -p src-tauri/.ort
-#     curl -L https://parcel.pyke.io/v2/delivery/ortrs/packages/msort-binary/1.18.1/ortrs-msort_static-v1.18.1-aarch64-apple-darwin.tgz | tar -xz -C src-tauri/.ort --strip-components=1
-#     export ORT_LIB_LOCATION="$(pwd)/src-tauri/.ort"
+#     curl -fsSL https://parcel.pyke.io/v2/delivery/ortrs/packages/msort-binary/1.18.1/ortrs-msort_static-v1.18.1-aarch64-apple-darwin.tgz | tar -xz -C src-tauri/.ort --strip-components=1
+#
+# CI/CD sobreescribe ORT_LIB_LOCATION descargando la librería para cada plataforma.
+#
+[env]
+ORT_LIB_LOCATION = { value = ".ort", relative = true }

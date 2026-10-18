@@ -46,8 +46,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Configure ONNX Runtime (fastembed/ort)
-        run: echo "ORT_STRATEGY=download" >> $GITHUB_ENV
+      - name: Download ONNX Runtime (fastembed/ort)
+        run: |
+          mkdir -p src-tauri/.ort
+          curl -fsSL -o /tmp/ort.tgz \
+            https://parcel.pyke.io/v2/delivery/ortrs/packages/msort-binary/1.18.1/ortrs-msort_static-v1.18.1-x86_64-unknown-linux-gnu.tgz
+          tar -xzf /tmp/ort.tgz -C src-tauri/.ort --strip-components=1
 
       - name: Cargo clippy
         run: cargo clippy -- -D warnings
