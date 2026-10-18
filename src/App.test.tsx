@@ -75,6 +75,18 @@ describe('shell layout', () => {
   });
 });
 
+describe('Brain sidebar', () => {
+  it('shows the conversation list instead of the vault tree on /brain', () => {
+    mockInvoke.mockResolvedValue(null);
+    useVaultStore.setState({ vaultPath: '/vault', tree: [] });
+    window.history.pushState({}, '', '/brain');
+    render(<App />);
+    expect(screen.getByTestId('conversation-list')).toBeInTheDocument();
+    expect(screen.queryByTestId('vault-tree')).toBeNull();
+    window.history.pushState({}, '', '/');
+  });
+});
+
 describe('guarda de cierre de ventana', () => {
   let closeHandler: ((event: { preventDefault(): void }) => void) | undefined;
   const mockClose = vi.fn().mockResolvedValue(undefined);

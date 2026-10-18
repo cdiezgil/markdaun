@@ -3,7 +3,6 @@ import { useVaultStore } from '../store/vaultStore';
 import { useBrainStore } from '../store/brainStore';
 import { useLlmStore } from '../store/llmStore';
 import { SetupPrompt } from '../components/SecondBrain/SetupPrompt';
-import { ConversationList } from '../components/SecondBrain/ConversationList';
 import { ChatPanel } from '../components/SecondBrain/ChatPanel';
 
 export function SecondBrainView(): JSX.Element {
@@ -32,27 +31,9 @@ export function SecondBrainView(): JSX.Element {
       {!loaded ? null : !active ? (
         <SetupPrompt />
       ) : (
-        <>
-          {/* Left: conversation history sidebar */}
-          <div
-            style={{
-              width: 240,
-              background: 'var(--surface-sunken)',
-              borderRight: '1px solid var(--line)',
-              flexShrink: 0,
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <ConversationList vaultPath={vaultPath ?? ''} />
-          </div>
-
-          {/* Right: chat area */}
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <ChatPanel vaultPath={vaultPath ?? ''} />
-          </div>
-        </>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <ChatPanel vaultPath={vaultPath ?? ''} />
+        </div>
       )}
     </div>
   );

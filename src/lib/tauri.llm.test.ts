@@ -14,7 +14,7 @@ import {
   onLlmValidateProgress,
 } from './tauri';
 import type { Connection } from './llm/types';
-import { brainQuery } from './tauri';
+import { brainQuery, brainSetConversationScope } from './tauri';
 
 const mockInvoke = vi.mocked(invoke);
 const mockListen = vi.mocked(listen);
@@ -106,6 +106,7 @@ describe('multimodal wrappers', () => {
       vaultPath: '/v',
       conversationId: 'c1',
       attachments: [{ vaultPath: 'a.png' }],
+      scope: null,
     });
     await brainQuery('q', '/v');
     expect(mockInvoke).toHaveBeenLastCalledWith('brain_query', {
@@ -113,6 +114,18 @@ describe('multimodal wrappers', () => {
       vaultPath: '/v',
       conversationId: null,
       attachments: null,
+      scope: null,
+    });
+    await brainQuery('q', '/v', undefined, undefined, { kind: 'folder', path: 'M' });
+    expect(mockInvoke).toHaveBeenLastCalledWith('brain_query', expect.objectContaining({ scope: { kind: 'folder', path: 'M' } }));
+  });
+
+  it('brainSetConversationScope uses camelCase args', async () => {
+    await brainSetConversationScope('c1', '/v', { kind: 'vault' });
+    expect(mockInvoke).toHaveBeenCalledWith('brain_set_conversation_scope', {
+      conversationId: 'c1',
+      vaultPath: '/v',
+      scope: { kind: 'vault' },
     });
   });
 });

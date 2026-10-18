@@ -112,10 +112,17 @@ export async function githubStatus(): Promise<boolean> {
 
 // ── Second Brain / LLM commands ───────────────────────────────────────────────
 
+/** Which part of the vault Second Brain answers from (paths are vault-relative). */
+export type QueryScope =
+  | { kind: 'vault' }
+  | { kind: 'notes'; paths: string[] }
+  | { kind: 'folder'; path: string };
+
 export interface BrainConversation {
   id: string;
   title: string;
   created_at: string;
+  scope?: QueryScope;
 }
 
 export interface BrainMessage {
@@ -148,13 +155,24 @@ export async function brainQuery(
   vaultPath: string,
   conversationId?: string,
   attachments?: AttachmentInput[],
+  scope?: QueryScope,
 ): Promise<BrainQueryResult> {
   return invoke<BrainQueryResult>('brain_query', {
     question,
     vaultPath: vaultPath,
     conversationId: conversationId ?? null,
     attachments: attachments && attachments.length > 0 ? attachments : null,
+    scope: scope ?? null,
   });
+}
+
+/** Change the scope stored with a conversation; returns the validated scope. */
+export async function brainSetConversationScope(
+  conversationId: string,
+  vaultPath: string,
+  scope: QueryScope,
+): Promise<QueryScope> {
+  return invoke<QueryScope>('brain_set_conversation_scope', { conversationId, vaultPath, scope });
 }
 
 /** List conversations for the given vault, most recent first. */

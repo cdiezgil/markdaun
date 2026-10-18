@@ -417,6 +417,7 @@ async fn query_with(
         &env,
         Ok(fake_embedding()),
         attachments,
+        None,
     )
     .await;
     (r, cfg_file)

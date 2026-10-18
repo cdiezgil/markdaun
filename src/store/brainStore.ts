@@ -4,12 +4,15 @@ import {
   brainGetConversations,
   brainGetMessages,
   brainQuery,
+  brainSetConversationScope,
+  type QueryScope,
   type BrainConversation,
   type BrainMessage,
 } from '../lib/tauri';
 import { prepareAttachments } from '../lib/attachments/prepare';
 import { MAX_ATTACHMENTS, type ChatAttachment } from '../lib/attachments/types';
 import { useLlmStore } from './llmStore';
+import { VAULT_SCOPE } from '../lib/chat/scope';
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -47,6 +50,13 @@ export interface BrainState {
   /** Non-blocking messages about the last send (e.g. PDF truncated). */
   notices: string[];
   pendingPrompt: PendingPrompt | null;
+  /** What the conversation answers from; stored with the conversation. */
+  scope: QueryScope;
+
+  /** Start a fresh conversation scoped to one note (vault-relative path). */
+  askAboutNote(relativePath: string): void;
+  /** Change the scope; persisted right away when a conversation is open. */
+  setScope(scope: QueryScope, vaultPath: string): Promise<void>;
 
   addAttachment(a: ChatAttachment): 'added' | 'duplicate' | 'limit';
   removeAttachment(vaultPath: string): void;
@@ -82,6 +92,32 @@ export const useBrainStore = create<BrainState>((set, get) => ({
   pendingAttachments: [],
   notices: [],
   pendingPrompt: null,
+  scope: VAULT_SCOPE,
+
+  askAboutNote(relativePath) {
+    set({
+      scope: { kind: 'notes', paths: [relativePath] },
+      currentConversationId: null,
+      messages: [],
+      error: null,
+      notices: [],
+      pendingAttachments: [],
+    });
+  },
+
+  async setScope(scope, vaultPath) {
+    set({ scope });
+    const id = get().currentConversationId;
+    if (!id) return;
+    try {
+      await brainSetConversationScope(id, vaultPath, scope);
+      set({
+        conversations: get().conversations.map((c) => (c.id === id ? { ...c, scope } : c)),
+      });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
 
   // ── Attachments ──────────────────────────────────────────────────────────────
 
@@ -147,6 +183,7 @@ export const useBrainStore = create<BrainState>((set, get) => ({
       set({
         currentConversationId: id,
         messages,
+        scope: get().conversations.find((c) => c.id === id)?.scope ?? VAULT_SCOPE,
         isLoading: false,
       });
     } catch (e) {
@@ -155,11 +192,11 @@ export const useBrainStore = create<BrainState>((set, get) => ({
   },
 
   startNewConversation() {
-    set({ currentConversationId: null, messages: [] });
+    set({ currentConversationId: null, messages: [], scope: VAULT_SCOPE });
   },
 
   async query(question, vaultPath) {
-    const { currentConversationId, messages, pendingAttachments } = get();
+    const { currentConversationId, messages, pendingAttachments, scope } = get();
 
     // Optimistic: append user message immediately (with the same reference list
     // the backend stores instead of the bytes).
@@ -191,6 +228,7 @@ export const useBrainStore = create<BrainState>((set, get) => ({
         vaultPath,
         currentConversationId ?? undefined,
         inputs,
+        scope,
       );
       // Attachments travel with this turn only.
       set({ pendingAttachments: [] });

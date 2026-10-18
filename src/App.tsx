@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useVaultStore } from './store/vaultStore';
 import { useEditorStore } from './store/editorStore';
 import { useSyncStore } from './store/syncStore';
+import { ConversationList } from './components/SecondBrain/ConversationList';
 import { VaultTree } from './components/VaultTree/VaultTree';
 import { WelcomeView } from './views/WelcomeView';
 import { EditorView } from './views/EditorView';
@@ -16,11 +17,14 @@ import { LlmWizard } from './components/LlmWizard/LlmWizard';
 import { TopBar } from './components/Shell/TopBar';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { useLlmStore } from './store/llmStore';
+import { viewForPath } from './lib/shell';
 
 function AppLayout() {
   const [showExitDialog, setShowExitDialog] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const wizardOpen = useLlmStore((s) => s.wizardOpen);
+  const vaultPath = useVaultStore((s) => s.vaultPath);
+  const inBrain = viewForPath(useLocation().pathname) === 'brain';
   // Programmatic closes from the exit dialog must bypass the close guard,
   // otherwise window.close() re-triggers onCloseRequested and loops forever.
   const forceCloseRef = useRef(false);
@@ -65,7 +69,7 @@ function AppLayout() {
             flexDirection: 'column',
           }}
         >
-          <VaultTree />
+          {inBrain && vaultPath ? <ConversationList vaultPath={vaultPath} /> : <VaultTree />}
         </aside>
         <main style={{ flex: 1, minWidth: 0, overflow: 'auto', background: 'var(--bg)' }}>
         <Routes>

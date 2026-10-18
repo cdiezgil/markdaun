@@ -2,11 +2,28 @@ use crate::db::config::DbError;
 use rusqlite::Connection;
 use std::path::Path;
 
+/// Which part of the vault a conversation answers from. Paths are
+/// vault-relative with `/` separators.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum QueryScope {
+    #[default]
+    Vault,
+    Notes { paths: Vec<String> },
+    Folder { path: String },
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Conversation {
     pub id: String,
     pub title: String,
     pub created_at: String,
+    #[serde(default)]
+    pub scope: QueryScope,
+}
+
+fn parse_scope(raw: Option<String>) -> QueryScope {
+    raw.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -52,6 +69,16 @@ impl ConversationsDb {
                 ON messages(conversation_id);",
         )?;
 
+        // Migration: conversations created before scopes existed.
+        let has_scope = conn
+            .prepare("PRAGMA table_info(conversations)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .any(|name| name == "scope");
+        if !has_scope {
+            conn.execute_batch("ALTER TABLE conversations ADD COLUMN scope TEXT;")?;
+        }
+
         Ok(Self { conn })
     }
 
@@ -77,7 +104,7 @@ impl ConversationsDb {
         vault_path: &str,
     ) -> Result<Vec<Conversation>, DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, created_at FROM conversations
+            "SELECT id, title, created_at, scope FROM conversations
              WHERE vault_path = ?1
              ORDER BY created_at DESC",
         )?;
@@ -86,9 +113,25 @@ impl ConversationsDb {
                 id: row.get(0)?,
                 title: row.get(1)?,
                 created_at: row.get(2)?,
+                scope: parse_scope(row.get(3)?),
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// The scope stored for a conversation (`Vault` when none or unknown).
+    pub fn get_scope(&self, id: &str) -> Result<QueryScope, DbError> {
+        let raw: Option<String> = self
+            .conn
+            .query_row("SELECT scope FROM conversations WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
+            .unwrap_or(None);
+        Ok(parse_scope(raw))
+    }
+
+    pub fn set_scope(&self, id: &str, scope: &QueryScope) -> Result<(), DbError> {
+        let json = serde_json::to_string(scope).unwrap_or_default();
+        self.conn.execute("UPDATE conversations SET scope = ?2 WHERE id = ?1", rusqlite::params![id, json])?;
+        Ok(())
     }
 
     /// Delete a conversation and all its messages (CASCADE).
@@ -156,7 +199,8 @@ mod tests {
                 id TEXT PRIMARY KEY,
                 vault_path TEXT NOT NULL,
                 title TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                scope TEXT
             );
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT PRIMARY KEY,

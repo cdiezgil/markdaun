@@ -24,6 +24,9 @@ mod graph_tests;
 #[cfg(test)]
 mod sync_tests;
 
+pub mod brain_scope;
+#[cfg(test)]
+mod brain_scope_tests;
 pub mod brain_cmd;
 pub use brain_cmd::*;
 #[cfg(test)]

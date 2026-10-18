@@ -110,6 +110,7 @@ describe('query with attachments', () => {
       vaultPath: '/v',
       conversationId: null,
       attachments: [{ vaultPath: 'd/a.png' }],
+      scope: { kind: 'vault' },
     });
     const s = useBrainStore.getState();
     expect(s.pendingAttachments).toEqual([]);
@@ -156,6 +157,7 @@ describe('query with attachments', () => {
       vaultPath: '/v',
       conversationId: null,
       attachments: null,
+      scope: { kind: 'vault' },
     });
     expect(prepareAttachments).not.toHaveBeenCalled();
   });

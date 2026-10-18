@@ -4,7 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { useGraphStore, type GraphNodeData } from '../../store/graphStore';
-import { useBrainStore } from '../../store/brainStore';
+import { useVaultStore } from '../../store/vaultStore';
 import { GraphFilterPanel } from './GraphFilterPanel';
 import { GraphNoteCard } from './GraphNoteCard';
 import { GraphZoom } from './GraphZoom';
@@ -71,7 +71,8 @@ describe('GraphZoom', () => {
 });
 
 function Where() {
-  return <div data-testid="where">{useLocation().pathname}</div>;
+  const { pathname, search } = useLocation();
+  return <div data-testid="where">{pathname + search}</div>;
 }
 
 const note: GraphNodeData = {
@@ -116,15 +117,13 @@ describe('GraphNoteCard', () => {
     );
   });
 
-  it('Preguntar hands a prompt to Brain and opens it', () => {
-    useBrainStore.setState({ pendingPrompt: null });
+  it('Preguntar opens Brain scoped to the note (vault-relative path)', () => {
+    useVaultStore.setState({ vaultPath: '/vault' });
     renderCard(note);
     fireEvent.click(screen.getByTestId('graph-note-ask'));
-    expect(useBrainStore.getState().pendingPrompt).toMatchObject({
-      text: 'Háblame de [[Primera nota]]',
-      send: false,
-    });
-    expect(screen.getByTestId('where').textContent).toBe('/brain');
+    expect(screen.getByTestId('where').textContent).toBe(
+      `/brain?ask=${encodeURIComponent('Test/a.md')}`,
+    );
   });
 
   it('attachments open the preview and cannot be asked about', () => {
