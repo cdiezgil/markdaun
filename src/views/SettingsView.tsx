@@ -3,6 +3,7 @@ import { useSyncStore } from '../store/syncStore';
 import { useVaultStore } from '../store/vaultStore';
 import { ConfirmDialog } from '../components/ConfirmDialog/ConfirmDialog';
 import { AiConnections } from '../components/Settings/AiConnections';
+import { Trash } from '../components/Settings/Trash';
 
 export function SettingsView(): JSX.Element {
   const config = useSyncStore((s) => s.config);
@@ -194,6 +195,8 @@ export function SettingsView(): JSX.Element {
       </section>
 
       <AiConnections />
+
+      <Trash />
 
       {/* Overwrite confirm dialog */}
       <ConfirmDialog
