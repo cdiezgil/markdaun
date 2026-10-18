@@ -44,6 +44,13 @@ export const MermaidCodeBlock = CodeBlock.extend<Record<string, never>, MermaidS
     };
   },
 
+  addKeyboardShortcuts() {
+    // Mod-Alt-C moved to the shortcut map (Mod-Shift-E); keep the other code block keys.
+    const { 'Mod-Alt-c': _moved, ...rest } = this.parent?.() ?? {};
+    void _moved;
+    return rest;
+  },
+
   addNodeView() {
     return ReactNodeViewRenderer(CodeBlockNodeView);
   },
