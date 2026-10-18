@@ -383,6 +383,15 @@ export async function inboxEnsure(vaultPath: string): Promise<string> {
   return invoke<string>('inbox_ensure', { vaultPath });
 }
 
+/**
+ * Copies files given by native OS paths into `Entrada/`.
+ * Uses the Rust `import_files` command so WKWebView binary-read restrictions don't apply.
+ */
+export async function inboxImportFiles(vaultPath: string, sourcePaths: string[]): Promise<void> {
+  const inboxPath = await inboxEnsure(vaultPath);
+  await invoke('import_files', { destFolderPath: inboxPath, sourcePaths, vaultPath });
+}
+
 export async function inboxList(vaultPath: string): Promise<InboxItem[]> {
   return invoke<InboxItem[]>('inbox_list', { vaultPath });
 }

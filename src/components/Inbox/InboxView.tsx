@@ -50,6 +50,7 @@ export function InboxView(): JSX.Element {
   const clearSelection = useInboxStore((s) => s.clearSelection);
   const discard = useInboxStore((s) => s.discard);
   const clipUrl = useInboxStore((s) => s.clipUrl);
+  const pickFiles = useInboxStore((s) => s.pickFiles);
   const clipping = useInboxStore((s) => s.clipping);
   const areas = useInboxStore((s) => s.areas);
   const lastArea = useInboxStore((s) => s.lastArea);
@@ -129,6 +130,13 @@ export function InboxView(): JSX.Element {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
         <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400 }}>Entrada</h1>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <button
+            data-testid="add-files"
+            onClick={() => vaultPath && void pickFiles(vaultPath)}
+            style={BUTTON}
+          >
+            <File size={14} strokeWidth={1.5} /> Añadir archivo(s)
+          </button>
           <button data-testid="add-url" onClick={() => setAdding((v) => !v)} style={BUTTON}>
             <Link2 size={14} strokeWidth={1.5} /> Añadir URL
           </button>
@@ -227,7 +235,7 @@ export function InboxView(): JSX.Element {
           }}
         >
           <Inbox size={32} strokeWidth={1.5} />
-          <span>La entrada está vacía. Arrastra archivos a la bóveda y llegarán aquí.</span>
+          <span>La entrada está vacía. Usa «Añadir archivo(s)» o arrastra archivos al panel lateral.</span>
         </div>
       ) : (
         <>

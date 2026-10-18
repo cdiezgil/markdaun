@@ -1,8 +1,10 @@
 import { create } from 'zustand';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
   inboxClipUrl,
   inboxDiscard,
   inboxGetLastArea,
+  inboxImportFiles,
   inboxList,
   inboxListAreas,
   voiceRetry,
@@ -35,6 +37,8 @@ interface InboxState {
   discard(item: InboxItem, vaultPath: string): Promise<void>;
   /** Clips a web page into the inbox; null (with `error` set) when the URL is invalid. */
   clipUrl(url: string, vaultPath: string): Promise<ClipSummary | null>;
+  /** Opens the native file picker and copies the chosen files into Entrada/. */
+  pickFiles(vaultPath: string): Promise<void>;
 }
 
 export const useInboxStore = create<InboxState>((set, get) => ({
@@ -124,6 +128,25 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     } catch (e) {
       set({ clipping: false, error: String(e) });
       return null;
+    }
+  },
+
+  async pickFiles(vaultPath) {
+    const picked = await openDialog({
+      multiple: true,
+      filters: [
+        { name: 'Documentos e imágenes', extensions: ['pdf', 'docx', 'pptx', 'txt', 'md', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+        { name: 'Todos los archivos', extensions: ['*'] },
+      ],
+    });
+    if (!picked) return;
+    const paths = Array.isArray(picked) ? picked : [picked];
+    if (paths.length === 0) return;
+    try {
+      await inboxImportFiles(vaultPath, paths);
+      await get().load(vaultPath);
+    } catch (e) {
+      set({ error: String(e) });
     }
   },
 }));
