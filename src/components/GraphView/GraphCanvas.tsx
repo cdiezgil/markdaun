@@ -95,12 +95,14 @@ function GraphCanvasInner({ vaultPath }: GraphCanvasProps) {
     const visibleNotes = nodes.filter((n) => filtered.nodeIds.has(n.id));
 
     const halos = folderHalos(
-      visibleNotes.map((n) => ({
-        folder: n.data.folder,
-        x: n.position.x + n.data.diameter / 2,
-        y: n.position.y + n.data.diameter / 2,
-        radius: n.data.diameter / 2 + 12,
-      })),
+      visibleNotes
+        .filter((n) => !filtered.dimmedIds.has(n.id))
+        .map((n) => ({
+          folder: n.data.folder,
+          x: n.position.x + n.data.diameter / 2,
+          y: n.position.y + n.data.diameter / 2,
+          radius: n.data.diameter / 2 + 12,
+        })),
     ).map<RFNode>((h) => ({
       id: `halo:${h.folder}`,
       type: 'folderHalo',

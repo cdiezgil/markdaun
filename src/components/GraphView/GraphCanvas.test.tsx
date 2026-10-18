@@ -36,6 +36,7 @@ vi.mock('@xyflow/react', () => ({
           data-type={n.type}
           data-dim={String((n.data as Record<string, unknown>).dim)}
           data-active={String((n.data as Record<string, unknown>).active)}
+          data-outside={String((n.data as Record<string, unknown>).outside)}
           style={n.style}
           onClick={(e) => {
             e.stopPropagation();
@@ -107,6 +108,8 @@ beforeEach(() => {
     showOrphans: true,
     searchQuery: '',
     selectedPath: null,
+    folder: '',
+    baseModel: null,
   });
 });
 
@@ -124,6 +127,29 @@ describe('GraphCanvas', () => {
     expect(screen.getByTestId('rf-node-/vault/a.md').dataset.type).toBe('graphNode');
     expect(screen.getByTestId('rf-node-halo:Test').dataset.type).toBe('folderHalo');
     expect(screen.getByTestId('rf-edge-/vault/a.md→/vault/b.md')).toBeDefined();
+  });
+
+  it('with a folder selected, dims outside neighbours, their edges, and gives them no halo', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      nodes: [
+        { path: '/vault/Test/o.md', name: 'o.md', kind: 'md', x: null, y: null, tags: [], excerpt: '' },
+        { path: '/vault/Other/n.md', name: 'n.md', kind: 'md', x: null, y: null, tags: [], excerpt: '' },
+        { path: '/vault/far.md', name: 'far.md', kind: 'md', x: null, y: null, tags: [], excerpt: '' },
+      ],
+      edges: [{ source: '/vault/Test/o.md', target: '/vault/Other/n.md' }],
+    });
+    await useGraphStore.getState().loadGraph('/vault');
+    useGraphStore.getState().setFolder('/vault', 'Test');
+    render(
+      <MemoryRouter>
+        <GraphCanvas vaultPath="/vault" />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('rf-node-/vault/Other/n.md').dataset.outside).toBe('true');
+    expect(screen.getByTestId('rf-node-/vault/Test/o.md').dataset.outside).toBe('false');
+    expect(screen.queryByTestId('rf-node-/vault/far.md')).toBeNull();
+    expect(screen.queryByTestId('rf-node-halo:Other')).toBeNull();
+    expect(screen.getByTestId('rf-node-halo:Test')).toBeDefined();
   });
 
   it('fits the view after a load', async () => {
