@@ -21,6 +21,12 @@ pub struct Conversation {
     pub created_at: String,
     #[serde(default)]
     pub scope: QueryScope,
+    /// Vault-relative path of the source being digested (digestion conversations).
+    #[serde(default)]
+    pub digest_source: Option<String>,
+    /// The digested source was already moved to its `Fuentes/` folder.
+    #[serde(default)]
+    pub digest_archived: bool,
 }
 
 fn parse_scope(raw: Option<String>) -> QueryScope {
@@ -80,7 +86,45 @@ impl ConversationsDb {
             conn.execute_batch("ALTER TABLE conversations ADD COLUMN scope TEXT;")?;
         }
 
+        for (column, ddl) in [
+            ("digest_source", "ALTER TABLE conversations ADD COLUMN digest_source TEXT;"),
+            ("digest_archived", "ALTER TABLE conversations ADD COLUMN digest_archived INTEGER NOT NULL DEFAULT 0;"),
+        ] {
+            let has = conn
+                .prepare("PRAGMA table_info(conversations)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .any(|name| name == column);
+            if !has {
+                conn.execute_batch(ddl)?;
+            }
+        }
+
         Ok(Self { conn })
+    }
+
+    /// Like [`Self::create_conversation`], remembering the source being digested.
+    pub fn create_digest_conversation(
+        &self,
+        vault_path: &str,
+        title: &str,
+        source_rel: &str,
+    ) -> Result<String, DbError> {
+        let id = self.create_conversation(vault_path, title)?;
+        self.conn.execute(
+            "UPDATE conversations SET digest_source = ?2 WHERE id = ?1",
+            rusqlite::params![id, source_rel],
+        )?;
+        Ok(id)
+    }
+
+    /// The digested source now lives at `new_rel` (its `Fuentes/` folder).
+    pub fn mark_digest_archived(&self, id: &str, new_rel: &str) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE conversations SET digest_source = ?2, digest_archived = 1 WHERE id = ?1",
+            rusqlite::params![id, new_rel],
+        )?;
+        Ok(())
     }
 
     /// Create a new conversation for the given vault. Returns the new UUID.
@@ -105,7 +149,7 @@ impl ConversationsDb {
         vault_path: &str,
     ) -> Result<Vec<Conversation>, DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, created_at, scope FROM conversations
+            "SELECT id, title, created_at, scope, digest_source, digest_archived FROM conversations
              WHERE vault_path = ?1
              ORDER BY created_at DESC",
         )?;
@@ -115,6 +159,8 @@ impl ConversationsDb {
                 title: row.get(1)?,
                 created_at: row.get(2)?,
                 scope: parse_scope(row.get(3)?),
+                digest_source: row.get(4)?,
+                digest_archived: row.get::<_, i64>(5)? != 0,
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())

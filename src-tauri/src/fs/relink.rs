@@ -195,12 +195,40 @@ fn new_wikilink_label(label: &str, ctx: &Ctx) -> Option<String> {
     }
     let lead = &label[..label.len() - label.trim_start().len()];
     let trail = &label[label.trim_end().len()..];
-    let replacement = if trimmed.contains('/') {
+    let replacement = if let Some(r) = non_md_label(trimmed, ctx) {
+        r
+    } else if trimmed.contains('/') {
         path_form_label(trimmed, ctx)?
     } else {
         stem_form_label(trimmed, ctx)?
     };
     Some(format!("{lead}{replacement}{trail}"))
+}
+
+/// Wikilinks to relocated non-Markdown files (sources such as PDFs or images)
+/// keep their extension: `[[folder/acta.pdf]]` or, when renamed, `[[acta.pdf]]`.
+fn non_md_label(label: &str, ctx: &Ctx) -> Option<String> {
+    let wanted = label.to_lowercase();
+    for (old, new) in ctx.moves {
+        if is_md(old) {
+            continue;
+        }
+        if label.contains('/') {
+            let old_rel = slash_join(normalize(old).strip_prefix(ctx.vault).ok()?);
+            if old_rel.to_lowercase() != wanted {
+                continue;
+            }
+            let new_rel = slash_join(normalize(new).strip_prefix(ctx.vault).ok()?);
+            return (new_rel != label).then_some(new_rel);
+        }
+        let old_name = old.file_name()?.to_string_lossy().to_string();
+        if old_name.to_lowercase() != wanted {
+            continue;
+        }
+        let new_name = new.file_name()?.to_string_lossy().to_string();
+        return (new_name != label).then_some(new_name);
+    }
+    None
 }
 
 fn stem_form_label(label: &str, ctx: &Ctx) -> Option<String> {

@@ -67,6 +67,13 @@ fn main() {
             commands::llm_set_active,
             commands::llm_get_active,
             commands::llm_detect_cli,
+            commands::inbox_ensure,
+            commands::inbox_list,
+            commands::inbox_discard,
+            commands::trash_list,
+            commands::trash_restore,
+            commands::trash_delete,
+            commands::archive_source,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
