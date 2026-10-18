@@ -63,3 +63,11 @@ select {
 .md-hover:hover {
   background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
+
+/* Floating command/search dropdown: 240ms entrance per the design motion rules. */
+@keyframes md-pop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.md-pop { animation: md-pop-in 240ms cubic-bezier(.2,.7,.2,1); }
+@media (prefers-reduced-motion: reduce) { .md-pop { animation: none; } }

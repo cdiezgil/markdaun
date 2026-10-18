@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Brain, FileText, Network, Search } from 'lucide-react';
+import { Brain, FileText, Network } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { NoteSearch } from './NoteSearch';
 import { viewForPath, type ShellView } from '../../lib/shell';
 
 const TABS: Array<{ view: ShellView; label: string; to: string; Icon: LucideIcon }> = [
@@ -29,7 +30,7 @@ function Mark(): JSX.Element {
   );
 }
 
-/** Application top bar: logotype, view tabs and the (visual-only) ⌘K field. */
+/** Application top bar: logotype, view tabs and the ⌘K note search. */
 export function TopBar(): JSX.Element {
   const { pathname } = useLocation();
   const current = viewForPath(pathname);
@@ -101,44 +102,7 @@ export function TopBar(): JSX.Element {
           })}
         </nav>
       </div>
-      {/* Visual only for now; the command/search behaviour lands in a later slice. */}
-      <button
-        type="button"
-        data-testid="search-field"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-2)',
-          width: 280,
-          maxWidth: '100%',
-          height: 32,
-          padding: '0 10px',
-          background: 'var(--bg)',
-          border: '1px solid var(--line)',
-          borderRadius: 'var(--radius-md)',
-          color: 'var(--ink-muted)',
-          fontFamily: 'var(--font-sans)',
-          fontSize: 13,
-          cursor: 'pointer',
-        }}
-      >
-        <Search size={16} strokeWidth={1.5} color="var(--ink-muted)" />
-        <span style={{ flex: 1, textAlign: 'left' }}>Buscar o ejecutar…</span>
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            fontWeight: 500,
-            lineHeight: '16px',
-            padding: '1px 6px',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--surface)',
-          }}
-        >
-          ⌘K
-        </span>
-      </button>
+      <NoteSearch />
     </header>
   );
 }

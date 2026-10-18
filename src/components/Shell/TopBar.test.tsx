@@ -66,11 +66,11 @@ describe('TopBar', () => {
     }
   });
 
-  it('shows the visual-only search field with the shortcut hint', () => {
+  it('hosts the note search field with the shortcut hint', () => {
     renderAt('/');
     const field = screen.getByTestId('search-field');
-    expect(field).toHaveTextContent('Buscar o ejecutar…');
-    expect(field).toHaveTextContent('⌘K');
+    expect(field).toHaveTextContent(/⌘K|Ctrl K/);
     expect(field.style.width).toBe('280px');
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
   });
 });
