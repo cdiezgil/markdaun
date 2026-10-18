@@ -32,7 +32,7 @@ const BUTTON: React.CSSProperties = {
 
 function KindIcon({ kind }: { kind: InboxItem['kind'] }): JSX.Element {
   const props = { size: 16, strokeWidth: 1.5, color: 'var(--ink-muted)' };
-  if (kind === 'md' || kind === 'txt' || kind === 'pdf') return <FileText {...props} />;
+  if (kind === 'md' || kind === 'txt' || kind === 'pdf' || kind === 'docx' || kind === 'pptx') return <FileText {...props} />;
   if (kind === 'image') return <Image {...props} />;
   return <File {...props} />;
 }

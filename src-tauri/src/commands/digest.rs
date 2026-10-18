@@ -7,7 +7,10 @@ use super::brain_cmd::{app_db_path, resolve_active, NOTE_BLOCK_INSTRUCTION};
 use super::inbox::folder_tree;
 use super::vault_index::{list_vault_notes, relative_note_path, vault_note_listing};
 use crate::db::{ConversationsDb, QueryScope};
-use crate::llm::attachment::{build_attachments, stored_references, AttachmentInput};
+use crate::capture::office::{extract_office, is_office_name, ExtractedImage};
+use crate::llm::attachment::{
+    build_attachments, image_attachment, stored_references, Attachment, AttachmentInput, MAX_ATTACHMENTS,
+};
 use crate::llm::connection::Connection;
 use crate::llm::engines;
 use crate::llm::env::LlmEnv;
@@ -371,7 +374,50 @@ pub struct DigestRequest<'a> {
     /// Extracted text; `None` when the source travels as attachments.
     pub text: Option<&'a str>,
     pub attachments: &'a [AttachmentInput],
+    /// Images extracted from a Word/PowerPoint source. Attached to the first
+    /// turn when the model sees images (largest first, within the attachment
+    /// limit); otherwise the prompt only mentions them.
+    pub images: &'a [ExtractedImage],
     pub chunk_chars: usize,
+}
+
+/// Picks the extracted images to attach and the note for the prompt about the
+/// ones left out. Selected images keep their document order.
+fn office_images(images: &[ExtractedImage], slots: usize, vision: bool, source_rel: &str) -> (Vec<Attachment>, Option<String>) {
+    if images.is_empty() {
+        return (Vec::new(), None);
+    }
+    let n = images.len();
+    if !vision {
+        return (
+            Vec::new(),
+            Some(format!("(El documento contiene {n} imágenes que no se enviaron porque el modelo activo no admite imágenes.)")),
+        );
+    }
+    let mut by_size: Vec<usize> = (0..n).collect();
+    by_size.sort_by(|a, b| images[*b].bytes.len().cmp(&images[*a].bytes.len()).then(a.cmp(b)));
+    let mut chosen: Vec<usize> = by_size.into_iter().take(slots).collect();
+    chosen.sort_unstable();
+    let atts: Vec<Attachment> = chosen
+        .iter()
+        .filter_map(|i| image_attachment(&images[*i].name, source_rel, &images[*i].bytes).ok())
+        .collect();
+    let left_out = n - atts.len();
+    let note = (left_out > 0).then(|| {
+        format!("(El documento contiene {left_out} imágenes más que no se adjuntaron por el límite de {MAX_ATTACHMENTS} adjuntos.)")
+    });
+    (atts, note)
+}
+
+/// Text and images of a Word/PowerPoint source in the vault.
+pub fn office_source(vault: &Path, rel: &str) -> Result<(String, Vec<ExtractedImage>), String> {
+    let name = Path::new(rel).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let bytes = std::fs::read(vault.join(rel)).map_err(|e| format!("io_error: {e}"))?;
+    let out = extract_office(&name, &bytes).map_err(|e| format!("office_error: {e}"))?;
+    if out.markdown.trim().is_empty() && out.images.is_empty() {
+        return Err("office_error: empty_document".to_string());
+    }
+    Ok((out.markdown, out.images))
 }
 
 fn llm_err(e: LlmError) -> String {
@@ -408,7 +454,20 @@ pub async fn digest_core(
         .filter(|p| !p.starts_with("Entrada/"))
         .collect();
 
-    let chunks = match req.text {
+    let (image_atts, image_note) = office_images(
+        req.images,
+        MAX_ATTACHMENTS.saturating_sub(attachments.len()),
+        conn.supports_vision(model),
+        req.source_rel,
+    );
+    let text_with_note = req.text.map(|t| match &image_note {
+        Some(n) => format!("{t}\n\n{n}"),
+        None => t.to_string(),
+    });
+    let mut attachments = attachments;
+    attachments.extend(image_atts);
+
+    let chunks = match text_with_note.as_deref() {
         Some(t) => split_source(t, req.chunk_chars),
         None => Vec::new(),
     };
@@ -425,7 +484,12 @@ pub async fn digest_core(
         let mut raw: Vec<String> = Vec::new();
         for (i, chunk) in chunks.iter().enumerate() {
             progress(DigestProgress { source: req.source_rel.to_string(), part: i + 1, total, consolidating: false });
-            let messages = build_digest_messages(&name, Some(chunk), Some((i + 1, total)), &folders, &vault_notes);
+            let mut messages = build_digest_messages(&name, Some(chunk), Some((i + 1, total)), &folders, &vault_notes);
+            if i == 0 {
+                if let Some(last) = messages.last_mut() {
+                    last.attachments = attachments.clone();
+                }
+            }
             let reply = engines::chat(conn, model, &messages, secret, env).await.map_err(llm_err)?;
             candidates.extend(parse_note_blocks(&reply));
             raw.push(reply);
@@ -492,10 +556,16 @@ pub async fn brain_digest(
     if rel.is_absolute() || rel.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
         return Err("invalid_path".to_string());
     }
+    let mut images: Vec<ExtractedImage> = Vec::new();
     let text = match source_text {
         Some(t) => Some(t),
         None if is_text_source(&source_path) => {
             Some(std::fs::read_to_string(vault.join(rel)).map_err(|e| format!("io_error: {e}"))?)
+        }
+        None if is_office_name(&source_path) => {
+            let (markdown, imgs) = office_source(vault, &source_path)?;
+            images = imgs;
+            Some(markdown)
         }
         None => None,
     };
@@ -507,6 +577,7 @@ pub async fn brain_digest(
         source_rel: &source_path,
         text: text.as_deref(),
         attachments: &inputs,
+        images: &images,
         chunk_chars: DIGEST_CHUNK_CHARS,
     };
     let emitter = app.clone();

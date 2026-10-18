@@ -24,6 +24,8 @@ pub enum InboxKind {
     Txt,
     Pdf,
     Image,
+    Docx,
+    Pptx,
     Other,
 }
 
@@ -46,6 +48,8 @@ fn classify(name: &str) -> InboxKind {
         Some("md") => InboxKind::Md,
         Some("txt") => InboxKind::Txt,
         Some("pdf") => InboxKind::Pdf,
+        Some("docx") => InboxKind::Docx,
+        Some("pptx") => InboxKind::Pptx,
         Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg") => InboxKind::Image,
         _ => InboxKind::Other,
     }

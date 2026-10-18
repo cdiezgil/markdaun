@@ -17,6 +17,8 @@ describe('kindLabel', () => {
     expect(kindLabel('txt')).toBe('Texto');
     expect(kindLabel('pdf')).toBe('PDF');
     expect(kindLabel('image')).toBe('Imagen');
+    expect(kindLabel('docx')).toBe('Word');
+    expect(kindLabel('pptx')).toBe('PowerPoint');
     expect(kindLabel('other')).toBe('Otro');
   });
 });

@@ -13,6 +13,8 @@ const KIND_LABELS: Record<InboxKind, string> = {
   txt: 'Texto',
   pdf: 'PDF',
   image: 'Imagen',
+  docx: 'Word',
+  pptx: 'PowerPoint',
   other: 'Otro',
 };
 

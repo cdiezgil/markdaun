@@ -309,7 +309,7 @@ export async function onBrainIndexProgress(cb: (p: IndexProgress) => void): Prom
 
 // ── Inbox, trash and digestion ─────────────────────────────────────────────────
 
-export type InboxKind = 'md' | 'txt' | 'pdf' | 'image' | 'other';
+export type InboxKind = 'md' | 'txt' | 'pdf' | 'image' | 'docx' | 'pptx' | 'other';
 
 export interface InboxItem {
   name: string;

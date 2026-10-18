@@ -3,6 +3,7 @@
 //! (`EmbedFn`) so the logic is testable without the ONNX model.
 
 use crate::commands::brain_cmd::{model_cache_dir, vectors_db_path, IndexProgress, INDEX_PROGRESS_EVENT};
+use crate::capture::office::{extract_office, is_office_name};
 use crate::db::{Fingerprint, VectorsDb};
 use crate::llm::{chunk_text, embed_text, load_model, EmbedderState};
 use std::collections::{HashMap, HashSet};
@@ -24,19 +25,46 @@ pub struct SyncReport {
 
 // ─── Vault listing ────────────────────────────────────────────────────────────
 
-/// Absolute paths of every `.md` file in the vault, sorted. Hidden entries
-/// (`.git`, `.markdaun`, …) are skipped.
-pub fn list_vault_notes(vault: &Path) -> Vec<PathBuf> {
-    let mut notes: Vec<PathBuf> = walkdir::WalkDir::new(vault)
+fn walk_files(vault: &Path, keep: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = walkdir::WalkDir::new(vault)
         .into_iter()
         .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
-        .filter(|e| e.path().extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("md")))
+        .filter(|e| keep(e.path()))
         .map(|e| e.into_path())
         .collect();
-    notes.sort();
-    notes
+    files.sort();
+    files
+}
+
+fn has_ext(path: &Path, ext: &str) -> bool {
+    path.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case(ext))
+}
+
+/// Whether the Brain indexes this file: Markdown notes plus Word/PowerPoint
+/// documents (through their extracted text).
+fn is_indexable(path: &Path) -> bool {
+    has_ext(path, "md") || path.file_name().is_some_and(|n| is_office_name(&n.to_string_lossy()))
+}
+
+/// Absolute paths of every `.md` file in the vault, sorted. Hidden entries
+/// (`.git`, `.markdaun`, …) are skipped.
+pub fn list_vault_notes(vault: &Path) -> Vec<PathBuf> {
+    walk_files(vault, |p| has_ext(p, "md"))
+}
+
+/// Every file the Brain indexes (notes and Office documents), sorted.
+pub fn list_indexable_files(vault: &Path) -> Vec<PathBuf> {
+    walk_files(vault, is_indexable)
+}
+
+/// The text that gets chunked and embedded for one file.
+fn indexable_text(file: &Path, bytes: &[u8]) -> Result<String, String> {
+    match file.file_name().map(|n| n.to_string_lossy().to_string()) {
+        Some(name) if is_office_name(&name) => extract_office(&name, bytes).map(|e| e.markdown),
+        _ => Ok(String::from_utf8_lossy(bytes).to_string()),
+    }
 }
 
 /// Vault-relative path with `/` separators.
@@ -114,7 +142,7 @@ fn index_content(
     fp: Fingerprint,
     embed: &EmbedFn,
 ) -> Result<(), String> {
-    let content = String::from_utf8_lossy(bytes);
+    let content = indexable_text(file, bytes)?;
     let rel = relative_note_path(vault, file);
     let mut embedded: Vec<(usize, String, Vec<f32>)> = Vec::new();
     for (i, chunk) in chunk_text(&content, 1500, 200).into_iter().enumerate() {
@@ -132,8 +160,8 @@ fn index_content(
 /// Index a file, or every note under a folder. Failures are logged.
 pub fn index_path(vdb: &VectorsDb, vault: &Path, path: &Path, embed: &EmbedFn) {
     let files = if path.is_dir() {
-        list_vault_notes(path)
-    } else if path.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("md")) {
+        list_indexable_files(path)
+    } else if is_indexable(path) {
         vec![path.to_path_buf()]
     } else {
         vec![]
@@ -166,7 +194,7 @@ pub fn sync_vault(
 ) -> Result<SyncReport, String> {
     let key = vault_key(vault);
     let stored: HashMap<String, Fingerprint> = vdb.fingerprints(&key).map_err(|e| e.to_string())?;
-    let notes = list_vault_notes(vault);
+    let notes = list_indexable_files(vault);
     let present: HashSet<String> = notes.iter().map(|n| n.to_string_lossy().to_string()).collect();
     let mut report = SyncReport::default();
 

@@ -160,6 +160,21 @@ fn normalise_image(name: &str, bytes: &[u8]) -> Result<Part, AttachmentError> {
     Ok(Part::Image { media_type: mt_out.into(), data_b64: b64(&out.into_inner()) })
 }
 
+/// An image that is not a vault file (e.g. one extracted from a Word or
+/// PowerPoint document): validated and downscaled like any other image.
+pub fn image_attachment(name: &str, vault_path: &str, bytes: &[u8]) -> Result<Attachment, AttachmentError> {
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return err(format!("«{name}» supera el límite de 20 MB."));
+    }
+    Ok(Attachment {
+        name: name.to_string(),
+        vault_path: vault_path.to_string(),
+        kind: AttachmentKind::Image,
+        parts: vec![normalise_image(name, bytes)?],
+        fallback: vec![],
+    })
+}
+
 fn derived_image(name: &str, d: &DerivedImage) -> Result<Part, AttachmentError> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(d.data_b64.as_bytes())

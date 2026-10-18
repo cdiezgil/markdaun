@@ -21,7 +21,7 @@ fn ensure_creates_entrada_once() {
 fn list_reports_types_support_and_sorts_newest_first() {
     let vault = tempdir().unwrap();
     let dir = inbox_ensure_inner(vault.path()).unwrap();
-    for name in ["a.md", "b.txt", "c.pdf", "d.PNG", "e.svg", "f.docx"] {
+    for name in ["a.md", "b.txt", "c.pdf", "d.PNG", "e.svg", "f.docx", "g.pptx", "h.doc"] {
         fs::write(dir.join(name), "12345").unwrap();
         // Distinct modification times, increasing with the file name.
         std::thread::sleep(std::time::Duration::from_millis(15));
@@ -31,7 +31,7 @@ fn list_reports_types_support_and_sorts_newest_first() {
 
     let items = inbox_list_inner(vault.path()).unwrap();
     let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
-    assert_eq!(names, ["f.docx", "e.svg", "d.PNG", "c.pdf", "b.txt", "a.md"]);
+    assert_eq!(names, ["h.doc", "g.pptx", "f.docx", "e.svg", "d.PNG", "c.pdf", "b.txt", "a.md"]);
 
     let by = |n: &str| items.iter().find(|i| i.name == n).unwrap();
     assert_eq!(by("a.md").kind, InboxKind::Md);
@@ -39,9 +39,11 @@ fn list_reports_types_support_and_sorts_newest_first() {
     assert_eq!(by("c.pdf").kind, InboxKind::Pdf);
     assert_eq!(by("d.PNG").kind, InboxKind::Image);
     assert_eq!(by("e.svg").kind, InboxKind::Image);
-    assert_eq!(by("f.docx").kind, InboxKind::Other);
-    assert!(by("a.md").supported && by("e.svg").supported);
-    assert!(!by("f.docx").supported);
+    assert_eq!(by("f.docx").kind, InboxKind::Docx);
+    assert_eq!(by("g.pptx").kind, InboxKind::Pptx);
+    assert_eq!(by("h.doc").kind, InboxKind::Other);
+    assert!(by("a.md").supported && by("e.svg").supported && by("f.docx").supported && by("g.pptx").supported);
+    assert!(!by("h.doc").supported);
     assert_eq!(by("a.md").size, 5);
     assert_eq!(by("a.md").rel_path, "Entrada/a.md");
     assert!(by("a.md").added_ms > 0);
