@@ -71,7 +71,7 @@ export function ShortcutCheatSheet({ open, onClose, mac = isMac() }: ShortcutChe
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'center',
-        paddingTop: 'var(--space-16)',
+        paddingTop: 'var(--space-8)',
       }}
     >
       <div
@@ -81,7 +81,7 @@ export function ShortcutCheatSheet({ open, onClose, mac = isMac() }: ShortcutChe
         onClick={(e) => e.stopPropagation()}
         style={{
           width: 'min(720px, calc(100vw - 2 * var(--space-8)))',
-          maxHeight: 'calc(100vh - 2 * var(--space-16))',
+          maxHeight: 'calc(100vh - 2 * var(--space-8))',
           overflowY: 'auto',
           background: 'var(--surface)',
           color: 'var(--ink)',
@@ -113,14 +113,22 @@ export function ShortcutCheatSheet({ open, onClose, mac = isMac() }: ShortcutChe
               ))}
             </section>
           ))}
-          <section>
+          <section style={{ gridColumn: '1 / -1' }}>
             <h3 style={HEADING_STYLE}>Escritura Markdown</h3>
-            {MARKDOWN_TYPING_RULES.map((r) => (
-              <div key={r.typed} style={ROW_STYLE}>
-                <span>{r.result}</span>
-                <kbd style={KEY_STYLE}>{r.typed}</kbd>
-              </div>
-            ))}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                columnGap: 'var(--space-6)',
+              }}
+            >
+              {MARKDOWN_TYPING_RULES.map((r) => (
+                <div key={r.typed} style={ROW_STYLE}>
+                  <span>{r.result}</span>
+                  <kbd style={KEY_STYLE}>{r.typed}</kbd>
+                </div>
+              ))}
+            </div>
           </section>
         </div>
       </div>
