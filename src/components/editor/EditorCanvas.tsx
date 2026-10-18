@@ -1,20 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Image from '@tiptap/extension-image';
-import Link from '@tiptap/extension-link';
-import Table from '@tiptap/extension-table';
-import TableRow from '@tiptap/extension-table-row';
-import TableCell from '@tiptap/extension-table-cell';
-import TableHeader from '@tiptap/extension-table-header';
-import { Markdown } from 'tiptap-markdown';
-
-import { useEditorStore } from '../../store/editorStore';
-import { createWikilinkExtension } from './extensions/WikilinkExtension';
+import { useEditorStore, resolveImageSrc } from '../../store/editorStore';
 import { vaultStoreWikilinkOptions } from './extensions/vaultWikilinkOptions';
-import { MermaidCodeBlock } from './extensions/MermaidCodeBlock';
-import { HighlightExtension } from './extensions/HighlightExtension';
-import { TagExtension } from './extensions/TagExtension';
+import { buildEditorExtensions } from './editorExtensions';
 import { convertAssetSrc } from '../../lib/tauri';
 import BacklinksSection from './BacklinksSection';
 import { useH1Follow } from '../../hooks/useH1Follow';
@@ -51,41 +39,14 @@ export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
 
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
-        code: {},
-        codeBlock: false,
-        blockquote: {},
-        bulletList: {},
-        orderedList: {},
-        horizontalRule: {},
-        strike: {},
-      }),
-      MermaidCodeBlock,
-      Link.configure({
-        openOnClick: true,
-        autolink: true,
-        protocols: ['https', 'http', 'mailto'],
-        validate: (href) => /^https?:\/\//i.test(href) || href.startsWith('mailto:'),
-      }),
-      Image.configure({
-        inline: false,
-        allowBase64: false,
-      }),
-      Table.configure({ resizable: false }),
-      TableRow,
-      TableCell,
-      TableHeader,
-      Markdown.configure({
-        html: false,
-        transformCopiedText: true,
-        transformPastedText: true,
-      }),
-      HighlightExtension,
-      TagExtension,
-      createWikilinkExtension(vaultStoreWikilinkOptions),
-    ],
+    extensions: buildEditorExtensions({
+      wikilinkOptions: vaultStoreWikilinkOptions,
+      resolveImageSrc: (path) => {
+        const notePath = useEditorStore.getState().activeNotePath;
+        if (!notePath) return path;
+        return resolveImageSrc(path, notePath.substring(0, notePath.lastIndexOf('/')));
+      },
+    }),
     content: activeNoteContent ?? '',
     onUpdate: ({ editor: ed }) => {
       const md: string = (ed.storage as { markdown?: { getMarkdown?: () => string } })

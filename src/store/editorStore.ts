@@ -63,6 +63,17 @@ let relocating = false;
 
 const IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
 
+/** The `src` the editor shows for an image path typed/written in a note (remote URLs unchanged). */
+export function resolveImageSrc(src: string, noteDir: string): string {
+  if (/^(https?|tauri):\/\//.test(src)) return src;
+  try {
+    const absPath = new URL(src, 'file://' + noteDir + '/').pathname;
+    return convertAssetSrc(absPath);
+  } catch {
+    return src;
+  }
+}
+
 function processImagesOnLoad(markdown: string, noteDir: string): string {
   return markdown.replace(IMAGE_RE, (match, alt: string, src: string) => {
     if (/^(https?|tauri):\/\//.test(src)) return match;

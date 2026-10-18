@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../store/editorStore';
 
 // Mock TipTap to avoid full DOM editor in unit tests
+vi.mock('./editorExtensions', () => ({ buildEditorExtensions: () => [] }));
 vi.mock('./BacklinksSection', () => ({ default: () => null }));
 vi.mock('../../hooks/useH1Follow', () => ({ useH1Follow: vi.fn() }));
 
