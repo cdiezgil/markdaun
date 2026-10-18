@@ -1,8 +1,9 @@
 use super::inbox::{
     archive_source_inner, folder_tree, last_area_get, last_area_set, list_areas, inbox_discard_inner, inbox_ensure_inner, inbox_list_inner,
-    trash_delete_inner, trash_list_inner, trash_restore_inner, InboxKind,
+    inbox_list_with_jobs, trash_delete_inner, trash_list_inner, trash_restore_inner, InboxKind, VoiceStateKind,
 };
 use std::fs;
+use crate::voice::jobs::{JobState, VoiceJobs};
 use tempfile::tempdir;
 
 #[test]
@@ -268,4 +269,118 @@ fn last_area_is_remembered_per_vault() {
     // The vault root is a valid area, stored as the empty string.
     last_area_set(db.path(), "/v/a", "").unwrap();
     assert_eq!(last_area_get(db.path(), "/v/a").as_deref(), Some(""));
+}
+
+// ── voice notes ───────────────────────────────────────────────────────────────
+
+fn voice_pair(dir: &std::path::Path, stem: &str, ext: &str) {
+    fs::write(dir.join(format!("{stem}.{ext}")), "audio-bytes").unwrap();
+    fs::write(
+        dir.join(format!("{stem}.md")),
+        format!("# Nota de voz\n\n- Audio: [{stem}.{ext}]({}.{ext})\n", stem.replace(' ', "%20")),
+    )
+    .unwrap();
+}
+
+#[test]
+fn audio_files_are_listed_as_audio_and_never_as_digestible_sources() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    for name in ["a.m4a", "b.webm", "c.ogg", "d.wav", "e.mp3", "f.opus", "g.aac"] {
+        fs::write(dir.join(name), "x").unwrap();
+    }
+    let items = inbox_list_inner(vault.path()).unwrap();
+    assert_eq!(items.len(), 7);
+    assert!(items.iter().all(|i| i.kind == InboxKind::Audio && !i.supported));
+}
+
+#[test]
+fn audio_with_its_transcript_is_not_a_separate_item() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    voice_pair(&dir, "Nota de voz 2026-10-18 14-32", "m4a");
+    let items = inbox_list_inner(vault.path()).unwrap();
+    let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+    assert_eq!(names, ["Nota de voz 2026-10-18 14-32.md"]);
+    assert!(items[0].voice.is_none());
+}
+
+#[test]
+fn audio_without_a_transcript_reports_an_interrupted_transcription_to_retry() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    fs::write(dir.join("Nota de voz 2026-10-18 14-32.m4a"), "x").unwrap();
+    let items = inbox_list_inner(vault.path()).unwrap();
+    let voice = items[0].voice.as_ref().unwrap();
+    assert_eq!(voice.state, VoiceStateKind::Error);
+}
+
+#[test]
+fn running_and_failed_jobs_decorate_the_audio_item() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    fs::write(dir.join("a.m4a"), "x").unwrap();
+    fs::write(dir.join("b.m4a"), "x").unwrap();
+    fs::write(dir.join("c.m4a"), "x").unwrap();
+    let jobs = VoiceJobs::default();
+    jobs.set("Entrada/a.m4a", JobState::Transcribing);
+    jobs.set("Entrada/b.m4a", JobState::Downloading { done: 50, total: Some(200) });
+    jobs.set("Entrada/c.m4a", JobState::Error("boom".into()));
+    let items = inbox_list_with_jobs(vault.path(), &jobs).unwrap();
+    let voice = |n: &str| items.iter().find(|i| i.name == n).unwrap().voice.clone().unwrap();
+    assert_eq!(voice("a.m4a").state, VoiceStateKind::Transcribing);
+    assert_eq!(voice("b.m4a").state, VoiceStateKind::Downloading);
+    assert_eq!(voice("b.m4a").progress, Some(0.25));
+    assert_eq!(voice("c.m4a").state, VoiceStateKind::Error);
+    assert_eq!(voice("c.m4a").detail.as_deref(), Some("boom"));
+}
+
+#[test]
+fn archiving_a_voice_note_moves_its_audio_along_and_keeps_the_link_working() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    voice_pair(&dir, "Nota de voz 2026-10-18 14-32", "m4a");
+    let out = archive_source_inner(&dir.join("Nota de voz 2026-10-18 14-32.md"), "Mutua", vault.path(), None).unwrap();
+    let fuentes = vault.path().join("Mutua/Fuentes");
+    assert!(out.path.ends_with("Mutua/Fuentes/Nota de voz 2026-10-18 14-32.md"));
+    assert_eq!(fs::read(fuentes.join("Nota de voz 2026-10-18 14-32.m4a")).unwrap(), b"audio-bytes");
+    assert!(!dir.join("Nota de voz 2026-10-18 14-32.m4a").exists(), "audio left behind");
+    let md = fs::read_to_string(fuentes.join("Nota de voz 2026-10-18 14-32.md")).unwrap();
+    assert!(md.contains("(Nota%20de%20voz%202026-10-18%2014-32.m4a)"), "{md}");
+}
+
+#[test]
+fn archiving_voice_notes_with_a_taken_name_renames_note_and_audio_together() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    for _ in 0..2 {
+        voice_pair(&dir, "Nota", "webm");
+        archive_source_inner(&dir.join("Nota.md"), "A", vault.path(), None).unwrap();
+    }
+    let fuentes = vault.path().join("A/Fuentes");
+    assert!(fuentes.join("Nota.webm").exists() && fuentes.join("Nota 2.webm").exists());
+    let md2 = fs::read_to_string(fuentes.join("Nota 2.md")).unwrap();
+    assert!(md2.contains("(Nota%202.webm)"), "link follows the renamed audio: {md2}");
+}
+
+#[test]
+fn only_media_the_note_links_to_travels_with_it() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    fs::write(dir.join("acta.md"), "# Acta\n").unwrap();
+    fs::write(dir.join("acta.pdf"), "pdf").unwrap(); // another inbox item, same stem
+    fs::write(dir.join("acta.m4a"), "x").unwrap(); // not linked
+    archive_source_inner(&dir.join("acta.md"), "A", vault.path(), None).unwrap();
+    assert!(dir.join("acta.pdf").exists() && dir.join("acta.m4a").exists());
+    assert!(!vault.path().join("A/Fuentes/acta.pdf").exists());
+}
+
+#[test]
+fn discarding_a_voice_note_discards_its_audio_too() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    voice_pair(&dir, "Nota", "m4a");
+    inbox_discard_inner(&dir.join("Nota.md"), vault.path()).unwrap();
+    assert!(!dir.join("Nota.md").exists() && !dir.join("Nota.m4a").exists());
+    assert_eq!(trash_list_inner(vault.path()).unwrap().len(), 2);
 }

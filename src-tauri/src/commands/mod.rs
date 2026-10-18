@@ -70,3 +70,8 @@ pub mod quick_cmd;
 pub use quick_cmd::*;
 #[cfg(test)]
 mod quick_cmd_tests;
+
+pub mod voice_cmd;
+pub use voice_cmd::*;
+#[cfg(test)]
+mod voice_cmd_tests;

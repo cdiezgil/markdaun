@@ -8,6 +8,7 @@ use super::vault_index::spawn_index_update;
 use crate::db::{ConfigDb, ConversationsDb};
 use crate::fs::naming::unique_name;
 use crate::fs::tree::APP_DIR;
+use crate::voice::jobs::{JobState, VoiceJobs};
 use serde::Serialize;
 use std::path::{Component, Path, PathBuf};
 
@@ -26,6 +27,8 @@ pub enum InboxKind {
     Image,
     Docx,
     Pptx,
+    /// A voice recording waiting for (or failed) transcription.
+    Audio,
     Other,
 }
 
@@ -41,7 +44,31 @@ pub struct InboxItem {
     pub added_ms: i64,
     /// Whether digestion handles this type yet.
     pub supported: bool,
+    /// Transcription state of a voice recording; `None` for everything else.
+    pub voice: Option<VoiceInfo>,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceStateKind {
+    Downloading,
+    Transcribing,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct VoiceInfo {
+    pub state: VoiceStateKind,
+    pub detail: Option<String>,
+    /// Model download progress, 0..1, when known.
+    pub progress: Option<f32>,
+}
+
+/// Audio containers a recording (or a future import) may arrive in.
+const AUDIO_EXTS: [&str; 8] = ["m4a", "mp4", "webm", "ogg", "opus", "wav", "mp3", "aac"];
+/// Media a note can link next to itself (recordings, pasted captures).
+const LINKED_MEDIA_EXTS: [&str; 9] = ["m4a", "mp4", "webm", "ogg", "opus", "wav", "mp3", "aac", "png"];
+const INTERRUPTED: &str = "Transcripción interrumpida";
 
 fn classify(name: &str) -> InboxKind {
     match name.rsplit_once('.').map(|(_, e)| e.to_lowercase()).as_deref() {
@@ -51,6 +78,7 @@ fn classify(name: &str) -> InboxKind {
         Some("docx") => InboxKind::Docx,
         Some("pptx") => InboxKind::Pptx,
         Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg") => InboxKind::Image,
+        Some(e) if AUDIO_EXTS.contains(&e) => InboxKind::Audio,
         _ => InboxKind::Other,
     }
 }
@@ -68,7 +96,15 @@ pub fn inbox_ensure_inner(vault: &Path) -> Result<PathBuf, String> {
 
 /// Files directly inside `Entrada/` (folders and hidden files are not items),
 /// newest first.
+#[cfg(test)]
 pub fn inbox_list_inner(vault: &Path) -> Result<Vec<InboxItem>, String> {
+    inbox_list_with_jobs(vault, &VoiceJobs::default())
+}
+
+/// [`inbox_list_inner`] with the live transcription state of voice recordings.
+/// A recording without transcript and without a running job is shown as
+/// interrupted (the app may have quit mid-transcription), so it can be retried.
+pub fn inbox_list_with_jobs(vault: &Path, jobs: &VoiceJobs) -> Result<Vec<InboxItem>, String> {
     let dir = inbox_ensure_inner(vault)?;
     let mut items: Vec<InboxItem> = std::fs::read_dir(&dir)
         .map_err(|e| format!("io_error: {e}"))?
@@ -80,12 +116,23 @@ pub fn inbox_list_inner(vault: &Path) -> Result<Vec<InboxItem>, String> {
                 return None;
             }
             let kind = classify(&name);
+            let rel_path = format!("{INBOX_DIR}/{name}");
+            let voice = if kind == InboxKind::Audio {
+                // Its transcript note stands for it.
+                if e.path().with_extension("md").exists() {
+                    return None;
+                }
+                Some(voice_info(jobs.get(&rel_path)))
+            } else {
+                None
+            };
             Some(InboxItem {
                 path: e.path().to_string_lossy().to_string(),
-                rel_path: format!("{INBOX_DIR}/{name}"),
+                rel_path,
+                voice,
                 size: meta.len(),
                 added_ms: ms_of(meta.created()).or_else(|| ms_of(meta.modified())).unwrap_or(0),
-                supported: kind != InboxKind::Other,
+                supported: !matches!(kind, InboxKind::Other | InboxKind::Audio),
                 kind,
                 name,
             })
@@ -93,6 +140,39 @@ pub fn inbox_list_inner(vault: &Path) -> Result<Vec<InboxItem>, String> {
         .collect();
     items.sort_by(|a, b| b.added_ms.cmp(&a.added_ms).then_with(|| a.name.cmp(&b.name)));
     Ok(items)
+}
+
+fn voice_info(state: Option<JobState>) -> VoiceInfo {
+    match state {
+        Some(JobState::Transcribing) => VoiceInfo { state: VoiceStateKind::Transcribing, detail: None, progress: None },
+        Some(JobState::Downloading { done, total }) => VoiceInfo {
+            state: VoiceStateKind::Downloading,
+            detail: None,
+            progress: total.filter(|t| *t > 0).map(|t| (done as f64 / t as f64) as f32),
+        },
+        Some(JobState::Error(detail)) => VoiceInfo { state: VoiceStateKind::Error, detail: Some(detail), progress: None },
+        None => VoiceInfo { state: VoiceStateKind::Error, detail: Some(INTERRUPTED.to_string()), progress: None },
+    }
+}
+
+/// Media files next to the note `md` that it links to (`<stem>.<ext>`), such
+/// as a voice recording or a pasted capture. Returns their extensions.
+fn linked_media(md: &Path) -> Vec<String> {
+    let Some(stem) = md.file_stem().map(|s| s.to_string_lossy().to_string()) else { return vec![] };
+    if !md.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")) {
+        return vec![];
+    }
+    let Ok(text) = std::fs::read_to_string(md) else { return vec![] };
+    LINKED_MEDIA_EXTS
+        .iter()
+        .filter(|ext| md.with_extension(ext).is_file())
+        .filter(|ext| {
+            let name = format!("{stem}.{ext}");
+            let encoded = name.replace('%', "%25").replace(' ', "%20");
+            text.contains(&name) || text.contains(&encoded)
+        })
+        .map(|e| e.to_string())
+        .collect()
 }
 
 // ─── Trash ────────────────────────────────────────────────────────────────────
@@ -142,6 +222,16 @@ fn within(vault: &Path, p: &Path) -> Result<PathBuf, String> {
 
 /// Moves `path` into the vault trash (nothing is deleted).
 pub fn inbox_discard_inner(path: &Path, vault: &Path) -> Result<(), String> {
+    // A note's recording goes with it (each in its own trash slot).
+    let media: Vec<PathBuf> = linked_media(path).iter().map(|e| path.with_extension(e)).collect();
+    discard_one(path, vault)?;
+    for m in media {
+        discard_one(&m, vault)?;
+    }
+    Ok(())
+}
+
+fn discard_one(path: &Path, vault: &Path) -> Result<(), String> {
     let path = within(vault, path)?;
     let rel = rel_of(vault, &path).ok_or_else(|| "path_outside_vault".to_string())?;
     let name = path.file_name().ok_or_else(|| "io_error: invalid path".to_string())?;
@@ -264,7 +354,9 @@ pub fn archive_source_inner(
     // A clipped note travels with its `<stem>_assets/` images.
     let assets_src = source.with_file_name(format!("{stem}_assets"));
     let with_assets = assets_src.is_dir();
-    let dest = free_destination(&dir, &stem, &ext, with_assets);
+    // ...and with the recordings / captures it links to.
+    let media = linked_media(&source);
+    let dest = free_destination(&dir, &stem, &ext, with_assets, &media);
 
     let mut rewritten: Vec<String> = Vec::new();
     if with_assets {
@@ -272,6 +364,17 @@ pub fn archive_source_inner(
         let assets_dest = dir.join(format!("{dest_stem}_assets"));
         std::fs::rename(&assets_src, &assets_dest).map_err(|e| format!("io_error: {e}"))?;
         rewritten.extend(finish_relocation(vault, &assets_src, &assets_dest, db_path, true)?);
+    }
+    let dest_stem = dest.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    for m in &media {
+        let from = source.with_extension(m);
+        let to = dir.join(format!("{dest_stem}.{m}"));
+        std::fs::rename(&from, &to).map_err(|e| format!("io_error: {e}"))?;
+        for p in finish_relocation(vault, &from, &to, db_path, true)? {
+            if !rewritten.contains(&p) {
+                rewritten.push(p);
+            }
+        }
     }
     std::fs::rename(&source, &dest).map_err(|e| format!("io_error: {e}"))?;
     for p in finish_relocation(vault, &source, &dest, db_path, true)? {
@@ -283,13 +386,17 @@ pub fn archive_source_inner(
 }
 
 /// `<stem>.<ext>` in `dir`, numbered (" 2"…) until the name is free; with
-/// `assets`, `<stem>_assets/` must be free too.
-fn free_destination(dir: &Path, stem: &str, ext: &str, assets: bool) -> PathBuf {
+/// `assets`, `<stem>_assets/` must be free too, and so must `<stem>.<m>` for
+/// every linked media extension.
+fn free_destination(dir: &Path, stem: &str, ext: &str, assets: bool, media: &[String]) -> PathBuf {
     let mut n = 1;
     loop {
         let name = if n == 1 { stem.to_string() } else { format!("{stem} {n}") };
         let candidate = dir.join(if ext.is_empty() { name.clone() } else { format!("{name}.{ext}") });
-        if !candidate.exists() && !(assets && dir.join(format!("{name}_assets")).exists()) {
+        if !candidate.exists()
+            && !(assets && dir.join(format!("{name}_assets")).exists())
+            && !media.iter().any(|m| dir.join(format!("{name}.{m}")).exists())
+        {
             return candidate;
         }
         n += 1;
@@ -359,8 +466,8 @@ pub async fn inbox_ensure(vault_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn inbox_list(vault_path: String) -> Result<Vec<InboxItem>, String> {
-    inbox_list_inner(Path::new(&vault_path))
+pub async fn inbox_list(jobs: tauri::State<'_, VoiceJobs>, vault_path: String) -> Result<Vec<InboxItem>, String> {
+    inbox_list_with_jobs(Path::new(&vault_path), &jobs)
 }
 
 #[tauri::command]
