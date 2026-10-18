@@ -25,6 +25,12 @@ export interface EditorState {
   isDirty: boolean;
   /** Plain text currently selected in the editor ('' when none). */
   selectionText: string;
+  /** Bumped every time a note is (re)loaded from disk; the editor reloads on change. */
+  loadVersion: number;
+  /** When true the editor puts the cursor in the H1 once the next note loads. */
+  focusTitleOnOpen: boolean;
+  /** Last rename/move of the active note (lets the route follow the new path). */
+  relocation: { from: string; to: string } | null;
 
   // Actions
   openNote(absolutePath: string): Promise<void>;
@@ -32,11 +38,24 @@ export interface EditorState {
   setSelectionText(text: string): void;
   saveNow(): Promise<void>;
   initVault(): Promise<void>;
+  /**
+   * Runs a rename/move: pending edits are flushed first and saves are held
+   * back while it runs, so nothing is written to a path that is going away.
+   */
+  runRelocation<T>(run: () => Promise<T>): Promise<T>;
+  /**
+   * `from` (a note or folder) now lives at `to`. Keeps the active note's
+   * unsaved content and cursor, refreshes the tree, and reloads the active
+   * note when `rewritten` shows links in it changed on disk.
+   */
+  applyRelocation(from: string, to: string, rewritten: string[]): Promise<void>;
 }
 
 // ── Internal debounce ref (module-level, not in store state) ───────────────────
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+/** True while a rename/move runs: saves are deferred to avoid writing to the old path. */
+let relocating = false;
 
 // ── Image path helpers ────────────────────────────────────────────────────────
 
@@ -83,6 +102,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   lastSavedAt: null,
   isDirty: false,
   selectionText: '',
+  loadVersion: 0,
+  focusTitleOnOpen: false,
+  relocation: null,
 
   async openNote(absolutePath: string) {
     // Cancel any pending debounced save for the previous note
@@ -106,6 +128,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       lastSavedAt: null,
       isDirty: false,
       selectionText: '',
+      loadVersion: get().loadVersion + 1,
     });
   },
 
@@ -127,6 +150,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   async saveNow() {
     const { activeNotePath, activeNoteContent, vaultPath } = get();
     if (!activeNotePath || activeNoteContent === null || !vaultPath) return;
+    if (relocating) return; // runRelocation reschedules once the new path is known
 
     const noteDir = activeNotePath.substring(0, activeNotePath.lastIndexOf('/'));
     const processedMarkdown = processImagesOnSave(activeNoteContent, noteDir);
@@ -151,6 +175,42 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (vault !== null) {
       const tree = await listVaultTree(vault);
       set({ vaultPath: vault, vaultTree: tree });
+    }
+  },
+
+  async runRelocation<T>(run: () => Promise<T>): Promise<T> {
+    if (debounceTimer !== null) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+    if (get().isDirty) await get().saveNow();
+    relocating = true;
+    try {
+      return await run();
+    } finally {
+      relocating = false;
+      if (get().isDirty) {
+        debounceTimer = setTimeout(() => {
+          get().saveNow().catch(console.error);
+        }, 1000);
+      }
+    }
+  },
+
+  async applyRelocation(from: string, to: string, rewritten: string[]) {
+    const { activeNotePath, vaultPath } = get();
+    let mapped = activeNotePath;
+    if (activeNotePath === from) mapped = to;
+    else if (activeNotePath?.startsWith(from + '/')) mapped = to + activeNotePath.slice(from.length);
+    if (mapped !== activeNotePath) {
+      set({ activeNotePath: mapped, relocation: { from: activeNotePath as string, to: mapped as string } });
+    }
+    if (vaultPath) {
+      const tree = await listVaultTree(vaultPath);
+      set({ vaultTree: tree });
+    }
+    if (mapped && !get().isDirty && rewritten.includes(mapped)) {
+      await get().openNote(mapped);
     }
   },
 }));
