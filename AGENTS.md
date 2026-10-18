@@ -68,11 +68,19 @@ El backend expone comandos Tauri al frontend. Sin servidor externo: todo corre e
 
 ### 2.5 Sincronización GitHub
 
-- El usuario configura: **URL del repositorio** + **Personal Access Token (PAT)**.
-- El PAT se guarda en el llavero del SO vía `keyring`; **nunca en disco en claro**.
-- Operaciones expuestas: `clone_repo`, `pull`, `push` (commit automático con mensaje timestamped), `status` (ficheros modificados/sin trackear).
-- Implementación: `git2` en Rust, sin dependencia de que el usuario tenga `git` instalado.
-- La bóveda local (`vault/`) **es** el working directory del repo clonado.
+Principio: **ninguna operación de sync borra ni sobrescribe datos de ningún lado sin confirmación explícita.** Sin force push, sin `reset --hard`. (Origen: incidente del 2026-10-18, un push forzado desde una bóveda "vacía" borró 1 101 notas del remoto; ver `docs/superpowers/specs/2026-10-18-safe-git-sync-design.md`.)
+
+- El usuario configura: **URL del repositorio** + **Personal Access Token (PAT)**. El PAT se guarda en el llavero del SO vía `keyring`; **nunca en disco en claro**.
+- Implementación: `git2` en Rust (`src-tauri/src/git/sync.rs`), sin depender de que el usuario tenga `git` instalado. La bóveda local (`vault/`) **es** el working directory del repo.
+- **Conectar (dos pasos):** `github_connect_preview` hace fetch a un repo temporal (la bóveda no se toca) y clasifica: *remoto vacío* / *local vacío + remoto con notas* / *ambos con notas*. "Contenido local" excluye `.git/`, `.gitignore`, `.markdaun/`, `.DS_Store` y carpetas vacías. `github_connect_apply(choice)` aplica solo lo que el usuario aceptó:
+  - remoto vacío: commit local (con padre si hay historial) y push normal, sin diálogo;
+  - local vacío: diálogo "¿Descargarlas en esta carpeta?" → `download` (checkout del remoto, conservando `.markdaun/`);
+  - ambos con contenido: diálogo "¿Sincronizar?" → `sync` (merge, historias no relacionadas incluidas, con commit de dos padres; luego push normal).
+  - Cancelar = no llamar a apply: remoto y carpeta intactos. Si el estado cambió entre preview y apply (`state_changed`), no se toca nada.
+- **Pull:** commit de los cambios locales primero, luego fetch + fast-forward o merge real. Si la misma nota cambió en ambos lados se conservan **las dos versiones**: la ruta mantiene el contenido local y el remoto se guarda como `<nombre> (conflicto YYYY-MM-DD HH-mm).<ext>` en la misma carpeta; la UI muestra "Hay N conflictos" con enlaces. Edición en un lado y borrado en el otro: se conserva el fichero.
+- **Push:** siempre con HEAD como padre y sin `+`. Si el remoto se movió, se hace merge y se reintenta una vez. **Guardia de borrado:** si el árbol a subir quitaría más del 50 % de los ficheros de `origin/main` (y ≥ 10), no se sube y se pide confirmación ("Esta sincronización borraría N de M notas en GitHub. ¿Continuar?"); `github_push(confirmDeletions)` solo sube tras el sí.
+- Operaciones expuestas: `github_connect_preview`, `github_connect_apply`, `github_push`, `github_pull`, `github_status`, `github_get_config`, `github_disconnect`.
+- Los tests de sync usan repos bare locales (`file://`), sin red.
 
 ### 2.6 LLM — Second Brain
 

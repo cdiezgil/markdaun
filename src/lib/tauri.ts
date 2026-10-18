@@ -72,17 +72,51 @@ export function convertAssetSrc(absolutePath: string): string {
 
 // ── GitHub Sync commands ───────────────────────────────────────────────────────
 
-/** Connect the vault to a GitHub repo (push existing files or clone). */
-export async function githubConfigure(
+export type ConnectCase = 'remote_empty' | 'local_empty' | 'both_have_content';
+export type ConnectChoice = 'download' | 'sync';
+
+/** What connecting would do; nothing has been changed yet. */
+export interface ConnectPreview {
+  case: ConnectCase;
+  remoteCount: number;
+  localCount: number;
+}
+
+export interface ConnectResult {
+  action: 'pushed' | 'cloned' | 'merged';
+  /** Vault-relative paths of conflict copies created while merging. */
+  conflicts: string[];
+}
+
+export interface DeletionWarning {
+  deleted: number;
+  total: number;
+}
+
+export interface SyncResult {
+  /** Vault-relative paths of conflict copies created while merging. */
+  conflicts: string[];
+  /** Set when the push was NOT performed and needs the user's confirmation. */
+  needsConfirmation: DeletionWarning | null;
+}
+
+/** Step 1 of connecting: compare vault and remote without changing anything. */
+export async function githubConnectPreview(
   repoUrl: string,
   pat: string,
   vaultPath: string,
-): Promise<'pushed' | 'cloned'> {
-  return invoke<'pushed' | 'cloned'>('github_configure', {
-    repoUrl,
-    pat,
-    vaultPath,
-  });
+): Promise<ConnectPreview> {
+  return invoke<ConnectPreview>('github_connect_preview', { repoUrl, pat, vaultPath });
+}
+
+/** Step 2 of connecting: apply what the user agreed to in the preview dialog. */
+export async function githubConnectApply(
+  repoUrl: string,
+  pat: string,
+  vaultPath: string,
+  choice: ConnectChoice,
+): Promise<ConnectResult> {
+  return invoke<ConnectResult>('github_connect_apply', { repoUrl, pat, vaultPath, choice });
 }
 
 /** Return the stored repo URL, or null if not configured. Never returns the PAT. */
@@ -95,14 +129,18 @@ export async function githubDisconnect(): Promise<void> {
   return invoke<void>('github_disconnect');
 }
 
-/** Stage all changes, commit with a timestamped message, and push to origin/main. */
-export async function githubPush(): Promise<void> {
-  return invoke<void>('github_push');
+/**
+ * Commit local changes, merge what is new on GitHub and push (never forced).
+ * Resolves with `needsConfirmation` (and pushes nothing) when the push would
+ * delete most of the remote notes and `confirmDeletions` is false.
+ */
+export async function githubPush(confirmDeletions = false): Promise<SyncResult> {
+  return invoke<SyncResult>('github_push', { confirmDeletions });
 }
 
-/** Fetch origin/main and fast-forward (or reset hard if diverged). */
-export async function githubPull(): Promise<void> {
-  return invoke<void>('github_pull');
+/** Fetch origin/main and merge it; same-note conflicts keep both versions. */
+export async function githubPull(): Promise<SyncResult> {
+  return invoke<SyncResult>('github_pull');
 }
 
 /** Return true if the vault has uncommitted local changes. */

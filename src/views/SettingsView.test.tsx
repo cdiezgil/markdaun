@@ -66,29 +66,13 @@ describe('SettingsView', () => {
     expect(screen.getByText(/https:\/\/github\.com\/u\/r/)).toBeDefined();
   });
 
-  // ─── TC-25: vault with files shows ConfirmDialog on connect ──────────────
+  // ─── TC-25/26: connect only previews; the decision dialog lives in <SyncDialogs /> ──
 
-  it('TC-25: shows ConfirmDialog when vault has files and user clicks Conectar', () => {
-    makeState({ isConnected: false, hasFiles: true });
-    render(<SettingsView />);
-
-    // Fill in form
-    fireEvent.change(screen.getByTestId('github-url-input'), {
-      target: { value: 'https://github.com/u/r' },
-    });
-    fireEvent.change(screen.getByTestId('github-pat-input'), {
-      target: { value: 'ghp_token' },
-    });
-    fireEvent.click(screen.getByTestId('github-connect-btn'));
-
-    // ConfirmDialog overlay should appear
-    expect(screen.getByTestId('confirm-dialog-overlay')).toBeDefined();
-  });
-
-  // ─── TC-26: empty vault calls connect directly without dialog ─────────────
-
-  it('TC-26: calls connect directly when vault is empty (no ConfirmDialog)', () => {
-    makeState({ isConnected: false, hasFiles: false });
+  it.each([
+    ['vault with notes', true],
+    ['empty vault', false],
+  ])('TC-25: Conectar with %s asks the store to preview, with no overwrite dialog', (_n, hasFiles) => {
+    makeState({ isConnected: false, hasFiles });
     render(<SettingsView />);
 
     fireEvent.change(screen.getByTestId('github-url-input'), {

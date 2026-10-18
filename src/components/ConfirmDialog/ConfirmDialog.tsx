@@ -9,6 +9,8 @@ export interface ConfirmDialogProps {
   message?: string;
   /** Label for the confirm button. Defaults to "Eliminar". */
   confirmLabel?: string;
+  /** `danger` (default) colours the confirm label red; `neutral` uses the brand colour. */
+  tone?: 'danger' | 'neutral';
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -19,6 +21,7 @@ export function ConfirmDialog({
   description,
   message,
   confirmLabel = 'Eliminar',
+  tone = 'danger',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -101,7 +104,7 @@ export function ConfirmDialog({
             style={{
               background: 'var(--surface)',
               border: '1px solid var(--line-strong)',
-              color: 'var(--danger)',
+              color: tone === 'danger' ? 'var(--danger)' : 'var(--daun)',
               cursor: 'pointer',
               padding: 'var(--space-2) var(--space-4)',
               borderRadius: 'var(--radius-sm)',

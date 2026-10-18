@@ -11,6 +11,7 @@ import { PreviewView } from './views/PreviewView';
 import { GraphView } from './views/GraphView';
 import { SettingsView } from './views/SettingsView';
 import { ExitDialog } from './components/Sync/ExitDialog';
+import { SyncDialogs } from './components/Sync/SyncDialogs';
 import { onInboxCaptured, onRequestQuit, onVoiceChanged, quitApp } from './lib/tauri';
 import { captureToast } from './lib/inbox';
 import { useInboxStore } from './store/inboxStore';
@@ -54,6 +55,12 @@ function AppLayout() {
       unlisten?.();
     };
   }, []);
+
+  // Sync may have added/removed/merged notes on disk: reload the tree.
+  const vaultChangeCount = useSyncStore((s) => s.vaultChangeCount);
+  useEffect(() => {
+    if (vaultChangeCount > 0) void useVaultStore.getState().refreshTree();
+  }, [vaultChangeCount]);
 
   // A capture saved from the quick-capture window.
   useEffect(() => {
@@ -140,6 +147,8 @@ function AppLayout() {
           if (vaultPath) await push(vaultPath).catch(() => {});
           setIsSyncing(false);
           setShowExitDialog(false);
+          // A held-back push (deletion guard) must be answered first: don't quit.
+          if (useSyncStore.getState().pendingDeletion) return;
           await quitApp();
         }}
         onQuit={async () => {
@@ -148,6 +157,7 @@ function AppLayout() {
         }}
         onCancel={() => setShowExitDialog(false)}
       />
+      <SyncDialogs />
       <Toast message={toast} onDismiss={dismissToast} />
       {wizardOpen && <LlmWizard />}
     </div>
