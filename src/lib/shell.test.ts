@@ -11,6 +11,8 @@ describe('viewForPath', () => {
     expect(viewForPath('/preview/x')).toBe('notes');
     expect(viewForPath('/graph')).toBe('graph');
     expect(viewForPath('/brain')).toBe('brain');
+    expect(viewForPath('/ide')).toBe('ide');
+    expect(viewForPath('/ide/editor/%2Ftmp%2Fa.md')).toBe('ide');
     expect(viewForPath('/settings')).toBe('settings');
   });
 });

@@ -23,19 +23,25 @@ import { StatusBar } from './components/StatusBar/StatusBar';
 import { useLlmStore } from './store/llmStore';
 import { viewForPath } from './lib/shell';
 import { InboxView } from './components/Inbox/InboxView';
+import { IdeView } from './views/IdeView';
+import { IdeTree } from './components/Ide/IdeTree';
+import { useIdeStore } from './store/ideStore';
 
 function AppLayout() {
   const [showExitDialog, setShowExitDialog] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const wizardOpen = useLlmStore((s) => s.wizardOpen);
   const vaultPath = useVaultStore((s) => s.vaultPath);
-  const inBrain = viewForPath(useLocation().pathname) === 'brain';
+  const currentView = viewForPath(useLocation().pathname);
+  const inBrain = currentView === 'brain';
+  const inIde = currentView === 'ide';
   const [toast, setToast] = useState<string | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
 
   useEffect(() => {
     useVaultStore.getState().loadVault();
     useEditorStore.getState().initVault().catch(console.error);
+    useIdeStore.getState().loadProjects().catch(console.error);
   }, []);
 
   // Closing the window only hides it (done in the backend); *Salir* (tray menu,
@@ -122,7 +128,13 @@ function AppLayout() {
             flexDirection: 'column',
           }}
         >
-          {inBrain && vaultPath ? <ConversationList vaultPath={vaultPath} /> : <VaultTree />}
+          {inIde ? (
+            <IdeTree />
+          ) : inBrain && vaultPath ? (
+            <ConversationList vaultPath={vaultPath} />
+          ) : (
+            <VaultTree />
+          )}
         </aside>
         <main style={{ flex: 1, minWidth: 0, overflow: 'auto', background: 'var(--bg)' }}>
         <Routes>
@@ -133,6 +145,8 @@ function AppLayout() {
           <Route path="/settings" element={<SettingsView />} />
           <Route path="/brain" element={<SecondBrainView />} />
           <Route path="/inbox" element={<InboxView />} />
+          <Route path="/ide" element={<IdeView />} />
+          <Route path="/ide/editor/:encodedPath" element={<IdeView />} />
         </Routes>
         </main>
       </div>

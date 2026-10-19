@@ -75,3 +75,8 @@ pub mod voice_cmd;
 pub use voice_cmd::*;
 #[cfg(test)]
 mod voice_cmd_tests;
+
+pub mod ide;
+pub use ide::*;
+#[cfg(test)]
+mod ide_tests;

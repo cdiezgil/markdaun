@@ -620,3 +620,57 @@ export async function onVoiceChanged(cb: () => void): Promise<() => void> {
 export async function onVoiceModelProgress(cb: (p: VoiceModelProgress) => void): Promise<() => void> {
   return listen<VoiceModelProgress>('voice-model-progress', (event) => cb(event.payload));
 }
+
+// ── IDE commands ───────────────────────────────────────────────────────────────
+
+/**
+ * Opens the native folder picker. Returns the chosen path, or null if cancelled.
+ */
+export async function ideOpenFolderDialog(): Promise<string | null> {
+  return invoke<string | null>('ide_open_folder_dialog');
+}
+
+/** Lists the tree of an external folder (delegating to walk_vault). */
+export async function ideListTree(rootPath: string): Promise<VaultEntry[]> {
+  return invoke<VaultEntry[]>('ide_list_tree', { rootPath });
+}
+
+/** Reads any file as UTF-8. No vault guard. */
+export async function ideReadFile(path: string): Promise<string> {
+  return invoke<string>('ide_read_file', { path });
+}
+
+/** Writes content to any file. No vault guard. */
+export async function ideWriteFile(path: string, content: string): Promise<void> {
+  return invoke<void>('ide_write_file', { path, content });
+}
+
+/** Creates a .md file in parentPath. Returns the canonical path. */
+export async function ideCreateFile(parentPath: string, name: string): Promise<string> {
+  return invoke<string>('ide_create_file', { parentPath, name });
+}
+
+/** Creates a folder in parentPath. Returns the canonical path. */
+export async function ideCreateFolder(parentPath: string, name: string): Promise<string> {
+  return invoke<string>('ide_create_folder', { parentPath, name });
+}
+
+/** Renames a file or folder. Returns the new canonical path. */
+export async function ideRenameEntry(path: string, newName: string): Promise<string> {
+  return invoke<string>('ide_rename_entry', { path, newName });
+}
+
+/** Deletes a file or folder. */
+export async function ideDeleteEntry(path: string): Promise<void> {
+  return invoke<void>('ide_delete_entry', { path });
+}
+
+/** Returns the list of IDE project root paths from config.db. */
+export async function ideGetProjects(): Promise<string[]> {
+  return invoke<string[]>('ide_get_projects');
+}
+
+/** Persists the list of IDE project root paths in config.db. */
+export async function ideSaveProjects(projects: string[]): Promise<void> {
+  return invoke<void>('ide_save_projects', { projects });
+}
