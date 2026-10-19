@@ -13,6 +13,8 @@ import './editor.css';
 interface EditorCanvasProps {
   /** Exposed so EditorView can forward the editor instance to EditorToolbar. */
   onEditorReady?: (editor: ReturnType<typeof useEditor>) => void;
+  /** When true, hides TipTap and shows a plain-text Markdown textarea. */
+  plainMdMode?: boolean;
 }
 
 /** "Carpeta / Nota" path (no extension) plus the last save time, when known. */
@@ -25,7 +27,25 @@ export function noteCaption(notePath: string, vaultPath: string | null, savedAt:
   return `${path} \u00b7 guardado ${time}`;
 }
 
-export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
+const plainTextareaStyle: React.CSSProperties = {
+  flex: 1,
+  width: '100%',
+  maxWidth: 'min(var(--measure), calc(100% - 2 * var(--space-8)))',
+  margin: '0 auto',
+  padding: 'var(--space-12) var(--space-8) var(--space-16)',
+  boxSizing: 'border-box',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 14,
+  lineHeight: '1.6',
+  color: 'var(--ink)',
+  background: 'var(--bg)',
+  border: 'none',
+  outline: 'none',
+  resize: 'none',
+  overflowY: 'auto',
+};
+
+export default function EditorCanvas({ onEditorReady, plainMdMode = false }: EditorCanvasProps) {
   const {
     activeNoteContent,
     activeNotePath,
@@ -117,14 +137,25 @@ export default function EditorCanvas({ onEditorReady }: EditorCanvasProps) {
 
   return (
     <div
-      style={{ flex: 1, overflowY: 'auto', background: 'var(--bg)' }}
+      style={{ flex: 1, overflowY: 'auto', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
       data-testid="editor-canvas-container"
     >
+      {plainMdMode && (
+        <textarea
+          data-testid="plain-md-textarea"
+          value={activeNoteContent ?? ''}
+          onChange={(e) => setContent(e.target.value)}
+          style={plainTextareaStyle}
+          aria-label="Editor de Markdown en texto plano"
+          spellCheck={false}
+        />
+      )}
       <article
         data-testid="editor-column"
         style={{
+          display: plainMdMode ? 'none' : undefined,
           width: '100%',
           maxWidth: 'min(var(--measure), calc(100% - 2 * var(--space-8)))',
           margin: '0 auto',

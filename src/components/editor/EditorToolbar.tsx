@@ -19,6 +19,7 @@ import {
   ScanText,
   Workflow,
   Keyboard,
+  Code2,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -89,9 +90,13 @@ interface EditorToolbarProps {
   editor: Editor | null;
   /** Platform override (tests). Defaults to the detected platform. */
   mac?: boolean;
+  /** Whether the plain-MD mode is currently active. */
+  plainMdMode?: boolean;
+  /** Callback to toggle between WYSIWYG and plain-MD mode. */
+  onTogglePlainMode?: () => Promise<void>;
 }
 
-export default function EditorToolbar({ editor, mac = isMac() }: EditorToolbarProps) {
+export default function EditorToolbar({ editor, mac = isMac(), plainMdMode = false, onTogglePlainMode }: EditorToolbarProps) {
   const { activeNotePath } = useEditorStore();
   const navigate = useNavigate();
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
@@ -390,8 +395,16 @@ export default function EditorToolbar({ editor, mac = isMac() }: EditorToolbarPr
         <Minus size={20} strokeWidth={1.5} />
       </ToolbarButton>
 
-      {/* Shortcut cheat sheet: far right of the same row */}
+      {/* Shortcut cheat sheet and plain-MD toggle: far right of the same row */}
       <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+        <ToolbarButton
+          label="Alternar Markdown plano"
+          mac={mac}
+          isActive={plainMdMode}
+          onClick={() => void onTogglePlainMode?.()}
+        >
+          <Code2 size={20} strokeWidth={1.5} />
+        </ToolbarButton>
         <ToolbarSeparator />
         <ToolbarButton label="Atajos de teclado" shortcut="cheatSheet" mac={mac} onClick={toggleSheet}>
           <Keyboard size={20} strokeWidth={1.5} />

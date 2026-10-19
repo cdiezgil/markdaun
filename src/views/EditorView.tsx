@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Editor } from '@tiptap/react';
 
 import EditorToolbar from '../components/editor/EditorToolbar';
 import EditorCanvas from '../components/editor/EditorCanvas';
-import { useEditorStore } from '../store/editorStore';
+import { useEditorStore, processImagesOnSave } from '../store/editorStore';
 
 /**
  * EditorView — TC-01, TC-03, TC-21
@@ -23,6 +23,12 @@ export function EditorView() {
   const { activeNotePath, openNote, vaultPath, relocation } = useEditorStore();
   const navigate = useNavigate();
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [plainMdMode, setPlainMdMode] = useState(false);
+
+  // Reset plain-MD mode when the active note changes (TC-13)
+  useEffect(() => {
+    setPlainMdMode(false);
+  }, [activeNotePath]);
 
   // Open the note whenever the URL param changes
   useEffect(() => {
@@ -30,6 +36,28 @@ export function EditorView() {
       openNote(filePath).catch(console.error);
     }
   }, [filePath, vaultPath]);
+
+  const handleTogglePlainMode = useCallback(async () => {
+    const { activeNoteContent, activeNotePath: notePath, saveNow } = useEditorStore.getState();
+
+    if (!plainMdMode) {
+      // WYSIWYG → plain
+      await saveNow();
+      // Convert tauri:// asset URLs → relative paths to show canonical MD
+      if (activeNoteContent !== null && notePath) {
+        const noteDir = notePath.substring(0, notePath.lastIndexOf('/'));
+        const rawMd = processImagesOnSave(activeNoteContent, noteDir);
+        useEditorStore.setState({ activeNoteContent: rawMd });
+      }
+      setPlainMdMode(true);
+    } else {
+      // plain → WYSIWYG
+      const md = useEditorStore.getState().activeNoteContent ?? '';
+      editor?.commands.setContent(md);
+      setPlainMdMode(false);
+      await useEditorStore.getState().saveNow();
+    }
+  }, [plainMdMode, editor]);
 
   // The open note was renamed or moved: point the URL at its new path.
   useEffect(() => {
@@ -63,9 +91,9 @@ export function EditorView() {
         background: 'var(--bg)',
       }}
     >
-      <EditorToolbar editor={editor} />
+      <EditorToolbar editor={editor} plainMdMode={plainMdMode} onTogglePlainMode={handleTogglePlainMode} />
 
-      <EditorCanvas onEditorReady={setEditor} />
+      <EditorCanvas onEditorReady={setEditor} plainMdMode={plainMdMode} />
     </div>
   );
 }

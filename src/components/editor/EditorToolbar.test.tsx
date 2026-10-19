@@ -278,6 +278,56 @@ describe('selector de tamaño de tabla', () => {
 });
 
 
+// ── TC-07 / TC-08: Plain-MD mode toggle button ──────────────────────────────
+describe('TC-07 / TC-08: plain-MD toggle button', () => {
+  it('TC-07: renders the toggle button with correct label when plainMdMode=false', async () => {
+    const { default: EditorToolbar } = await import('./EditorToolbar');
+    const editor = makeEditor() as unknown as import('@tiptap/react').Editor;
+    render(
+      <MemoryRouter initialEntries={['/editor/x']}>
+        <Routes>
+          <Route path="/editor/x" element={<EditorToolbar editor={editor} plainMdMode={false} />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const btn = screen.getByLabelText('Alternar Markdown plano');
+    expect(btn).toBeDefined();
+    expect(btn.getAttribute('data-active')).toBe('false');
+  });
+
+  it('TC-08: toggle button has data-active="true" when plainMdMode=true', async () => {
+    const { default: EditorToolbar } = await import('./EditorToolbar');
+    const editor = makeEditor() as unknown as import('@tiptap/react').Editor;
+    render(
+      <MemoryRouter initialEntries={['/editor/x']}>
+        <Routes>
+          <Route path="/editor/x" element={<EditorToolbar editor={editor} plainMdMode={true} />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const btn = screen.getByLabelText('Alternar Markdown plano');
+    expect(btn.getAttribute('data-active')).toBe('true');
+  });
+
+  it('TC-07: toggle button calls onTogglePlainMode when clicked', async () => {
+    const { default: EditorToolbar } = await import('./EditorToolbar');
+    const editor = makeEditor() as unknown as import('@tiptap/react').Editor;
+    const onToggle = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MemoryRouter initialEntries={['/editor/x']}>
+        <Routes>
+          <Route
+            path="/editor/x"
+            element={<EditorToolbar editor={editor} plainMdMode={false} onTogglePlainMode={onToggle} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByLabelText('Alternar Markdown plano'));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+});
+
 // ── Explain the images of this note ───────────────────────────────────────────
 
 describe('Explicar imágenes de esta nota', () => {
