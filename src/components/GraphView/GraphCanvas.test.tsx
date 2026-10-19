@@ -96,6 +96,7 @@ async function setup(active: string | null = null) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   useGraphStore.setState({
     model: null,
     nodes: [],
