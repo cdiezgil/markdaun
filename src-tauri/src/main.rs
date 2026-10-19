@@ -121,6 +121,16 @@ fn main() {
             commands::quick_capture_get_config,
             commands::quick_capture_set_shortcut,
             commands::quit_app,
+            commands::ide_open_folder_dialog,
+            commands::ide_list_tree,
+            commands::ide_read_file,
+            commands::ide_write_file,
+            commands::ide_create_file,
+            commands::ide_create_folder,
+            commands::ide_rename_entry,
+            commands::ide_delete_entry,
+            commands::ide_get_projects,
+            commands::ide_save_projects,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -30,13 +30,24 @@ describe('TopBar', () => {
     expect(logo.style.fontWeight).toBe('400');
   });
 
-  it('has Notas / Grafo / Brain tabs linking to the existing routes', () => {
+  it('has Notas / Grafo / Brain / IDE tabs linking to the existing routes', () => {
     renderAt('/');
     const nav = screen.getByRole('navigation', { name: 'Vistas' });
     expect(nav).toContainElement(screen.getByRole('link', { name: 'Notas' }));
     expect(screen.getByRole('link', { name: 'Notas' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: 'Grafo' })).toHaveAttribute('href', '/graph');
     expect(screen.getByRole('link', { name: 'Brain' })).toHaveAttribute('href', '/brain');
+    expect(screen.getByRole('link', { name: 'IDE' })).toHaveAttribute('href', '/ide');
+  });
+
+  it('marks the IDE tab active when at /ide', () => {
+    renderAt('/ide');
+    const link = screen.getByRole('link', { name: 'IDE' });
+    expect(link).toHaveAttribute('aria-current', 'page');
+    expect(link.style.background).toBe('var(--bg)');
+    for (const name of ['Notas', 'Grafo', 'Brain']) {
+      expect(screen.getByRole('link', { name })).not.toHaveAttribute('aria-current');
+    }
   });
 
   it.each([
@@ -45,9 +56,11 @@ describe('TopBar', () => {
     ['/preview/x', 'Notas'],
     ['/graph', 'Grafo'],
     ['/brain', 'Brain'],
+    ['/ide', 'IDE'],
+    ['/ide/editor/%2Ftmp%2Fa.md', 'IDE'],
   ])('marks the right tab active at %s', (path, active) => {
     renderAt(path);
-    for (const name of ['Notas', 'Grafo', 'Brain']) {
+    for (const name of ['Notas', 'Grafo', 'Brain', 'IDE']) {
       const link = screen.getByRole('link', { name });
       if (name === active) {
         expect(link).toHaveAttribute('aria-current', 'page');
@@ -61,7 +74,7 @@ describe('TopBar', () => {
 
   it('has no active tab in settings', () => {
     renderAt('/settings');
-    for (const name of ['Notas', 'Grafo', 'Brain']) {
+    for (const name of ['Notas', 'Grafo', 'Brain', 'IDE']) {
       expect(screen.getByRole('link', { name })).not.toHaveAttribute('aria-current');
     }
   });

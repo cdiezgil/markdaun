@@ -16,6 +16,16 @@ githubConnectApply,
   githubPush,
   githubPull,
   githubStatus,
+  ideOpenFolderDialog,
+  ideListTree,
+  ideReadFile,
+  ideWriteFile,
+  ideCreateFile,
+  ideCreateFolder,
+  ideRenameEntry,
+  ideDeleteEntry,
+  ideGetProjects,
+  ideSaveProjects,
 } from './tauri';
 
 const mockInvoke = vi.mocked(invoke);
@@ -224,5 +234,150 @@ describe('githubStatus', () => {
     mockInvoke.mockResolvedValueOnce(false);
     const result = await githubStatus();
     expect(result).toBe(false);
+  });
+});
+
+// ── IDE Tauri bindings ────────────────────────────────────────────────────────────
+
+describe('TC-01/TC-15: ideOpenFolderDialog', () => {
+  it('TC-01: returns chosen folder path', async () => {
+    mockInvoke.mockResolvedValueOnce('/tmp/my-project');
+    const result = await ideOpenFolderDialog();
+    expect(mockInvoke).toHaveBeenCalledWith('ide_open_folder_dialog');
+    expect(result).toBe('/tmp/my-project');
+  });
+
+  it('TC-01: returns null when user cancels', async () => {
+    mockInvoke.mockResolvedValueOnce(null);
+    const result = await ideOpenFolderDialog();
+    expect(result).toBeNull();
+  });
+});
+
+describe('TC-14: ideListTree', () => {
+  it('TC-14: invokes ide_list_tree with rootPath and returns entries', async () => {
+    const entries = [
+      { name: 'README.md', path: '/tmp/p/README.md', kind: 'file', file_type: 'md', children: null },
+    ];
+    mockInvoke.mockResolvedValueOnce(entries);
+    const result = await ideListTree('/tmp/p');
+    expect(mockInvoke).toHaveBeenCalledWith('ide_list_tree', { rootPath: '/tmp/p' });
+    expect(result).toEqual(entries);
+  });
+
+  it('TC-14: rejects with path_not_found when dir does not exist', async () => {
+    mockInvoke.mockRejectedValueOnce('path_not_found');
+    await expect(ideListTree('/nonexistent')).rejects.toBe('path_not_found');
+  });
+});
+
+describe('TC-05/TC-07: ideReadFile', () => {
+  it('TC-05: reads file content', async () => {
+    mockInvoke.mockResolvedValueOnce('# Hola\n');
+    const result = await ideReadFile('/tmp/p/README.md');
+    expect(mockInvoke).toHaveBeenCalledWith('ide_read_file', { path: '/tmp/p/README.md' });
+    expect(result).toBe('# Hola\n');
+  });
+
+  it('TC-05: rejects with path_not_found', async () => {
+    mockInvoke.mockRejectedValueOnce('path_not_found');
+    await expect(ideReadFile('/tmp/missing.md')).rejects.toBe('path_not_found');
+  });
+});
+
+describe('TC-07: ideWriteFile', () => {
+  it('TC-07: writes file content', async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await ideWriteFile('/tmp/p/README.md', '# Updated\n');
+    expect(mockInvoke).toHaveBeenCalledWith('ide_write_file', {
+      path: '/tmp/p/README.md',
+      content: '# Updated\n',
+    });
+  });
+
+  it('TC-07: rejects with path_not_found when parent dir missing', async () => {
+    mockInvoke.mockRejectedValueOnce('path_not_found');
+    await expect(ideWriteFile('/tmp/nodir/f.md', 'x')).rejects.toBe('path_not_found');
+  });
+});
+
+describe('TC-08/TC-13: ideCreateFile', () => {
+  it('TC-08: creates a file and returns the path', async () => {
+    mockInvoke.mockResolvedValueOnce('/tmp/p/nueva.md');
+    const result = await ideCreateFile('/tmp/p', 'nueva.md');
+    expect(mockInvoke).toHaveBeenCalledWith('ide_create_file', { parentPath: '/tmp/p', name: 'nueva.md' });
+    expect(result).toBe('/tmp/p/nueva.md');
+  });
+
+  it('TC-13: rejects with invalid_name for path traversal', async () => {
+    mockInvoke.mockRejectedValueOnce('invalid_name');
+    await expect(ideCreateFile('/tmp/p', '../../etc/passwd')).rejects.toBe('invalid_name');
+  });
+
+  it('TC-08: rejects with already_exists when file exists', async () => {
+    mockInvoke.mockRejectedValueOnce('already_exists');
+    await expect(ideCreateFile('/tmp/p', 'existing.md')).rejects.toBe('already_exists');
+  });
+});
+
+describe('TC-11: ideCreateFolder', () => {
+  it('TC-11: creates a folder and returns the path', async () => {
+    mockInvoke.mockResolvedValueOnce('/tmp/p/src');
+    const result = await ideCreateFolder('/tmp/p', 'src');
+    expect(mockInvoke).toHaveBeenCalledWith('ide_create_folder', { parentPath: '/tmp/p', name: 'src' });
+    expect(result).toBe('/tmp/p/src');
+  });
+
+  it('TC-11: rejects with already_exists when folder exists', async () => {
+    mockInvoke.mockRejectedValueOnce('already_exists');
+    await expect(ideCreateFolder('/tmp/p', 'existing')).rejects.toBe('already_exists');
+  });
+});
+
+describe('TC-09/TC-16: ideRenameEntry', () => {
+  it('TC-09: renames and returns new path', async () => {
+    mockInvoke.mockResolvedValueOnce('/tmp/p/apuntes.md');
+    const result = await ideRenameEntry('/tmp/p/notes.md', 'apuntes.md');
+    expect(mockInvoke).toHaveBeenCalledWith('ide_rename_entry', {
+      path: '/tmp/p/notes.md',
+      newName: 'apuntes.md',
+    });
+    expect(result).toBe('/tmp/p/apuntes.md');
+  });
+
+  it('TC-16: rejects with invalid_name for slash in name', async () => {
+    mockInvoke.mockRejectedValueOnce('invalid_name');
+    await expect(ideRenameEntry('/tmp/p/f.md', 'fo/bar')).rejects.toBe('invalid_name');
+  });
+});
+
+describe('TC-10: ideDeleteEntry', () => {
+  it('TC-10: deletes a file', async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await ideDeleteEntry('/tmp/p/old.md');
+    expect(mockInvoke).toHaveBeenCalledWith('ide_delete_entry', { path: '/tmp/p/old.md' });
+  });
+});
+
+describe('TC-02: ideGetProjects / ideSaveProjects', () => {
+  it('TC-02: returns empty array when no projects saved', async () => {
+    mockInvoke.mockResolvedValueOnce([]);
+    const result = await ideGetProjects();
+    expect(mockInvoke).toHaveBeenCalledWith('ide_get_projects');
+    expect(result).toEqual([]);
+  });
+
+  it('TC-02: returns saved projects', async () => {
+    mockInvoke.mockResolvedValueOnce(['/tmp/p1', '/tmp/p2']);
+    const result = await ideGetProjects();
+    expect(result).toEqual(['/tmp/p1', '/tmp/p2']);
+  });
+
+  it('TC-02: ideSaveProjects persists the list', async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await ideSaveProjects(['/tmp/p1', '/tmp/p2']);
+    expect(mockInvoke).toHaveBeenCalledWith('ide_save_projects', {
+      projects: ['/tmp/p1', '/tmp/p2'],
+    });
   });
 });
