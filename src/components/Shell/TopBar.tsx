@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Brain, FileText, Network } from 'lucide-react';
+import { Brain, FileText, FolderCode, Network } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NoteSearch } from './NoteSearch';
 import { viewForPath, type ShellView } from '../../lib/shell';
@@ -9,6 +9,7 @@ const TABS: Array<{ view: ShellView; label: string; to: string; Icon: LucideIcon
   { view: 'notes', label: 'Notas', to: '/', Icon: FileText },
   { view: 'graph', label: 'Grafo', to: '/graph', Icon: Network },
   { view: 'brain', label: 'Brain', to: '/brain', Icon: Brain },
+  { view: 'ide', label: 'IDE', to: '/ide', Icon: FolderCode },
 ];
 
 function Mark(): JSX.Element {
