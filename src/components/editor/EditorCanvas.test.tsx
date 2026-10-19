@@ -146,6 +146,48 @@ describe('TC-22: openNote loads content into store', () => {
   });
 });
 
+// ── TC-09 / TC-10: plainMdMode prop ───────────────────────────────────────────────
+describe('TC-09 / TC-10: plainMdMode', () => {
+  it('TC-09: renders plain-md-textarea and hides prosemirror-editor when plainMdMode=true', async () => {
+    const { default: EditorCanvas } = await import('./EditorCanvas');
+    render(<EditorCanvas plainMdMode={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('plain-md-textarea')).toBeDefined();
+    });
+
+    const prosemirror = screen.queryByTestId('prosemirror-editor');
+    // Either hidden via display:none (on the article) or entirely absent
+    if (prosemirror) {
+      const article = prosemirror.closest('article');
+      expect(article).not.toBeNull();
+      expect((article as HTMLElement).style.display).toBe('none');
+    }
+  });
+
+  it('TC-10: renders prosemirror-editor and no textarea when plainMdMode=false (default)', async () => {
+    const { default: EditorCanvas } = await import('./EditorCanvas');
+    render(<EditorCanvas />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('prosemirror-editor')).toBeDefined();
+    });
+
+    expect(screen.queryByTestId('plain-md-textarea')).toBeNull();
+  });
+
+  it('TC-03: textarea value reflects activeNoteContent from store', async () => {
+    useEditorStore.setState({ activeNoteContent: '# My note', activeNotePath: '/vault/note.md' });
+    const { default: EditorCanvas } = await import('./EditorCanvas');
+    render(<EditorCanvas plainMdMode={true} />);
+
+    await waitFor(() => {
+      const textarea = screen.getByTestId('plain-md-textarea') as HTMLTextAreaElement;
+      expect(textarea.value).toBe('# My note');
+    });
+  });
+});
+
 describe('noteCaption', () => {
   it('shows the vault-relative path without extension', async () => {
     const { noteCaption } = await import('./EditorCanvas');
