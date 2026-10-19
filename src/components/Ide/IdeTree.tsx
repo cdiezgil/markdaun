@@ -30,17 +30,23 @@ function isMd(entry: VaultEntry): boolean {
   return entry.kind === 'file' && entry.file_type === 'md';
 }
 
-/** Flatten all .md files from a tree recursively. */
-function flatMdFiles(entries: VaultEntry[]): VaultEntry[] {
-  const result: VaultEntry[] = [];
-  for (const e of entries) {
-    if (e.kind === 'folder') {
-      result.push(...flatMdFiles(e.children ?? []));
-    } else if (isMd(e)) {
-      result.push(e);
+/**
+ * Keep only branches that lead to .md files matching query.
+ * Folders are preserved only if they contain (transitively) at least one match.
+ */
+function filterTree(entries: VaultEntry[], query: string): VaultEntry[] {
+  const results: VaultEntry[] = [];
+  for (const entry of entries) {
+    if (entry.kind === 'folder') {
+      const filteredChildren = filterTree(entry.children ?? [], query);
+      if (filteredChildren.length > 0) {
+        results.push({ ...entry, children: filteredChildren });
+      }
+    } else if (isMd(entry) && fuzzyMatch(query, displayName(entry)) !== null) {
+      results.push(entry);
     }
   }
-  return result;
+  return results;
 }
 
 // ── Shared styles ──────────────────────────────────────────────────────────────
@@ -484,17 +490,64 @@ function IdeProjectHeader({ project, onCreateNote, onCreateFolder }: IdeProjectH
   );
 }
 
-// ── IdeSearchResult ────────────────────────────────────────────────────────────
+// ── FilteredTreeNode ──────────────────────────────────────────────────────────
+//
+// Renders a single entry in search mode:
+//   - Folders: always expanded (no toggle), muted — just structural context
+//   - Files (.md, guaranteed by filterTree): clickable with fuzzy highlight
 
-interface IdeSearchResultProps {
+function FilteredTreeNode({
+  entry,
+  depth,
+  query,
+}: {
   entry: VaultEntry;
+  depth: number;
   query: string;
-  onSelect: () => void;
-}
-
-function IdeSearchResult({ entry, query, onSelect }: IdeSearchResultProps) {
+}) {
   const navigate = useNavigate();
   const activeFilePath = useIdeStore((s) => s.activeFilePath);
+  const paddingLeft = `calc(var(--space-2) + ${depth} * var(--space-4))`;
+
+  if (entry.kind === 'folder') {
+    return (
+      <>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            height: 26,
+            paddingLeft,
+            paddingRight: 'var(--space-2)',
+            marginInline: 'var(--space-2)',
+          }}
+        >
+          {/* Spacer mirrors the chevron width used in normal mode */}
+          <span style={{ width: 14, flexShrink: 0 }} />
+          <FolderOpen size={15} strokeWidth={1.5} color="var(--ink-muted)" />
+          <span
+            style={{
+              fontSize: 12,
+              lineHeight: '16px',
+              color: 'var(--ink-muted)',
+              fontFamily: 'var(--font-sans)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {entry.name}
+          </span>
+        </div>
+        {(entry.children ?? []).map((child) => (
+          <FilteredTreeNode key={child.path} entry={child} depth={depth + 1} query={query} />
+        ))}
+      </>
+    );
+  }
+
+  // .md file (guaranteed by filterTree)
   const isActive = activeFilePath === entry.path;
   const title = displayName(entry);
   const m = fuzzyMatch(query, title);
@@ -503,12 +556,12 @@ function IdeSearchResult({ entry, query, onSelect }: IdeSearchResultProps) {
   function handleClick() {
     void useIdeStore.getState().openFile(entry.path);
     navigate(`/ide/editor/${encodeURIComponent(entry.path)}`);
-    onSelect();
   }
 
   return (
     <div
       onClick={handleClick}
+      data-testid={`ide-search-result-${entry.name}`}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -516,15 +569,20 @@ function IdeSearchResult({ entry, query, onSelect }: IdeSearchResultProps) {
         height: 32,
         boxSizing: 'border-box',
         marginInline: 'var(--space-2)',
-        paddingInline: 'var(--space-2)',
+        paddingLeft,
+        paddingRight: 'var(--space-2)',
         borderRadius: 'var(--radius-md)',
         cursor: 'pointer',
         background: isActive ? 'var(--bg)' : undefined,
       }}
       className={isActive ? undefined : 'md-hover'}
-      data-testid={`ide-search-result-${entry.name}`}
     >
-      <FileText size={16} strokeWidth={1.5} color={isActive ? 'var(--daun)' : 'var(--ink-muted)'} />
+      <span style={{ width: 14, flexShrink: 0 }} />
+      <FileText
+        size={16}
+        strokeWidth={1.5}
+        color={isActive ? 'var(--daun)' : 'var(--ink-muted)'}
+      />
       <span
         style={{
           fontSize: 14,
@@ -590,12 +648,13 @@ export function IdeTree() {
     }
   }
 
-  // Build flat .md list for search
-  const allMdFiles: VaultEntry[] = projects.flatMap((p) => flatMdFiles(p.tree));
-  const searchResults =
-    query.trim() !== ''
-      ? allMdFiles.filter((e) => fuzzyMatch(query, displayName(e)) !== null)
-      : [];
+  // Build filtered tree per project for search mode
+  const trimmedQuery = query.trim();
+  const filteredProjects = trimmedQuery !== ''
+    ? projects
+        .map((p) => ({ ...p, filtered: filterTree(p.tree, trimmedQuery) }))
+        .filter((p) => p.filtered.length > 0)
+    : [];
 
   return (
     <div
@@ -691,15 +750,29 @@ export function IdeTree() {
         style={{ flex: 1, overflowY: 'auto', padding: '0 0 var(--space-2)' }}
         data-testid="ide-tree-scroll"
       >
-        {query.trim() !== '' ? (
-          searchResults.length > 0 ? (
-            searchResults.map((e) => (
-              <IdeSearchResult
-                key={e.path}
-                entry={e}
-                query={query}
-                onSelect={() => setQuery('')}
-              />
+        {trimmedQuery !== '' ? (
+          filteredProjects.length > 0 ? (
+            filteredProjects.map(({ rootPath, name, filtered }) => (
+              <div key={rootPath} data-testid={`ide-search-project-${name}`}>
+                {/* Project mini-header: disambiguates results across open projects */}
+                <div
+                  style={{
+                    fontFamily: 'var(--font-sans)',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-muted)',
+                    padding: 'var(--space-3) var(--space-4) var(--space-1)',
+                    marginTop: 'var(--space-1)',
+                  }}
+                >
+                  {name}
+                </div>
+                {filtered.map((entry) => (
+                  <FilteredTreeNode key={entry.path} entry={entry} depth={0} query={trimmedQuery} />
+                ))}
+              </div>
             ))
           ) : (
             <p
