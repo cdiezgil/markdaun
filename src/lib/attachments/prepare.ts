@@ -63,17 +63,19 @@ export async function prepareAttachments(
         derived: { images: info.images, text: info.text, pageCount: info.pageCount },
       });
     } else if (needsRasterize(att.absPath)) {
-      // Read via plugin-fs (scoped) and create a blob URL so the <img> element
-      // can load the file without needing the asset:// protocol scope.
+      // Read via plugin-fs (scoped) then convert to a data: URL via FileReader.
+      // Blob URLs taint the canvas in WKWebView ("The operation is insecure"
+      // on toDataURL). Data URLs are always same-origin and never taint it.
       const bytes = await readBytes(att);
       const blob = new Blob([bytes], { type: mimeForPath(att.absPath) });
-      const blobUrl = URL.createObjectURL(blob);
-      try {
-        const image = await rasterizeImage(blobUrl);
-        inputs.push({ vaultPath: att.vaultPath, derived: { images: [image] } });
-      } finally {
-        URL.revokeObjectURL(blobUrl);
-      }
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error(`No se pudo convertir «${att.name}» a data URL.`));
+        reader.readAsDataURL(blob);
+      });
+      const image = await rasterizeImage(dataUrl);
+      inputs.push({ vaultPath: att.vaultPath, derived: { images: [image] } });
     } else {
       inputs.push({ vaultPath: att.vaultPath });
     }

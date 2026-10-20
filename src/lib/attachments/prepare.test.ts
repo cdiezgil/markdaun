@@ -29,16 +29,22 @@ describe('prepareAttachments', () => {
     expect(readFile).not.toHaveBeenCalled();
   });
 
-  it('rasterizes SVGs via blob URL (not asset://)', async () => {
-    const createObjectURL = vi.fn().mockReturnValue('blob:mock-svg');
-    const revokeObjectURL = vi.fn();
-    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+  it('rasterizes SVGs via data URL (not asset:// or blob URL)', async () => {
+    // Stub FileReader so it resolves synchronously with a predictable data URL.
+    const mockFileReader = {
+      readAsDataURL: vi.fn(function (this: { onload: () => void }) {
+        (this as unknown as { result: string }).result = 'data:image/svg+xml;base64,PHN2Zz4=';
+        this.onload();
+      }),
+      onload: null as unknown as () => void,
+      onerror: null as unknown as () => void,
+      result: '',
+    };
+    vi.stubGlobal('FileReader', vi.fn(() => mockFileReader));
     rasterizeImage.mockResolvedValue({ mediaType: 'image/png', dataB64: 'QUJD' });
     const r = await prepareAttachments([svg], { nativePdf: true });
     expect(readFile).toHaveBeenCalledWith('/v/d.svg');
-    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
-    expect(rasterizeImage).toHaveBeenCalledWith('blob:mock-svg');
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-svg');
+    expect(rasterizeImage).toHaveBeenCalledWith('data:image/svg+xml;base64,PHN2Zz4=');
     expect(r.inputs).toEqual([
       { vaultPath: 'd.svg', derived: { images: [{ mediaType: 'image/png', dataB64: 'QUJD' }] } },
     ]);
