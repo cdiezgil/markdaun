@@ -243,13 +243,38 @@ fn folder_tree_excludes_entrada_fuentes_hidden_and_respects_depth() {
 // ── areas ─────────────────────────────────────────────────────────────────────
 
 #[test]
-fn areas_are_top_level_folders_without_entrada_or_hidden_ones() {
+// TC-01/TC-05: all folder depths included; Entrada and hidden excluded.
+fn areas_returns_all_depths_without_entrada_or_hidden() {
     let vault = tempdir().unwrap();
     for d in ["Mutua/Sub", "Personal", "Entrada", ".markdaun", ".git", "Zeta"] {
         fs::create_dir_all(vault.path().join(d)).unwrap();
     }
     fs::write(vault.path().join("suelta.md"), "x").unwrap();
-    assert_eq!(list_areas(vault.path()), ["Mutua", "Personal", "Zeta"]);
+    // list_areas now returns all depths: Mutua, Mutua/Sub, Personal, Zeta.
+    assert_eq!(list_areas(vault.path()), ["Mutua", "Mutua/Sub", "Personal", "Zeta"]);
+}
+
+#[test]
+// TC-02: deeply nested folders appear; TC-05: Fuentes subtrees excluded.
+fn areas_includes_deeply_nested_folders_and_excludes_fuentes() {
+    let vault = tempdir().unwrap();
+    for d in [
+        "Personal",
+        "Mutua/Bernabeu",
+        "Mutua/Otro/Anidado",
+        "Mutua/Bernabeu/Fuentes", // must be excluded
+        ".oculto",
+    ] {
+        fs::create_dir_all(vault.path().join(d)).unwrap();
+    }
+    let areas = list_areas(vault.path());
+    assert!(areas.contains(&"Personal".to_string()));
+    assert!(areas.contains(&"Mutua".to_string()));
+    assert!(areas.contains(&"Mutua/Bernabeu".to_string()));
+    assert!(areas.contains(&"Mutua/Otro".to_string()));
+    assert!(areas.contains(&"Mutua/Otro/Anidado".to_string()));
+    assert!(!areas.iter().any(|a| a.contains("Fuentes")));
+    assert!(!areas.iter().any(|a| a.starts_with('.')));
 }
 
 #[test]
