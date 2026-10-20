@@ -66,6 +66,7 @@ export function InboxView(): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [url, setUrl] = useState('');
   const [lastClip, setLastClip] = useState<ClipSummary | null>(null);
+  const [lastImport, setLastImport] = useState<{ stem: string; count: number } | null>(null);
   /** Items waiting for the user to pick an area; `anchor` is the row that opened the menu. */
   const [choosing, setChoosing] = useState<{ list: InboxItem[]; anchor: string } | null>(null);
 
@@ -212,6 +213,11 @@ export function InboxView(): JSX.Element {
             : `No se pudo recortar: ${lastClip.failure ?? 'motivo desconocido'}. Guardé el enlace en la entrada para que no se pierda.`}
         </p>
       )}
+      {lastImport && (
+        <p data-testid="import-result" role="status" style={SMALL}>
+          {`Importado: ${pluralize(lastImport.count, 'nota', 'notas')} en Entrada/${lastImport.stem}/.`}
+        </p>
+      )}
 
       {noConnection && (
         <p role="status" style={{ ...SMALL, color: 'var(--amber)' }}>
@@ -291,7 +297,11 @@ export function InboxView(): JSX.Element {
                 {(it.kind === 'docx' || it.kind === 'pptx') && (
                   <button
                     data-testid={`import-${it.name}`}
-                    onClick={() => vaultPath && void importOffice(it, vaultPath)}
+                    onClick={async () => {
+                      if (!vaultPath) return;
+                      const r = await importOffice(it, vaultPath);
+                      if (r) setLastImport(r);
+                    }}
                     disabled={importing}
                     style={{ ...BUTTON, opacity: importing ? 0.5 : 1 }}
                   >

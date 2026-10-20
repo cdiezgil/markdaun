@@ -238,4 +238,25 @@ describe('InboxView', () => {
       renderView();
       expect(await screen.findByTestId('select-informe.docx')).toBeDisabled();
     });
+
+    it('shows import-result message with stem and note count after successful import', async () => {
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'inbox_list') return MIXED;
+        if (cmd === 'inbox_list_areas') return [];
+        if (cmd === 'inbox_get_last_area') return null;
+        if (cmd === 'office_import') return [
+          '/v/Entrada/informe/01 - Intro.md',
+          '/v/Entrada/informe/02 - Datos.md',
+          '/v/Entrada/informe/índice.md',
+        ];
+        if (cmd === 'list_vault_tree') return [];
+        return undefined;
+      });
+      renderView();
+      const btn = await screen.findByTestId('import-informe.docx');
+      fireEvent.click(btn);
+      expect(await screen.findByTestId('import-result')).toHaveTextContent(
+        'Importado: 2 notas en Entrada/informe/.',
+      );
+    });
   });

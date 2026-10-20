@@ -44,8 +44,8 @@ interface InboxState {
   clipUrl(url: string, vaultPath: string): Promise<ClipSummary | null>;
   /** Opens the native file picker and copies the chosen files into Entrada/. */
   pickFiles(vaultPath: string): Promise<void>;
-  /** Imports a .docx or .pptx by splitting it into notes. */
-  importOffice(item: InboxItem, vaultPath: string): Promise<void>;
+  /** Imports a .docx or .pptx by splitting it into notes. Returns stem and note count on success. */
+  importOffice(item: InboxItem, vaultPath: string): Promise<{ stem: string; count: number } | null>;
 }
 
 export const useInboxStore = create<InboxState>((set, get) => ({
@@ -142,14 +142,19 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   async importOffice(item, vaultPath) {
     set({ importing: true, error: null });
     try {
-      await officeImport(item.path, vaultPath);
+      const result = await officeImport(item.path, vaultPath);
+      const stem = item.name.replace(/\.(docx|pptx)$/i, '');
+      // Count section notes (exclude índice.md which is always the last entry).
+      const count = result.notes.filter((n) => !n.endsWith('índice.md')).length;
       await get().load(vaultPath);
       // Refresh the vault tree so the new Entrada/<stem>/ directory becomes
       // visible to the user without requiring a manual navigation.
       await useVaultStore.getState().refreshTree();
       set({ importing: false });
+      return { stem, count };
     } catch (e) {
       set({ importing: false, error: String(e) });
+      return null;
     }
   },
 
