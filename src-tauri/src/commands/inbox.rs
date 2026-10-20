@@ -538,6 +538,10 @@ pub fn office_import_inner(source: &Path, vault: &Path) -> Result<Vec<PathBuf>, 
     std::fs::write(&index_path, &index_content).map_err(|e| format!("io_error: {e}"))?;
     created.push(index_path);
 
+    // Discard the original source from Entrada/ so the inbox no longer lists it
+    // as an unprocessed item. The file is moved to the vault trash (reversible).
+    inbox_discard_inner(source, vault)?;
+
     Ok(created)
 }
 

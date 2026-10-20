@@ -435,10 +435,13 @@ fn tc13_office_import_inner_docx_creates_notes_and_index() {
     assert!(names.contains(&"01 - Introducción.md".to_string()), "names={names:?}");
     assert!(names.contains(&"02 - Conclusión.md".to_string()), "names={names:?}");
     assert!(names.contains(&"índice.md".to_string()), "names={names:?}");
-    // All files must exist
+    // All created files must exist
     for p in &created {
         assert!(p.exists(), "{p:?} does not exist");
     }
+    // TC-13b: The original source must be gone from Entrada/ (moved to trash)
+    // so the inbox no longer shows it as an unprocessed item.
+    assert!(!src.exists(), "source docx must be discarded from Entrada/ after import");
 }
 
 #[test]
