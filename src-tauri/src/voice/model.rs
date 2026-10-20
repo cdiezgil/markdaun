@@ -4,6 +4,7 @@
 //! followed) and verified against the SHA-256 Hugging Face publishes.
 
 use super::VoiceError;
+use crate::models_mirror::Mirror;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -52,9 +53,14 @@ const MAX_HOPS: usize = 10;
 
 /// Downloads `spec` into `dir` unless it is already there. `progress` gets
 /// `(bytes so far, total if known)`. The file only appears (renamed from
-/// `.part`) once complete and, when a checksum is published, verified.
+/// `.part`) once complete and, when a checksum is known, verified.
+///
+/// Hugging Face is tried first; on any failure a model with a `mirror` entry
+/// is fetched from the GitHub release mirror and checked against the mirror's
+/// hard-coded SHA-256 (which is also enforced on the Hugging Face download).
 pub fn download_model(
     base_url: &str,
+    mirror: &Mirror,
     dir: &Path,
     spec: &ModelSpec,
     progress: &mut dyn FnMut(u64, Option<u64>),
@@ -65,7 +71,18 @@ pub fn download_model(
     }
     std::fs::create_dir_all(dir)?;
     let part = dir.join(format!("{}.part", spec.file));
-    let result = fetch(base_url, spec, &part, progress);
+    let known = mirror.sha256_for(spec.file);
+    let hf_url = format!("{}/{REPO_PATH}/{}", base_url.trim_end_matches('/'), spec.file);
+    let result = fetch(&hf_url, spec, &part, known, true, progress).or_else(|hf_err| {
+        let _ = std::fs::remove_file(&part);
+        let Some(mirror_url) = mirror.url_for(spec.file) else { return Err(hf_err) };
+        fetch(&mirror_url, spec, &part, known, false, progress).map_err(|mirror_err| {
+            VoiceError::Download(format!(
+                "{}: Hugging Face failed ({hf_err}); mirror failed ({mirror_err})",
+                spec.file
+            ))
+        })
+    });
     if let Err(e) = result {
         let _ = std::fs::remove_file(&part);
         return Err(e);
@@ -74,10 +91,14 @@ pub fn download_model(
     Ok(target)
 }
 
+/// `known` is the hard-coded sha256 if any; `use_etag` additionally trusts the
+/// `X-Linked-Etag` header (Hugging Face only) when nothing is hard-coded.
 fn fetch(
-    base_url: &str,
+    start_url: &str,
     spec: &ModelSpec,
     part: &Path,
+    known: Option<&str>,
+    use_etag: bool,
     progress: &mut dyn FnMut(u64, Option<u64>),
 ) -> Result<(), VoiceError> {
     let client = reqwest::blocking::Client::builder()
@@ -89,13 +110,15 @@ fn fetch(
         .timeout(Duration::from_secs(3600))
         .build()
         .map_err(|e| VoiceError::Download(format!("cannot build HTTP client: {e}")))?;
-    let mut url = reqwest::Url::parse(&format!("{}/{REPO_PATH}/{}", base_url.trim_end_matches('/'), spec.file))
+    let mut url = reqwest::Url::parse(start_url)
         .map_err(|e| VoiceError::Download(format!("{}: {e}", spec.file)))?;
-    let mut expected: Option<String> = None;
+    let mut expected: Option<String> = known.map(str::to_string);
     let mut hops = 0;
     let mut resp = loop {
         let resp = client.get(url.clone()).send().map_err(|e| VoiceError::Download(format!("{}: {e}", spec.file)))?;
-        expected = expected.or_else(|| published_sha256(&resp));
+        if use_etag {
+            expected = expected.or_else(|| published_sha256(&resp));
+        }
         if !resp.status().is_redirection() {
             break resp;
         }

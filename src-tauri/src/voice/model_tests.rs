@@ -3,6 +3,7 @@ use super::model::{
 };
 use super::VoiceError;
 use crate::llm::testutil::{spawn, MockResponse};
+use crate::models_mirror::Mirror;
 use sha2::{Digest, Sha256};
 use tempfile::tempdir;
 
@@ -37,7 +38,7 @@ fn downloads_atomically_reports_progress_and_verifies_the_published_checksum() {
     });
     let dir = tempdir().unwrap();
     let mut seen: Vec<(u64, Option<u64>)> = Vec::new();
-    let path = download_model(&server.url, dir.path(), &TINY, &mut |done, total| seen.push((done, total))).unwrap();
+    let path = download_model(&server.url, &Mirror::none(), dir.path(), &TINY, &mut |done, total| seen.push((done, total))).unwrap();
 
     assert_eq!(path, model_path(dir.path(), &TINY));
     assert_eq!(std::fs::read(&path).unwrap(), data);
@@ -55,7 +56,7 @@ fn a_checksum_mismatch_leaves_nothing_behind() {
         MockResponse::bytes(200, "application/octet-stream", body()).with_header("X-Linked-Etag", &format!("\"{}\"", "0".repeat(64)))
     });
     let dir = tempdir().unwrap();
-    let err = download_model(&server.url, dir.path(), &TINY, &mut |_, _| {}).unwrap_err();
+    let err = download_model(&server.url, &Mirror::none(), dir.path(), &TINY, &mut |_, _| {}).unwrap_err();
     assert!(matches!(err, VoiceError::Checksum), "{err}");
     assert!(!model_path(dir.path(), &TINY).exists());
     assert!(!dir.path().join("ggml-tiny.bin.part").exists());
@@ -65,7 +66,7 @@ fn a_checksum_mismatch_leaves_nothing_behind() {
 fn a_missing_or_non_sha256_etag_is_not_verified() {
     let server = spawn(|_| MockResponse::bytes(200, "application/octet-stream", body()).with_header("X-Linked-Etag", "\"abc123\""));
     let dir = tempdir().unwrap();
-    download_model(&server.url, dir.path(), &TINY, &mut |_, _| {}).unwrap();
+    download_model(&server.url, &Mirror::none(), dir.path(), &TINY, &mut |_, _| {}).unwrap();
     assert!(is_downloaded(dir.path(), &TINY));
 }
 
@@ -81,7 +82,7 @@ fn follows_relative_redirects() {
         }
     });
     let dir = tempdir().unwrap();
-    let path = download_model(&server.url, dir.path(), &TINY, &mut |_, _| {}).unwrap();
+    let path = download_model(&server.url, &Mirror::none(), dir.path(), &TINY, &mut |_, _| {}).unwrap();
     assert_eq!(std::fs::read(path).unwrap(), data);
 }
 
@@ -90,7 +91,7 @@ fn http_errors_and_empty_bodies_fail_cleanly() {
     for (status, body) in [(404, Vec::new()), (200, Vec::new())] {
         let server = spawn(move |_| MockResponse::bytes(status, "application/octet-stream", body.clone()));
         let dir = tempdir().unwrap();
-        let err = download_model(&server.url, dir.path(), &TINY, &mut |_, _| {}).unwrap_err();
+        let err = download_model(&server.url, &Mirror::none(), dir.path(), &TINY, &mut |_, _| {}).unwrap_err();
         assert!(matches!(err, VoiceError::Download(_)), "{status}: {err}");
         assert!(!model_path(dir.path(), &TINY).exists());
         assert!(!dir.path().join("ggml-tiny.bin.part").exists());
@@ -102,7 +103,7 @@ fn an_existing_model_is_not_downloaded_again() {
     let server = spawn(|_| MockResponse::bytes(500, "text/plain", Vec::new()));
     let dir = tempdir().unwrap();
     std::fs::write(model_path(dir.path(), &TINY), b"already here").unwrap();
-    download_model(&server.url, dir.path(), &TINY, &mut |_, _| {}).unwrap();
+    download_model(&server.url, &Mirror::none(), dir.path(), &TINY, &mut |_, _| {}).unwrap();
     assert!(server.requests().is_empty());
 }
 
@@ -121,7 +122,7 @@ fn the_checksum_published_on_the_redirect_hop_is_the_one_verified() {
         }
     });
     let dir = tempdir().unwrap();
-    download_model(&server.url, dir.path(), &TINY, &mut |_, _| {}).unwrap();
+    download_model(&server.url, &Mirror::none(), dir.path(), &TINY, &mut |_, _| {}).unwrap();
     assert!(is_downloaded(dir.path(), &TINY));
 
     let wrong = spawn(move |req| {
@@ -132,7 +133,7 @@ fn the_checksum_published_on_the_redirect_hop_is_the_one_verified() {
         }
     });
     let dir2 = tempdir().unwrap();
-    assert!(matches!(download_model(&wrong.url, dir2.path(), &TINY, &mut |_, _| {}), Err(VoiceError::Checksum)));
+    assert!(matches!(download_model(&wrong.url, &Mirror::none(), dir2.path(), &TINY, &mut |_, _| {}), Err(VoiceError::Checksum)));
     assert!(!model_path(dir2.path(), &TINY).exists());
 }
 
@@ -140,5 +141,98 @@ fn the_checksum_published_on_the_redirect_hop_is_the_one_verified() {
 fn a_redirect_loop_gives_up() {
     let server = spawn(|_| MockResponse::redirect(302, "/again"));
     let dir = tempdir().unwrap();
-    assert!(matches!(download_model(&server.url, dir.path(), &TINY, &mut |_, _| {}), Err(VoiceError::Download(_))));
+    assert!(matches!(download_model(&server.url, &Mirror::none(), dir.path(), &TINY, &mut |_, _| {}), Err(VoiceError::Download(_))));
+}
+
+const MIRRORED: ModelSpec = ModelSpec { id: "mirrored", file: "ggml-mirrored.bin", label: "Mirrored", approx_mb: 1 };
+
+fn mirror_with(url: &str, data: &[u8]) -> Mirror {
+    Mirror::new(url, vec![(MIRRORED.file.to_string(), sha(data))])
+}
+
+fn no_part(dir: &std::path::Path) {
+    assert!(!dir.join("ggml-mirrored.bin.part").exists());
+}
+
+#[test]
+fn falls_back_to_the_mirror_and_keeps_reporting_progress() {
+    let data = body();
+    let served = data.clone();
+    let hf = spawn(|_| MockResponse::bytes(503, "text/plain", Vec::new()));
+    let mirror = spawn(move |_| MockResponse::bytes(200, "application/octet-stream", served.clone()));
+    let dir = tempdir().unwrap();
+    let mut seen: Vec<(u64, Option<u64>)> = Vec::new();
+
+    let path = download_model(&hf.url, &mirror_with(&mirror.url, &data), dir.path(), &MIRRORED, &mut |d, t| seen.push((d, t))).unwrap();
+
+    assert_eq!(std::fs::read(path).unwrap(), data);
+    assert_eq!(mirror.requests()[0].path, "/ggml-mirrored.bin");
+    assert_eq!(seen.last().unwrap().0, data.len() as u64);
+    no_part(dir.path());
+}
+
+#[test]
+fn the_mirror_is_untouched_when_hugging_face_works() {
+    let data = body();
+    let served = data.clone();
+    let hf = spawn(move |_| MockResponse::bytes(200, "application/octet-stream", served.clone()));
+    let mirror = spawn(|_| MockResponse::bytes(200, "application/octet-stream", b"other".to_vec()));
+    let dir = tempdir().unwrap();
+
+    download_model(&hf.url, &mirror_with(&mirror.url, &data), dir.path(), &MIRRORED, &mut |_, _| {}).unwrap();
+
+    assert!(mirror.requests().is_empty());
+}
+
+#[test]
+fn hugging_face_bytes_are_verified_against_the_known_hash() {
+    let data = body();
+    let served = data.clone();
+    let hf = spawn(|_| MockResponse::bytes(200, "application/octet-stream", b"corrupted".to_vec()));
+    let mirror = spawn(move |_| MockResponse::bytes(200, "application/octet-stream", served.clone()));
+    let dir = tempdir().unwrap();
+
+    let path = download_model(&hf.url, &mirror_with(&mirror.url, &data), dir.path(), &MIRRORED, &mut |_, _| {}).unwrap();
+
+    assert_eq!(std::fs::read(path).unwrap(), data);
+    assert_eq!(mirror.requests().len(), 1);
+}
+
+#[test]
+fn a_mirror_hash_mismatch_errors_and_leaves_nothing() {
+    let hf = spawn(|_| MockResponse::bytes(500, "text/plain", Vec::new()));
+    let mirror = spawn(|_| MockResponse::bytes(200, "application/octet-stream", b"tampered".to_vec()));
+    let dir = tempdir().unwrap();
+
+    let err = download_model(&hf.url, &mirror_with(&mirror.url, &body()), dir.path(), &MIRRORED, &mut |_, _| {}).unwrap_err();
+
+    assert!(err.to_string().to_lowercase().contains("checksum"), "{err}");
+    assert!(!model_path(dir.path(), &MIRRORED).exists());
+    no_part(dir.path());
+}
+
+#[test]
+fn when_both_sources_fail_the_error_names_both() {
+    let hf = spawn(|_| MockResponse::bytes(503, "text/plain", Vec::new()));
+    let mirror = spawn(|_| MockResponse::bytes(404, "text/plain", Vec::new()));
+    let dir = tempdir().unwrap();
+
+    let err = download_model(&hf.url, &mirror_with(&mirror.url, &body()), dir.path(), &MIRRORED, &mut |_, _| {}).unwrap_err().to_string();
+
+    assert!(err.contains("Hugging Face") && err.contains("mirror"), "{err}");
+}
+
+#[test]
+fn models_without_a_mirror_entry_only_report_the_hugging_face_failure() {
+    let hf = spawn(|_| MockResponse::bytes(503, "text/plain", Vec::new()));
+    let mirror = spawn(|_| MockResponse::bytes(200, "application/octet-stream", body()));
+    let dir = tempdir().unwrap();
+
+    // `small` is intentionally not mirrored in production.
+    assert!(Mirror::production().url_for(spec_for("small").unwrap().file).is_none());
+    assert!(Mirror::production().url_for(spec_for("large-v3-turbo").unwrap().file).is_some());
+    let err = download_model(&hf.url, &mirror_with(&mirror.url, &body()), dir.path(), &TINY, &mut |_, _| {}).unwrap_err();
+
+    assert!(matches!(err, VoiceError::Download(_)));
+    assert!(mirror.requests().is_empty());
 }
