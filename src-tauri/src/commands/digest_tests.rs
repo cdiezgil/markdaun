@@ -103,6 +103,27 @@ fn parses_and_renders_note_blocks() {
     assert_eq!(render_note_block(&blocks[0]), block("Personal/A.md", "create", "# A\ncuerpo"));
 }
 
+#[test]
+fn parse_note_blocks_preserves_inner_mermaid_fence() {
+    // A note that contains a ```mermaid block must not be cut off at the inner fence.
+    let content = "# Arq\n\n## Diagrama\n\n```mermaid\ngraph TD\n  A --> B\n```";
+    let text = block("Mutua/Arq.md", "create", content);
+    let blocks = parse_note_blocks(&text);
+    assert_eq!(blocks.len(), 1, "should parse exactly one note block");
+    assert!(blocks[0].content.contains("```mermaid"), "mermaid fence must be inside content");
+    assert!(blocks[0].content.contains("A --> B"), "diagram body must be present");
+}
+
+#[test]
+fn parse_note_blocks_handles_multiple_inner_fences() {
+    // Two inner code fences (mermaid + rust) followed by the actual closing fence.
+    let content = "# Note\n\n```mermaid\ngraph TD\n  A-->B\n```\n\n```rust\nlet x = 1;\n```";
+    let text = block("X.md", "create", content);
+    let blocks = parse_note_blocks(&text);
+    assert_eq!(blocks.len(), 1);
+    assert!(blocks[0].content.contains("let x = 1;"));
+}
+
 // ── prompts ───────────────────────────────────────────────────────────────────
 
 #[test]

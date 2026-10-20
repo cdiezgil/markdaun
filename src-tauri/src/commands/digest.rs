@@ -125,6 +125,35 @@ fn attr(attrs: &str, name: &str) -> Option<String> {
     Some(attrs[start..start + end].to_string())
 }
 
+/// Finds the position of the closing `\n\`\`\`` fence of a `markdaun-note` block.
+///
+/// Tracks inner code-fence depth so that Mermaid diagrams, code snippets, and
+/// any other fenced content inside the note are not mistaken for the block end.
+/// A fence that opens an inner block (`\n\`\`\`<lang>`) increments depth; a bare
+/// `\n\`\`\`` (nothing after the backticks on that line) decrements depth. The
+/// closing fence is the bare triple-backtick found when depth reaches zero.
+fn find_closing_fence(body: &str) -> Option<usize> {
+    let mut search = body;
+    let mut base = 0;
+    let mut depth: usize = 0;
+    while let Some(rel) = search.find("\n```") {
+        let after = &search[rel + 4..];
+        let bare = after.is_empty() || after.starts_with('\n') || after.starts_with('\r');
+        if bare {
+            if depth == 0 {
+                return Some(base + rel);
+            }
+            depth -= 1;
+        } else {
+            depth += 1;
+        }
+        let skip = rel + 4;
+        base += skip;
+        search = &search[skip..];
+    }
+    None
+}
+
 /// The valid `markdaun-note` blocks of a model answer (same rules as the
 /// frontend parser: `.md` path, mode create|append, default create).
 pub fn parse_note_blocks(text: &str) -> Vec<NoteBlock> {
@@ -136,7 +165,7 @@ pub fn parse_note_blocks(text: &str) -> Vec<NoteBlock> {
         let Some(nl) = after.find('\n') else { break };
         let attrs = &after[..nl];
         let body = &after[nl + 1..];
-        let Some(end) = body.find("\n```") else { break };
+        let Some(end) = find_closing_fence(body) else { break };
         let content = &body[..end];
         rest = &body[end + 4..];
         let path = attr(attrs, "path");

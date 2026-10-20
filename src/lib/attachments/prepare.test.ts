@@ -3,8 +3,10 @@ import type { ChatAttachment } from './types';
 
 const inspectPdf = vi.fn();
 const rasterizeImage = vi.fn();
+const readFile = vi.fn();
 vi.mock('./pdf', () => ({ inspectPdf: (...a: unknown[]) => inspectPdf(...a) }));
 vi.mock('./rasterize', () => ({ rasterizeImage: (...a: unknown[]) => rasterizeImage(...a) }));
+vi.mock('@tauri-apps/plugin-fs', () => ({ readFile: (...a: unknown[]) => readFile(...a) }));
 
 import { prepareAttachments } from './prepare';
 
@@ -15,10 +17,8 @@ const pdf: ChatAttachment = { vaultPath: 'f.pdf', absPath: '/v/f.pdf', name: 'f.
 beforeEach(() => {
   inspectPdf.mockReset();
   rasterizeImage.mockReset();
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({ ok: true, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer })),
-  );
+  readFile.mockReset();
+  readFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
 });
 
 describe('prepareAttachments', () => {
@@ -26,16 +26,29 @@ describe('prepareAttachments', () => {
     const r = await prepareAttachments([png], { nativePdf: true });
     expect(r.inputs).toEqual([{ vaultPath: 'a.png' }]);
     expect(rasterizeImage).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(readFile).not.toHaveBeenCalled();
   });
 
-  it('rasterizes SVGs from their asset URL', async () => {
+  it('rasterizes SVGs via data URL (not asset:// or blob URL)', async () => {
+    // Stub FileReader so it resolves synchronously with a predictable data URL.
+    const mockFileReader = {
+      readAsDataURL: vi.fn(function (this: { onload: () => void }) {
+        (this as unknown as { result: string }).result = 'data:image/svg+xml;base64,PHN2Zz4=';
+        this.onload();
+      }),
+      onload: null as unknown as () => void,
+      onerror: null as unknown as () => void,
+      result: '',
+    };
+    vi.stubGlobal('FileReader', vi.fn(() => mockFileReader));
     rasterizeImage.mockResolvedValue({ mediaType: 'image/png', dataB64: 'QUJD' });
     const r = await prepareAttachments([svg], { nativePdf: true });
-    expect(rasterizeImage).toHaveBeenCalledWith('asset:///v/d.svg');
+    expect(readFile).toHaveBeenCalledWith('/v/d.svg');
+    expect(rasterizeImage).toHaveBeenCalledWith('data:image/svg+xml;base64,PHN2Zz4=');
     expect(r.inputs).toEqual([
       { vaultPath: 'd.svg', derived: { images: [{ mediaType: 'image/png', dataB64: 'QUJD' }] } },
     ]);
+    vi.unstubAllGlobals();
   });
 
   it('native-PDF engines get no page images for short PDFs', async () => {
@@ -68,7 +81,7 @@ describe('prepareAttachments', () => {
   });
 
   it('turns a failing read into a Spanish error naming the file', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, status: 404 });
+    readFile.mockRejectedValueOnce(new Error('ENOENT'));
     await expect(prepareAttachments([pdf], { nativePdf: true })).rejects.toThrow(/f\.pdf/);
   });
 });

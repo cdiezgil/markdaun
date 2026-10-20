@@ -1,4 +1,4 @@
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { readFile } from '@tauri-apps/plugin-fs';
 import { inspectPdf } from './pdf';
 import { rasterizeImage } from './rasterize';
 import {
@@ -20,9 +20,25 @@ export interface Prepared {
 }
 
 async function readBytes(att: ChatAttachment): Promise<Uint8Array> {
-  const res = await fetch(convertFileSrc(att.absPath));
-  if (!res.ok) throw new Error(`No se pudo leer «${att.name}».`);
-  return new Uint8Array(await res.arrayBuffer());
+  try {
+    return await readFile(att.absPath);
+  } catch {
+    throw new Error(`No se pudo leer «${att.name}».`);
+  }
+}
+
+const MIME_MAP: Record<string, string> = {
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  avif: 'image/avif',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+};
+
+function mimeForPath(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  return MIME_MAP[ext] ?? 'application/octet-stream';
 }
 
 /** Renderer-only processing (SVG rasterization, PDF pages/text); Rust does the rest. */
@@ -47,7 +63,22 @@ export async function prepareAttachments(
         derived: { images: info.images, text: info.text, pageCount: info.pageCount },
       });
     } else if (needsRasterize(att.absPath)) {
-      const image = await rasterizeImage(convertFileSrc(att.absPath));
+      // Read via plugin-fs (scoped) then convert to a data: URL via FileReader.
+      // Blob URLs taint the canvas in WKWebView ("The operation is insecure"
+      // on toDataURL). Data URLs are always same-origin and never taint it.
+      const rawBytes = await readBytes(att);
+      // Copy into a fresh Uint8Array<ArrayBuffer> — TypeScript strict rejects
+      // Uint8Array<ArrayBufferLike> (returned by readFile) as a BlobPart.
+      const bytes = new Uint8Array(rawBytes.length);
+      bytes.set(rawBytes);
+      const blob = new Blob([bytes], { type: mimeForPath(att.absPath) });
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error(`No se pudo convertir «${att.name}» a data URL.`));
+        reader.readAsDataURL(blob);
+      });
+      const image = await rasterizeImage(dataUrl);
       inputs.push({ vaultPath: att.vaultPath, derived: { images: [image] } });
     } else {
       inputs.push({ vaultPath: att.vaultPath });
