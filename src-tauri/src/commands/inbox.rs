@@ -428,19 +428,11 @@ pub fn folder_tree(vault: &Path, max_depth: usize) -> Vec<String> {
 
 // ─── Areas ────────────────────────────────────────────────────────────────────
 
-/// Digestion areas: the vault's top-level folders, sorted, without `Entrada/`
-/// and hidden folders. The vault root itself is an implicit extra area ('').
+/// Digestion areas: all folders of the vault at any depth, sorted, without
+/// `Entrada/` and hidden folders. The vault root itself is an implicit extra
+/// area ('').
 pub fn list_areas(vault: &Path) -> Vec<String> {
-    let mut out: Vec<String> = std::fs::read_dir(vault)
-        .into_iter()
-        .flatten()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-        .map(|e| e.file_name().to_string_lossy().to_string())
-        .filter(|n| !n.starts_with('.') && n != INBOX_DIR)
-        .collect();
-    out.sort();
-    out
+    folder_tree(vault, usize::MAX)
 }
 
 fn last_area_key(vault_path: &str) -> String {
