@@ -83,3 +83,55 @@ describe('TC-20: GraphView loads graph on mount', () => {
     });
   });
 });
+
+// ── TC-59a..TC-59d: graph loading spinner ─────────────────────────────────────
+describe('TC-59: graph loading spinner', () => {
+  it('TC-59a: shows spinner when vaultPath is set and isLoading is true', () => {
+    useVaultStore.setState({ vaultPath: '/vault' });
+    useGraphStore.setState({ isLoading: true });
+    mockInvoke.mockResolvedValue({ nodes: [], edges: [] });
+
+    renderGraphView();
+
+    expect(screen.getByTestId('graph-loading-spinner')).toBeDefined();
+  });
+
+  it('TC-59b: does NOT show spinner when isLoading is false (after load completes)', async () => {
+    useVaultStore.setState({ vaultPath: '/vault' });
+    mockInvoke.mockResolvedValue({ nodes: [], edges: [] });
+
+    renderGraphView();
+
+    // loadGraph sets isLoading: true then resolves; wait for it to go false.
+    await waitFor(() => {
+      expect(screen.queryByTestId('graph-loading-spinner')).toBeNull();
+    });
+    expect(screen.getByTestId('graph-canvas-stub')).toBeDefined();
+  });
+
+  it('TC-59c: does NOT show spinner when vaultPath is null (placeholder shown instead)', () => {
+    useVaultStore.setState({ vaultPath: null });
+    useGraphStore.setState({ isLoading: true });
+
+    renderGraphView();
+
+    expect(screen.queryByTestId('graph-loading-spinner')).toBeNull();
+    expect(screen.getByTestId('graph-placeholder')).toBeDefined();
+  });
+
+  it('TC-59d: spinner disappears when isLoading transitions from true to false', async () => {
+    useVaultStore.setState({ vaultPath: '/vault' });
+    useGraphStore.setState({ isLoading: true });
+    mockInvoke.mockResolvedValue({ nodes: [], edges: [] });
+
+    renderGraphView();
+    expect(screen.getByTestId('graph-loading-spinner')).toBeDefined();
+
+    // Simulate load completion
+    useGraphStore.setState({ isLoading: false });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('graph-loading-spinner')).toBeNull();
+    });
+  });
+});
