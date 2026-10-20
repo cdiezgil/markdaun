@@ -213,5 +213,24 @@ describe('StatusBar', () => {
       act(() => cb({ payload: { done: 12, total: 12 } }));
       expect(screen.queryByTestId('index-status')).not.toBeInTheDocument();
     });
+
+    it('TC-62f: muestra «N notas indexadas» al terminar y desaparece tras 3 s', async () => {
+      let cb: (e: { payload: { done: number; total: number } }) => void = () => {};
+      mockListen.mockImplementation((async (_n: string, handler: typeof cb) => {
+        cb = handler;
+        return () => {};
+      }) as never);
+      renderBar();
+      await act(async () => { await Promise.resolve(); });
+
+      // Simulate completion: done === total === 5
+      act(() => cb({ payload: { done: 5, total: 5 } }));
+      expect(screen.getByTestId('index-completed')).toHaveTextContent('5 notas indexadas');
+      expect(screen.queryByTestId('index-status')).not.toBeInTheDocument();
+
+      // After 3 000 ms the completed message disappears
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(screen.queryByTestId('index-completed')).not.toBeInTheDocument();
+    });
   });
 });

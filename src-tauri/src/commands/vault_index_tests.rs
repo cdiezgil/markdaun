@@ -280,3 +280,77 @@ fn notes_listing_still_counts_only_markdown() {
     e.write("n.md", "n");
     assert_eq!(list_vault_notes(e.vault.path()).len(), 1);
 }
+
+// ─── TC-62: reindex_folder_core ───────────────────────────────────────────────
+
+#[test]
+fn tc_62g_reindex_folder_core_only_indexes_files_under_the_given_subfolder() {
+    let e = env();
+    // 3 notes inside sub/, 1 note outside
+    e.write("sub/a.md", "alpha");
+    e.write("sub/b.md", "beta");
+    e.write("sub/nested/c.md", "gamma");
+    e.write("outside.md", "delta");
+    // First, index everything so the outer file exists in the DB.
+    e.sync();
+    // Now force-reindex only sub/
+    let events = std::cell::RefCell::new(Vec::new());
+    let report = reindex_folder_core(
+        &e.db,
+        e.vault.path(),
+        &e.path("sub"),
+        &fake_embed,
+        &|p| events.borrow_mut().push(p),
+    );
+    assert_eq!(report.indexed, 3, "only sub/ files reindexed");
+    assert_eq!(report.failed, 0);
+    // All 4 files (including outside.md) remain in the DB — core does not delete.
+    let mut files = e.files();
+    files.sort();
+    assert!(files.contains(&"outside.md".to_string()), "outer file untouched");
+    assert!(files.contains(&"sub/a.md".to_string()));
+    assert!(files.contains(&"sub/b.md".to_string()));
+    assert!(files.contains(&"sub/nested/c.md".to_string()));
+}
+
+#[test]
+fn tc_62h_reindex_folder_core_emits_progress_for_each_file() {
+    let e = env();
+    e.write("a.md", "uno");
+    e.write("b.md", "dos");
+    e.write("c.md", "tres");
+    let n = 3usize;
+    let events = std::cell::RefCell::new(Vec::<IndexProgress>::new());
+    let report = reindex_folder_core(
+        &e.db,
+        e.vault.path(),
+        e.vault.path(),
+        &fake_embed,
+        &|p| events.borrow_mut().push(p),
+    );
+    assert_eq!(report.indexed, n);
+    let emitted = events.into_inner();
+    // Expected: {0,n}, {1,n}, {2,n}, {n,n}
+    let expected: Vec<IndexProgress> = (0..=n).map(|i| p(i, n)).collect();
+    assert_eq!(emitted, expected);
+}
+
+#[test]
+fn tc_62i_reindex_folder_core_with_vault_root_indexes_all_notes() {
+    let e = env();
+    e.write("a.md", "uno");
+    e.write("dir/b.md", "dos");
+    e.write("dir/sub/c.md", "tres");
+    e.write(".hidden/h.md", "hidden"); // must be skipped
+    let report = reindex_folder_core(
+        &e.db,
+        e.vault.path(),
+        e.vault.path(), // folder == vault root
+        &fake_embed,
+        &|_| {},
+    );
+    assert_eq!(report.indexed, 3, "all visible notes indexed when folder is vault root");
+    let mut files = e.files();
+    files.sort();
+    assert_eq!(files, vec!["a.md", "dir/b.md", "dir/sub/c.md"]);
+}

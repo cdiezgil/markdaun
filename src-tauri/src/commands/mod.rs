@@ -43,6 +43,7 @@ pub use chat_notes::*;
 mod chat_notes_tests;
 
 pub mod vault_index;
+pub use vault_index::*;
 #[cfg(test)]
 mod vault_index_tests;
 

@@ -312,6 +312,75 @@ pub fn spawn_vault_sync(app: &tauri::AppHandle, vault_path: String) {
     });
 }
 
+/// Forces re-embedding of every indexable file under `folder` (and subfolders),
+/// ignoring stored fingerprints. Emits `IndexProgress` before the first file
+/// and after each one. Returns a `SyncReport` with `indexed` + `failed` counts.
+pub fn reindex_folder_core(
+    vdb: &VectorsDb,
+    vault: &Path,
+    folder: &Path,
+    embed: &EmbedFn,
+    emit: &dyn Fn(IndexProgress),
+) -> SyncReport {
+    let files = list_indexable_files(folder);
+    let total = files.len();
+    let mut report = SyncReport::default();
+    if total == 0 {
+        return report;
+    }
+    emit(IndexProgress { done: 0, total });
+    for (i, file) in files.into_iter().enumerate() {
+        match index_file(vdb, vault, &file, embed) {
+            Ok(()) => report.indexed += 1,
+            Err(e) => {
+                report.failed += 1;
+                eprintln!("[vault_index] cannot reindex {}: {e}", file.display());
+            }
+        }
+        emit(IndexProgress { done: i + 1, total });
+    }
+    report
+}
+
+/// Tauri command: force-reindex all indexable files under `folder_path`.
+/// Returns `Ok(N)` where N is the number of successfully indexed files.
+/// Returns `Err("indexing_in_progress")` if a sync is already running for this vault.
+/// Returns `Err("invalid_folder_path")` if `folder_path` is outside `vault_path`.
+#[tauri::command]
+pub async fn brain_reindex_folder(
+    app: tauri::AppHandle,
+    embedder: tauri::State<'_, Arc<EmbedderState>>,
+    vault_path: String,
+    folder_path: String,
+) -> Result<usize, String> {
+    if !Path::new(&folder_path).starts_with(Path::new(&vault_path)) {
+        return Err("invalid_folder_path".to_string());
+    }
+    let embedder = embedder.inner().clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
+        let locks = app.state::<IndexLocks>();
+        let Some(_guard) = locks.try_acquire(&vault_path) else {
+            return Err("indexing_in_progress".to_string());
+        };
+        let vdb = VectorsDb::open(&vectors_db_path(&app)?).map_err(|e| e.to_string())?;
+        let embed = model_embedder(embedder, model_cache_dir(&app)?);
+        let emit = |p: IndexProgress| {
+            let _ = app.emit(INDEX_PROGRESS_EVENT, p);
+        };
+        let report = reindex_folder_core(
+            &vdb,
+            Path::new(&vault_path),
+            Path::new(&folder_path),
+            &embed,
+            &emit,
+        );
+        Ok(report.indexed)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    result
+}
+
 /// After rename/move/delete/import: forget `removed` paths and index `added`
 /// ones (folders recurse). Fire-and-forget; failures are logged.
 pub fn spawn_index_update(app: &tauri::AppHandle, vault_path: String, removed: Vec<String>, added: Vec<String>) {

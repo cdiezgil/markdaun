@@ -90,6 +90,7 @@ fn main() {
             commands::brain_set_conversation_scope,
             commands::brain_delete_conversation,
             commands::brain_update_embedding,
+            commands::brain_reindex_folder,
             commands::chat_write_note,
             commands::note_exists,
             commands::read_note_tail,
