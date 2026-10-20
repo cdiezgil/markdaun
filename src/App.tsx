@@ -42,7 +42,18 @@ function AppLayout() {
     useVaultStore.getState().loadVault();
     useEditorStore.getState().initVault().catch(console.error);
     useIdeStore.getState().loadProjects().catch(console.error);
+    // The GitHub connection (repo URL in config.db, PAT in the keyring) persists
+    // across restarts; without loading it the sync UI thinks we're disconnected.
+    useSyncStore.getState().loadConfig().catch(console.error);
   }, []);
+
+  const syncConnected = useSyncStore((s) => s.config.isConnected);
+  const syncVaultPath = useVaultStore((s) => s.vaultPath);
+  useEffect(() => {
+    if (syncConnected && syncVaultPath) {
+      useSyncStore.getState().checkStatus(syncVaultPath).catch(console.error);
+    }
+  }, [syncConnected, syncVaultPath]);
 
   // Closing the window only hides it (done in the backend); *Salir* (tray menu,
   // Cmd+Q) asks us to run the unsynced-changes guard before really quitting.

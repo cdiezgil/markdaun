@@ -46,6 +46,15 @@ describe('TC-03: App', () => {
     );
   });
 
+  it('loads the saved GitHub sync config on startup', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('github_get_config'),
+    );
+  });
+
   it('TC-03: VaultTree está en el DOM', () => {
     mockInvoke.mockResolvedValueOnce(null);
     render(<App />);
@@ -105,6 +114,10 @@ describe('presencia en la barra de menús y guarda de salida', () => {
     useSyncStore.setState({
       config: { repoUrl: 'https://github.com/x/y', isConnected: true },
       status: { hasChanges },
+      // These tests are about the exit guard: keep the connected state they set
+      // instead of reloading it from the (mocked) backend on mount.
+      loadConfig: vi.fn().mockResolvedValue(undefined),
+      checkStatus: vi.fn().mockResolvedValue(undefined),
     });
   }
 
