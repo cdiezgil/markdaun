@@ -71,3 +71,29 @@ select {
 }
 .md-pop { animation: md-pop-in 240ms cubic-bezier(.2,.7,.2,1); }
 @media (prefers-reduced-motion: reduce) { .md-pop { animation: none; } }
+
+/* Graph loading spinner overlay ─────────────────────────────────────────── */
+@keyframes graph-spin {
+  to { transform: rotate(360deg); }
+}
+.graph-loading-spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10;
+}
+.graph-loading-spinner::after {
+  content: '';
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--line-strong);
+  border-top-color: var(--daun);
+  border-radius: 50%;
+  animation: graph-spin 700ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .graph-loading-spinner::after { animation: none; }
+}

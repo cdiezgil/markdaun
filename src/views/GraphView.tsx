@@ -14,6 +14,7 @@ import { GraphCanvas } from '../components/GraphView/GraphCanvas';
 export function GraphView() {
   const vaultPath = useVaultStore((state) => state.vaultPath);
   const loadGraph = useGraphStore((state) => state.loadGraph);
+  const isLoading = useGraphStore((state) => state.isLoading);
 
   useEffect(() => {
     if (vaultPath) {
@@ -47,8 +48,15 @@ export function GraphView() {
   return (
     <div
       data-testid="graph-view"
-      style={{ width: '100%', height: '100%' }}
+      style={{ width: '100%', height: '100%', position: 'relative' }}
     >
+      {isLoading && (
+        <div
+          className="graph-loading-spinner"
+          data-testid="graph-loading-spinner"
+          aria-label="Cargando grafo"
+        />
+      )}
       <GraphCanvas vaultPath={vaultPath} />
     </div>
   );
