@@ -1,4 +1,4 @@
-import type { InboxKind, QuickSummary, VoiceInfo } from './tauri';
+import type { InboxItem, InboxKind, QuickSummary, VoiceInfo } from './tauri';
 
 /** Human file size with a decimal comma (es-ES): 512 B, 1,5 KB, 5 MB. */
 export function formatSize(bytes: number): string {
@@ -27,6 +27,14 @@ export function formatDate(ms: number): string {
   return new Date(ms).toLocaleDateString('es-ES');
 }
 export const INBOX_DIR = 'Entrada';
+
+/**
+ * Returns true when the item can be sent to the LLM batch digest.
+ * `.docx` and `.pptx` use the dedicated "Importar" flow instead.
+ */
+export function isBatchable(item: InboxItem): boolean {
+  return item.supported && item.kind !== 'docx' && item.kind !== 'pptx';
+}
 
 /** User-facing text for the errors the inbox commands return. */
 export function inboxErrorMessage(error: string): string {

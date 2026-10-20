@@ -101,3 +101,37 @@ describe('inboxStore', () => {
     });
   });
 });
+
+  describe('TC-21..TC-23: importOffice', () => {
+    const docxItem = item('reporte.docx', { kind: 'docx' });
+
+    it('TC-21: importOffice calls office_import and reloads the inbox', async () => {
+      useInboxStore.setState({ items: [docxItem], importing: false, error: null } as never);
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'office_import') return ['/v/Entrada/reporte/01 - A.md'];
+        if (cmd === 'inbox_list') return [docxItem];
+        return undefined;
+      });
+      await useInboxStore.getState().importOffice(docxItem, '/v');
+      expect(mockInvoke).toHaveBeenCalledWith('office_import', {
+        sourcePath: docxItem.path,
+        vaultPath: '/v',
+      });
+      expect(useInboxStore.getState().importing).toBe(false);
+      expect(useInboxStore.getState().error).toBeNull();
+    });
+
+    it('TC-22: importOffice sets error on failure and clears importing flag', async () => {
+      useInboxStore.setState({ items: [docxItem], importing: false, error: null } as never);
+      mockInvoke.mockRejectedValueOnce('invalid_document: boom' as never);
+      await useInboxStore.getState().importOffice(docxItem, '/v');
+      expect(useInboxStore.getState().importing).toBe(false);
+      expect(useInboxStore.getState().error).toBe('invalid_document: boom');
+    });
+
+    it('TC-23: toggle does not select a docx item (not batchable)', () => {
+      useInboxStore.setState({ items: [docxItem], selected: [] });
+      useInboxStore.getState().toggle(docxItem.rel_path);
+      expect(useInboxStore.getState().selected).toEqual([]);
+    });
+  });

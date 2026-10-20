@@ -5,8 +5,9 @@
 use super::brain_cmd::app_db_path;
 use super::fs_ops::{assert_within_vault, finish_relocation, MoveOutcome};
 use super::vault_index::spawn_index_update;
+use crate::capture::office::split_office;
 use crate::db::{ConfigDb, ConversationsDb};
-use crate::fs::naming::unique_name;
+use crate::fs::naming::{sanitize_file_stem, unique_name};
 use crate::fs::tree::APP_DIR;
 use crate::voice::jobs::{JobState, VoiceJobs};
 use serde::Serialize;
@@ -448,6 +449,108 @@ pub fn last_area_set(db_path: &Path, vault_path: &str, area: &str) -> Result<(),
     ConfigDb::open(db_path)
         .and_then(|db| db.set(&last_area_key(vault_path), area))
         .map_err(|e| format!("db_error: {e}"))
+}
+
+// ─── Office import ───────────────────────────────────────────────────────────
+
+/// Returns a zero-padded section number: `"01"`, `"02"`, … `"99"`, `"100"`, …
+fn section_number(n: usize) -> String {
+    format!("{n:02}")
+}
+
+/// Rewrites `[Imagen: X]` markers (from office extraction) to `![X](assets/X)` links.
+fn rewrite_image_markers(markdown: &str) -> String {
+    const START: &str = "[Imagen: ";
+    let mut out = String::with_capacity(markdown.len());
+    let mut remaining = markdown;
+    while let Some(pos) = remaining.find(START) {
+        out.push_str(&remaining[..pos]);
+        let after = &remaining[pos + START.len()..];
+        if let Some(end) = after.find(']') {
+            let img_name = &after[..end];
+            out.push_str(&format!("![{img_name}](assets/{img_name})"));
+            remaining = &after[end + 1..];
+        } else {
+            out.push_str(&remaining[pos..]);
+            remaining = "";
+            break;
+        }
+    }
+    out.push_str(remaining);
+    out
+}
+
+/// Pure logic (no AppHandle): reads `source`, splits it, writes notes + index into
+/// `vault/Entrada/<stem>/`. Returns absolute paths of all files created.
+pub fn office_import_inner(source: &Path, vault: &Path) -> Result<Vec<PathBuf>, String> {
+    assert_within_vault(source, vault)?;
+
+    let name = source
+        .file_name()
+        .ok_or_else(|| "invalid_path".to_string())?
+        .to_string_lossy()
+        .to_string();
+    let bytes = std::fs::read(source).map_err(|e| format!("io_error: {e}"))?;
+    let split = split_office(&name, &bytes)?;
+
+    let stem_raw = source
+        .file_stem()
+        .ok_or_else(|| "invalid_path".to_string())?
+        .to_string_lossy()
+        .to_string();
+    let stem = sanitize_file_stem(&stem_raw).unwrap_or_else(|| "documento".to_string());
+
+    let inbox_dir = inbox_ensure_inner(vault)?;
+    let subdir = inbox_dir.join(&stem);
+    let assets_dir = subdir.join("assets");
+    std::fs::create_dir_all(&assets_dir).map_err(|e| format!("io_error: {e}"))?;
+
+    // Write extracted images into assets/
+    for img in &split.images {
+        std::fs::write(assets_dir.join(&img.name), &img.bytes)
+            .map_err(|e| format!("io_error: {e}"))?;
+    }
+
+    let mut created: Vec<PathBuf> = Vec::new();
+
+    // Write one note per section
+    for (idx, section) in split.sections.iter().enumerate() {
+        let num = section_number(idx + 1);
+        let safe_title = sanitize_file_stem(&section.title)
+            .unwrap_or_else(|| "Sin título".to_string());
+        let filename = format!("{num} - {safe_title}.md");
+        let content = rewrite_image_markers(&section.markdown);
+        std::fs::write(subdir.join(&filename), &content)
+            .map_err(|e| format!("io_error: {e}"))?;
+        created.push(subdir.join(&filename));
+    }
+
+    // Build and write index note
+    let mut index_lines = vec![format!("# {stem}"), String::new()];
+    for (idx, section) in split.sections.iter().enumerate() {
+        let num = section_number(idx + 1);
+        let safe_title = sanitize_file_stem(&section.title)
+            .unwrap_or_else(|| "Sin título".to_string());
+        index_lines.push(format!("- [[{num} - {safe_title}]]"));
+    }
+    let index_content = index_lines.join("\n");
+    let index_path = subdir.join("índice.md");
+    std::fs::write(&index_path, &index_content).map_err(|e| format!("io_error: {e}"))?;
+    created.push(index_path);
+
+    Ok(created)
+}
+
+/// Tauri command: import a `.docx` or `.pptx`, splitting by headings/sections.
+/// Returns absolute paths of all files created.
+#[tauri::command]
+pub async fn office_import(
+    _app: tauri::AppHandle,
+    source_path: String,
+    vault_path: String,
+) -> Result<Vec<String>, String> {
+    let created = office_import_inner(Path::new(&source_path), Path::new(&vault_path))?;
+    Ok(created.into_iter().map(|p| p.to_string_lossy().to_string()).collect())
 }
 
 // ─── Tauri commands ───────────────────────────────────────────────────────────

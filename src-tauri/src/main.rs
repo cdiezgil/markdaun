@@ -114,6 +114,7 @@ fn main() {
             commands::archive_source,
             commands::brain_digest,
             commands::inbox_clip_url,
+            commands::office_import,
             commands::quick_capture_save,
             commands::quick_capture_hide,
             commands::quick_capture_save_audio,

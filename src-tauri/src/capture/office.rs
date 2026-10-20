@@ -25,6 +25,120 @@ pub struct Extracted {
     pub images: Vec<ExtractedImage>,
 }
 
+/// A single split section from a document.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Section {
+    /// Text of the heading or slide title.
+    pub title: String,
+    /// Markdown content including the heading (for docx) or body text (for pptx).
+    pub markdown: String,
+}
+
+/// Result of splitting a document into sections.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SplitResult {
+    pub sections: Vec<Section>,
+    pub images: Vec<ExtractedImage>,
+}
+
+// ─── Heading detection and Markdown splitting ────────────────────────────────
+
+/// Returns the heading level (1-6) if `line` is a valid ATX heading, else None.
+fn heading_level_of_line(line: &str) -> Option<usize> {
+    let hashes = line.bytes().take_while(|&b| b == b'#').count();
+    if hashes == 0 || hashes > 6 {
+        return None;
+    }
+    let rest = &line[hashes..];
+    if rest.is_empty() || rest.starts_with(' ') {
+        Some(hashes)
+    } else {
+        None
+    }
+}
+
+fn flush_section<'a>(
+    sections: &mut Vec<Section>,
+    current_title: &mut Option<String>,
+    current_lines: &mut Vec<&'a str>,
+) {
+    let text = current_lines.join("\n");
+    match current_title.take() {
+        Some(title) => sections.push(Section { title, markdown: text }),
+        None => {
+            if !text.trim().is_empty() {
+                sections.push(Section { title: "Sin título".to_string(), markdown: text });
+            }
+        }
+    }
+    current_lines.clear();
+}
+
+/// Splits Markdown text into sections by the dominant heading level (H1 or H2).
+/// Returns `(sections, cut_level)` where `cut_level` is 1, 2, or 0 (no headings).
+///
+/// - If H1s exist, cuts by H1.
+/// - If no H1 but H2s exist, cuts by H2.
+/// - If no H1 or H2, returns a single section with the whole content.
+/// - Preamble text before the first heading becomes a "Sin título" section (if non-blank).
+/// - An empty heading title becomes "Sin título".
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn split_markdown_by_headings(md: &str) -> (Vec<Section>, usize) {
+    let lines: Vec<&str> = md.lines().collect();
+    let cut_level = if lines.iter().any(|l| heading_level_of_line(l) == Some(1)) {
+        1
+    } else if lines.iter().any(|l| heading_level_of_line(l) == Some(2)) {
+        2
+    } else {
+        return (vec![Section { title: "Sin título".to_string(), markdown: md.to_string() }], 0);
+    };
+
+    let mut sections: Vec<Section> = Vec::new();
+    let mut current_title: Option<String> = None;
+    let mut current_lines: Vec<&str> = Vec::new();
+
+    for line in &lines {
+        if heading_level_of_line(line) == Some(cut_level) {
+            flush_section(&mut sections, &mut current_title, &mut current_lines);
+            let after_hashes = &line[cut_level..];
+            let title_text = if after_hashes.starts_with(' ') { &after_hashes[1..] } else { after_hashes };
+            let title = title_text.trim().to_string();
+            let title = if title.is_empty() { "Sin título".to_string() } else { title };
+            current_title = Some(title);
+            current_lines.push(line);
+        } else {
+            current_lines.push(line);
+        }
+    }
+    flush_section(&mut sections, &mut current_title, &mut current_lines);
+
+    if sections.is_empty() {
+        return (vec![Section { title: "Sin título".to_string(), markdown: md.to_string() }], cut_level);
+    }
+    (sections, cut_level)
+}
+
+// ─── Public split API ─────────────────────────────────────────────────────────
+
+/// Splits a `.docx` into sections (by H1, then H2, then whole doc).
+pub fn split_docx(bytes: &[u8]) -> Result<SplitResult, String> {
+    let Extracted { markdown, images } = extract_docx(bytes)?;
+    let (sections, _level) = split_markdown_by_headings(&markdown);
+    Ok(SplitResult { sections, images })
+}
+
+/// Dispatches to the correct splitter by file extension.
+pub fn split_office(name: &str, bytes: &[u8]) -> Result<SplitResult, String> {
+    let lower = name.to_lowercase();
+    if lower.ends_with(".docx") {
+        split_docx(bytes)
+    } else if lower.ends_with(".pptx") {
+        split_pptx(bytes)
+    } else {
+        Err("unsupported_office_format".to_string())
+    }
+}
+
 /// Whether `name` (a file name) is a document this module extracts.
 pub fn is_office_name(name: &str) -> bool {
     let lower = name.to_lowercase();
@@ -658,6 +772,32 @@ impl Pptx<'_> {
         }
     }
 
+    /// Renders one slide (loads XML, runs shapes + notes) and returns
+    /// `(slide_title, body_markdown)`.  `_index` is reserved for callers.
+    fn render_slide(
+        &mut self,
+        path: &str,
+        _index: usize,
+        rels: &HashMap<String, (String, bool, String)>,
+    ) -> Option<(Option<String>, String)> {
+        let root = self.pkg.xml(path)?;
+        let (dir, _file) = path.rsplit_once('/').unwrap_or(("", path));
+        let mut title = None;
+        let mut blocks = Vec::new();
+        if let Some(tree) = root.find("spTree") {
+            self.shapes(tree, dir, rels, &mut title, &mut blocks);
+        }
+        let body = join_blocks(&blocks);
+        let mut result = body;
+        if let Some(n) = self.notes(dir, rels) {
+            if !result.is_empty() {
+                result.push_str("\n\n");
+            }
+            result.push_str(&n);
+        }
+        Some((title, result))
+    }
+
     fn notes(&mut self, slide_dir: &str, rels: &HashMap<String, (String, bool, String)>) -> Option<String> {
         let (target, _, _) = rels.values().find(|(_, _, ty)| ty.ends_with("notesSlide"))?;
         let root = self.pkg.xml(&resolve(slide_dir, target))?;
@@ -709,6 +849,46 @@ fn slide_paths(pkg: &mut Package) -> Vec<String> {
     found
 }
 
+/// Builds a map from slide numeric id (as String) to slide zip path.
+fn slide_id_to_path(pkg: &mut Package) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    if let Some(pres) = pkg.xml("ppt/presentation.xml") {
+        let rels = parse_rels(pkg.xml("ppt/_rels/presentation.xml.rels"));
+        if let Some(id_lst) = pres.find("sldIdLst") {
+            for sld in id_lst.kids_named("sldId") {
+                if let (Some(id), Some(r_id)) = (sld.attr("id"), sld.attr("r:id")) {
+                    if let Some((target, false, _)) = rels.get(r_id).cloned() {
+                        map.insert(id.to_string(), resolve("ppt", &target));
+                    }
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Returns OOXML sections as `(section_name, slide_ids)` or `None` if absent.
+fn pptx_sections_map(pkg: &mut Package) -> Option<Vec<(String, Vec<String>)>> {
+    let pres = pkg.xml("ppt/presentation.xml")?;
+    let section_lst = pres.find("sectionLst")?;
+    let sections: Vec<(String, Vec<String>)> = section_lst
+        .kids_named("section")
+        .map(|sec| {
+            let name = sec.attr("name").unwrap_or("Sin título").to_string();
+            let ids: Vec<String> = sec
+                .find("sldIdLst")
+                .map(|lst| {
+                    lst.kids_named("sldId")
+                        .filter_map(|s| s.attr("id").map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            (name, ids)
+        })
+        .collect();
+    if sections.is_empty() { None } else { Some(sections) }
+}
+
 pub fn extract_pptx(bytes: &[u8]) -> Result<Extracted, String> {
     let mut pkg = Package::open(bytes)?;
     let paths = slide_paths(&mut pkg);
@@ -718,26 +898,16 @@ pub fn extract_pptx(bytes: &[u8]) -> Result<Extracted, String> {
     let mut p = Pptx { pkg: &mut pkg, sink: ImageSink::default() };
     let mut sections: Vec<String> = Vec::new();
     for (i, path) in paths.iter().enumerate() {
-        let Some(root) = p.pkg.xml(path) else { continue };
         let (dir, file) = path.rsplit_once('/').unwrap_or(("", path));
         let rels = parse_rels(p.pkg.xml(&format!("{dir}/_rels/{file}.rels")));
-        let mut title = None;
-        let mut blocks = Vec::new();
-        if let Some(tree) = root.find("spTree") {
-            p.shapes(tree, dir, &rels, &mut title, &mut blocks);
-        }
+        let Some((title, body)) = p.render_slide(path, i, &rels) else { continue };
         let mut section = match &title {
             Some(t) => format!("## Diapositiva {} — {t}", i + 1),
             None => format!("## Diapositiva {}", i + 1),
         };
-        let body = join_blocks(&blocks);
         if !body.is_empty() {
             section.push_str("\n\n");
             section.push_str(&body);
-        }
-        if let Some(n) = p.notes(dir, &rels) {
-            section.push_str("\n\n");
-            section.push_str(&n);
         }
         sections.push(section);
     }
@@ -745,4 +915,64 @@ pub fn extract_pptx(bytes: &[u8]) -> Result<Extracted, String> {
         return Err("invalid_document: no readable slides".to_string());
     }
     Ok(Extracted { markdown: sections.join("\n\n"), images: p.sink.images })
+}
+
+/// Splits a `.pptx` into sections: one per OOXML section (if `<p:sectionLst>` exists)
+/// or one per slide.
+pub fn split_pptx(bytes: &[u8]) -> Result<SplitResult, String> {
+    let mut pkg = Package::open(bytes)?;
+    let paths = slide_paths(&mut pkg);
+    if paths.is_empty() {
+        return Err("invalid_document: no slides".to_string());
+    }
+    let id_map = slide_id_to_path(&mut pkg);
+    let ooxml_sections = pptx_sections_map(&mut pkg);
+    let mut p = Pptx { pkg: &mut pkg, sink: ImageSink::default() };
+    let mut result_sections: Vec<Section> = Vec::new();
+
+    if let Some(ooxml) = ooxml_sections {
+        // One result section per OOXML section.
+        for (section_name, slide_ids) in &ooxml {
+            if slide_ids.is_empty() {
+                continue; // TC-09: empty sections are skipped
+            }
+            let mut combined = String::new();
+            for slide_id in slide_ids {
+                let Some(slide_path) = id_map.get(slide_id) else { continue };
+                let slide_path = slide_path.clone();
+                let rels = {
+                    let (dir, file) = slide_path.rsplit_once('/').unwrap_or(("", &slide_path));
+                    parse_rels(p.pkg.xml(&format!("{dir}/_rels/{file}.rels")))
+                };
+                if let Some((_title, body)) = p.render_slide(&slide_path, 0, &rels) {
+                    if !body.is_empty() {
+                        if !combined.is_empty() {
+                            combined.push_str("\n\n");
+                        }
+                        combined.push_str(&body);
+                    }
+                }
+            }
+            let title = if section_name.trim().is_empty() {
+                "Sin título".to_string()
+            } else {
+                section_name.clone()
+            };
+            result_sections.push(Section { title, markdown: combined });
+        }
+    } else {
+        // One section per slide.
+        for (i, path) in paths.iter().enumerate() {
+            let (dir, file) = path.rsplit_once('/').unwrap_or(("", path));
+            let rels = parse_rels(p.pkg.xml(&format!("{dir}/_rels/{file}.rels")));
+            let Some((slide_title, body)) = p.render_slide(path, i, &rels) else { continue };
+            let title = slide_title.unwrap_or_else(|| "Sin título".to_string());
+            result_sections.push(Section { title, markdown: body });
+        }
+    }
+
+    if result_sections.is_empty() {
+        return Err("invalid_document: no readable slides".to_string());
+    }
+    Ok(SplitResult { sections: result_sections, images: p.sink.images })
 }

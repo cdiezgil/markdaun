@@ -493,6 +493,23 @@ export async function brainDigest(
   });
 }
 
+export interface OfficeImportResult {
+  /** Absolute paths of all files created (notes + index). */
+  notes: string[];
+}
+
+/**
+ * Import a `.docx` or `.pptx` by splitting it into notes under
+ * `Entrada/<stem>/`. Returns absolute paths of all files created.
+ */
+export async function officeImport(
+  sourcePath: string,
+  vaultPath: string,
+): Promise<OfficeImportResult> {
+  const notes = await invoke<string[]>('office_import', { sourcePath, vaultPath });
+  return { notes };
+}
+
 /** Digestion areas: the vault's top-level folders (without `Entrada/`). */
 export async function inboxListAreas(vaultPath: string): Promise<string[]> {
   return invoke<string[]>('inbox_list_areas', { vaultPath });

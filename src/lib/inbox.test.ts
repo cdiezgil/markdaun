@@ -50,3 +50,28 @@ describe('voiceStatusText', () => {
     expect(voiceStatusText({ state: 'error', detail: null, progress: null })).toBe('Error de transcripción');
   });
 });
+
+import { isBatchable } from './inbox';
+import type { InboxItem } from './tauri';
+
+const mkItem = (kind: InboxItem['kind'], supported = true): InboxItem => ({
+  name: `file.${kind}`,
+  path: `/v/Entrada/file.${kind}`,
+  rel_path: `Entrada/file.${kind}`,
+  kind,
+  size: 10,
+  added_ms: 1,
+  supported,
+});
+
+describe('isBatchable', () => {
+  it('TC-20: returns false for docx and pptx, true for other supported kinds', () => {
+    expect(isBatchable(mkItem('docx'))).toBe(false);
+    expect(isBatchable(mkItem('pptx'))).toBe(false);
+    expect(isBatchable(mkItem('md'))).toBe(true);
+    expect(isBatchable(mkItem('txt'))).toBe(true);
+    expect(isBatchable(mkItem('pdf'))).toBe(true);
+    expect(isBatchable(mkItem('audio', false))).toBe(false);
+    expect(isBatchable(mkItem('other', false))).toBe(false);
+  });
+});

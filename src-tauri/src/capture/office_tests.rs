@@ -1,4 +1,4 @@
-use super::office::{extract_docx, extract_pptx};
+use super::office::{extract_docx, extract_pptx, split_docx, split_markdown_by_headings, split_office, split_pptx};
 use super::testutil::{zip_of, PNG};
 
 const W_NS: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main""#;
@@ -223,4 +223,209 @@ fn pptx_table_in_a_slide() {
 fn pptx_rejects_non_zip_and_empty_deck() {
     assert!(extract_pptx(b"nope").is_err());
     assert!(extract_pptx(&zip_of(&[("x", b"x")])).is_err());
+}
+
+// ─── TC-01..TC-05: split_markdown_by_headings ─────────────────────────────────
+
+#[test]
+fn tc01_split_by_h1s() {
+    let md = "# Intro\n\nContenido.\n\n# Capítulo 1\n\nTexto.\n\n# Conclusión\n\nFin.";
+    let (sections, level) = split_markdown_by_headings(md);
+    assert_eq!(level, 1);
+    assert_eq!(sections.len(), 3);
+    assert_eq!(sections[0].title, "Intro");
+    assert_eq!(sections[1].title, "Capítulo 1");
+    assert_eq!(sections[2].title, "Conclusión");
+}
+
+#[test]
+fn tc02_split_by_h2_when_no_h1() {
+    let md = "## A\n\nTexto A.\n\n## B\n\nTexto B.";
+    let (sections, level) = split_markdown_by_headings(md);
+    assert_eq!(level, 2);
+    assert_eq!(sections.len(), 2);
+    assert_eq!(sections[0].title, "A");
+    assert_eq!(sections[1].title, "B");
+}
+
+#[test]
+fn tc03_no_headings_returns_single_section() {
+    let md = "Solo párrafos.\nSin títulos.";
+    let (sections, _level) = split_markdown_by_headings(md);
+    assert_eq!(sections.len(), 1);
+    assert_eq!(sections[0].title, "Sin título");
+    assert!(sections[0].markdown.contains("Solo párrafos"));
+}
+
+#[test]
+fn tc04_blank_preamble_discarded_content_preamble_becomes_section() {
+    // Blank preamble is discarded
+    let md = "\n\n# Sec 1\n\nTexto.";
+    let (sections, _) = split_markdown_by_headings(md);
+    assert_eq!(sections.len(), 1);
+    assert_eq!(sections[0].title, "Sec 1");
+
+    // Non-blank preamble becomes "Sin título" section
+    let md2 = "Introducción sin título.\n\n# Sec 1\n\nTexto.";
+    let (sections2, _) = split_markdown_by_headings(md2);
+    assert_eq!(sections2.len(), 2);
+    assert_eq!(sections2[0].title, "Sin título");
+    assert_eq!(sections2[1].title, "Sec 1");
+}
+
+#[test]
+fn tc05_empty_h1_title_becomes_sin_titulo() {
+    let md = "# \n\nContenido.";
+    let (sections, _) = split_markdown_by_headings(md);
+    assert_eq!(sections.len(), 1);
+    assert_eq!(sections[0].title, "Sin título");
+}
+
+// ─── TC-06..TC-09: split_pptx ─────────────────────────────────────────────────
+
+fn pptx_with_ooxml_sections() -> Vec<u8> {
+    let pres = format!(
+        r#"<?xml version="1.0"?><p:presentation {P_NS}>
+<p:sldIdLst>
+  <p:sldId id="256" r:id="rId1"/>
+  <p:sldId id="257" r:id="rId2"/>
+  <p:sldId id="258" r:id="rId3"/>
+  <p:sldId id="259" r:id="rId4"/>
+  <p:sldId id="260" r:id="rId5"/>
+  <p:sldId id="261" r:id="rId6"/>
+</p:sldIdLst>
+<p:sectionLst>
+  <p:section name="Sección A">
+    <p:sldIdLst>
+      <p:sldId id="256"/>
+      <p:sldId id="257"/>
+      <p:sldId id="258"/>
+    </p:sldIdLst>
+  </p:section>
+  <p:section name="Sección B">
+    <p:sldIdLst>
+      <p:sldId id="259"/>
+      <p:sldId id="260"/>
+      <p:sldId id="261"/>
+    </p:sldIdLst>
+  </p:section>
+</p:sectionLst>
+</p:presentation>"#
+    );
+    let pres_rels = rels_xml(&[
+        ("rId1", "slide", "slides/slide1.xml"),
+        ("rId2", "slide", "slides/slide2.xml"),
+        ("rId3", "slide", "slides/slide3.xml"),
+        ("rId4", "slide", "slides/slide4.xml"),
+        ("rId5", "slide", "slides/slide5.xml"),
+        ("rId6", "slide", "slides/slide6.xml"),
+    ]);
+    let mk_slide = |t: &str| -> String {
+        slide(&shape(r#"<p:ph type="title"/>"#, &[t]))
+    };
+    let s1 = mk_slide("Diap 1 Sec A");
+    let s2 = mk_slide("Diap 2 Sec A");
+    let s3 = mk_slide("Diap 3 Sec A");
+    let s4 = mk_slide("Diap 1 Sec B");
+    let s5 = mk_slide("Diap 2 Sec B");
+    let s6 = mk_slide("Diap 3 Sec B");
+    zip_of(&[
+        ("ppt/presentation.xml", pres.as_bytes()),
+        ("ppt/_rels/presentation.xml.rels", pres_rels.as_bytes()),
+        ("ppt/slides/slide1.xml", s1.as_bytes()),
+        ("ppt/slides/slide2.xml", s2.as_bytes()),
+        ("ppt/slides/slide3.xml", s3.as_bytes()),
+        ("ppt/slides/slide4.xml", s4.as_bytes()),
+        ("ppt/slides/slide5.xml", s5.as_bytes()),
+        ("ppt/slides/slide6.xml", s6.as_bytes()),
+    ])
+}
+
+#[test]
+fn tc06_pptx_with_section_lst_produces_one_section_per_ooxml_section() {
+    let bytes = pptx_with_ooxml_sections();
+    let result = split_pptx(&bytes).unwrap();
+    assert_eq!(result.sections.len(), 2);
+    assert_eq!(result.sections[0].title, "Sección A");
+    assert_eq!(result.sections[1].title, "Sección B");
+}
+
+#[test]
+fn tc07_pptx_without_sections_produces_one_section_per_slide() {
+    use super::testutil::simple_pptx;
+    let bytes = simple_pptx(&["Intro", "Desarrollo", "Conclusión"]);
+    let result = split_pptx(&bytes).unwrap();
+    assert_eq!(result.sections.len(), 3);
+    assert_eq!(result.sections[0].title, "Intro");
+    assert_eq!(result.sections[1].title, "Desarrollo");
+    assert_eq!(result.sections[2].title, "Conclusión");
+}
+
+#[test]
+fn tc08_pptx_slide_without_title_gets_sin_titulo() {
+    let s = slide(&shape("", &["Contenido sin título"]));
+    let bytes = zip_of(&[("ppt/slides/slide1.xml", s.as_bytes())]);
+    let result = split_pptx(&bytes).unwrap();
+    assert_eq!(result.sections.len(), 1);
+    assert_eq!(result.sections[0].title, "Sin título");
+}
+
+#[test]
+fn tc09_pptx_empty_section_does_not_crash() {
+    let s1 = slide(&shape(r#"<p:ph type="title"/>"#, &["Slide 1"]));
+    let pres = format!(
+        r#"<?xml version="1.0"?><p:presentation {P_NS}>
+<p:sldIdLst>
+  <p:sldId id="256" r:id="rId1"/>
+</p:sldIdLst>
+<p:sectionLst>
+  <p:section name="Vacía">
+    <p:sldIdLst/>
+  </p:section>
+  <p:section name="Con contenido">
+    <p:sldIdLst>
+      <p:sldId id="256"/>
+    </p:sldIdLst>
+  </p:section>
+</p:sectionLst>
+</p:presentation>"#
+    );
+    let pres_rels = rels_xml(&[("rId1", "slide", "slides/slide1.xml")]);
+    let bytes = zip_of(&[
+        ("ppt/presentation.xml", pres.as_bytes()),
+        ("ppt/_rels/presentation.xml.rels", pres_rels.as_bytes()),
+        ("ppt/slides/slide1.xml", s1.as_bytes()),
+    ]);
+    // Should not crash; empty section is skipped
+    let result = split_pptx(&bytes).unwrap();
+    assert!(!result.sections.is_empty());
+    assert!(result.sections.iter().all(|s| !s.title.is_empty()));
+}
+
+// ─── TC-10..TC-12: split_office ───────────────────────────────────────────────
+
+#[test]
+fn tc10_split_office_docx_delegates_to_split_docx() {
+    let body = [para(Some("Ttulo1"), &run("Sec A")), para(None, &run("Texto."))].concat();
+    let bytes = docx(&body, "", &[]);
+    let by_name = split_office("documento.docx", &bytes).unwrap();
+    let direct = split_docx(&bytes).unwrap();
+    assert_eq!(by_name.sections.len(), direct.sections.len());
+    assert_eq!(by_name.sections[0].title, direct.sections[0].title);
+}
+
+#[test]
+fn tc11_split_office_pptx_delegates_to_split_pptx() {
+    use super::testutil::simple_pptx;
+    let bytes = simple_pptx(&["Slide 1"]);
+    let by_name = split_office("deck.pptx", &bytes).unwrap();
+    let direct = split_pptx(&bytes).unwrap();
+    assert_eq!(by_name.sections.len(), direct.sections.len());
+    assert_eq!(by_name.sections[0].title, direct.sections[0].title);
+}
+
+#[test]
+fn tc12_split_office_invalid_extension_returns_error() {
+    let result = split_office("hoja.xls", b"not-a-zip");
+    assert_eq!(result, Err("unsupported_office_format".to_string()));
 }

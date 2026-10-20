@@ -206,3 +206,36 @@ describe('InboxView', () => {
     });
   });
 });
+
+  describe('TC-24..TC-26: docx/pptx office import UI', () => {
+    const docxItem = item('informe.docx', 'docx');
+    const pdfItem = item('paper.pdf', 'pdf');
+    const MIXED = [docxItem, pdfItem, item('hoja.xlsx', 'other')];
+
+    beforeEach(() => {
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'inbox_list') return MIXED;
+        if (cmd === 'inbox_list_areas') return [];
+        if (cmd === 'inbox_get_last_area') return null;
+        return undefined;
+      });
+    });
+
+    it('TC-24: docx item shows Importar button, not Digerir', async () => {
+      renderView();
+      expect(await screen.findByTestId('import-informe.docx')).toBeInTheDocument();
+      expect(screen.queryByTestId('digest-informe.docx')).toBeNull();
+    });
+
+    it('TC-25: pdf item shows Digerir button, not Importar', async () => {
+      renderView();
+      await screen.findByTestId('inbox-item-paper.pdf');
+      expect(screen.getByTestId('digest-paper.pdf')).toBeInTheDocument();
+      expect(screen.queryByTestId('import-paper.pdf')).toBeNull();
+    });
+
+    it('TC-26: docx item checkbox is disabled', async () => {
+      renderView();
+      expect(await screen.findByTestId('select-informe.docx')).toBeDisabled();
+    });
+  });
