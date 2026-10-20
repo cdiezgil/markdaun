@@ -31,7 +31,7 @@ impl LlmEnv {
             Arc::new(LoginShellResolver::default()),
             Arc::new(SystemClock),
             Arc::new(KeyringStore),
-            Duration::from_secs(120),
+            Duration::from_secs(300),
         )
     }
 

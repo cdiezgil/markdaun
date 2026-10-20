@@ -33,5 +33,5 @@ fn secret_for_reads_the_connection_account() {
 #[test]
 fn production_env_builds() {
     let env = LlmEnv::production();
-    assert_eq!(env.timeout.as_secs(), 120);
+    assert_eq!(env.timeout.as_secs(), 300);
 }
