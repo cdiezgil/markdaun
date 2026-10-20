@@ -243,13 +243,14 @@ fn folder_tree_excludes_entrada_fuentes_hidden_and_respects_depth() {
 // ── areas ─────────────────────────────────────────────────────────────────────
 
 #[test]
-fn areas_are_top_level_folders_without_entrada_or_hidden_ones() {
+fn areas_returns_all_folders_without_entrada_or_hidden_ones() {
     let vault = tempdir().unwrap();
     for d in ["Mutua/Sub", "Personal", "Entrada", ".markdaun", ".git", "Zeta"] {
         fs::create_dir_all(vault.path().join(d)).unwrap();
     }
     fs::write(vault.path().join("suelta.md"), "x").unwrap();
-    assert_eq!(list_areas(vault.path()), ["Mutua", "Personal", "Zeta"]);
+    // list_areas now returns all depths: Mutua, Mutua/Sub, Personal, Zeta.
+    assert_eq!(list_areas(vault.path()), ["Mutua", "Mutua/Sub", "Personal", "Zeta"]);
 }
 
 #[test]
