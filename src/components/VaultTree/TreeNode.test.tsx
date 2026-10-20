@@ -283,3 +283,62 @@ describe('menú contextual de carpeta', () => {
     expect(screen.queryByTestId('context-new-folder')).toBeNull();
   });
 });
+
+describe('TC-62: Reindexar carpeta desde menú contextual', () => {
+  it('TC-62a: botón Reindexar carpeta visible al hacer clic derecho en una carpeta', () => {
+    const onReindexFolder = vi.fn();
+    useVaultStore.setState({ isIndexing: false } as never);
+    wrap(
+      <TreeNode
+        entry={folderEntry}
+        depth={0}
+        onReindexFolder={onReindexFolder}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('tree-node-carpeta'));
+    expect(screen.getByTestId('context-reindex-folder')).toBeInTheDocument();
+  });
+
+  it('TC-62b: botón Reindexar carpeta NO aparece en nodos fichero', () => {
+    const onReindexFolder = vi.fn();
+    wrap(
+      <TreeNode
+        entry={mdEntry}
+        depth={0}
+        onReindexFolder={onReindexFolder}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('tree-node-nota.md'));
+    expect(screen.queryByTestId('context-reindex-folder')).toBeNull();
+  });
+
+  it('TC-62c: click en Reindexar carpeta llama onReindexFolder con el path correcto y cierra el menú', () => {
+    const onReindexFolder = vi.fn();
+    useVaultStore.setState({ isIndexing: false } as never);
+    wrap(
+      <TreeNode
+        entry={folderEntry}
+        depth={0}
+        onReindexFolder={onReindexFolder}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('tree-node-carpeta'));
+    fireEvent.click(screen.getByTestId('context-reindex-folder'));
+    expect(onReindexFolder).toHaveBeenCalledWith('/vault/carpeta');
+    expect(screen.queryByTestId('context-menu')).toBeNull();
+  });
+
+  it('TC-62d: botón Reindexar carpeta está disabled cuando isIndexing es true', () => {
+    const onReindexFolder = vi.fn();
+    useVaultStore.setState({ isIndexing: true } as never);
+    wrap(
+      <TreeNode
+        entry={folderEntry}
+        depth={0}
+        onReindexFolder={onReindexFolder}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('tree-node-carpeta'));
+    expect(screen.getByTestId('context-reindex-folder')).toBeDisabled();
+  });
+});

@@ -248,6 +248,18 @@ export async function brainUpdateEmbedding(
   });
 }
 
+/** Force-reindex all indexable files under `folderPath` (and subfolders).
+ * Returns the number of successfully indexed files.
+ * Throws `"indexing_in_progress"` if an indexing operation is already running.
+ * Throws `"invalid_folder_path"` if `folderPath` is outside `vaultPath`.
+ */
+export async function brainReindexFolder(
+  vaultPath: string,
+  folderPath: string,
+): Promise<number> {
+  return invoke<number>('brain_reindex_folder', { vaultPath, folderPath });
+}
+
 // ── Notes from chat ────────────────────────────────────────────────────────────
 
 /** Create or append a note (path relative to the vault). Returns the absolute path. */

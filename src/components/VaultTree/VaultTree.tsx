@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FilePlus, FolderPlus, Settings } from 'lucide-react';
+import { FilePlus, FolderPlus, RefreshCw, Settings } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SyncPanel } from '../Sync/SyncPanel';
 import { useVaultStore } from '../../store/vaultStore';
@@ -35,6 +35,7 @@ export function VaultTree() {
   const createFolder = useVaultStore((s) => s.createFolder);
   const moveEntry = useVaultStore((s) => s.moveEntry);
   const importFileData = useVaultStore((s) => s.importFileData);
+  const isIndexing = useVaultStore((s) => s.isIndexing);
 
   const [dialog, setDialog] = useState<CreateDialog>(null);
   const [rootDropActive, setRootDropActive] = useState(false);
@@ -47,6 +48,10 @@ export function VaultTree() {
     if (!dialog) return;
     await createFolder(dialog.parentPath, name);
     setDialog(null);
+  }
+
+  function handleReindexFolder(folderPath: string) {
+    useVaultStore.getState().reindexFolder(folderPath).catch(console.error);
   }
 
   /** Notes are created as "Sin título" without asking; the H1 names them later. */
@@ -152,6 +157,17 @@ export function VaultTree() {
           >
             <FolderPlus size={18} strokeWidth={1.5} />
           </button>
+          <button
+            onClick={() => handleReindexFolder(vaultPath)}
+            title="Reindexar bóveda"
+            aria-label="Reindexar bóveda"
+            data-testid="reindex-vault-btn"
+            disabled={isIndexing}
+            className="md-hover"
+            style={{ ...ICON_BUTTON, opacity: isIndexing ? 0.5 : 1, cursor: isIndexing ? 'not-allowed' : 'pointer' }}
+          >
+            <RefreshCw size={18} strokeWidth={1.5} />
+          </button>
         </div>
       </div>
       <InboxEntry />
@@ -178,6 +194,7 @@ export function VaultTree() {
             depth={0}
             onCreateNote={(parentPath) => void newNote(parentPath)}
             onCreateFolder={(parentPath) => setDialog({ parentPath })}
+            onReindexFolder={handleReindexFolder}
           />
         ))}
       </div>

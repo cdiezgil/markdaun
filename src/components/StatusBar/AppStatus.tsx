@@ -66,11 +66,19 @@ function SaveItem(): JSX.Element | null {
 
 function IndexItem(): JSX.Element | null {
   const [progress, setProgress] = useState<IndexProgress | null>(null);
+  const [completed, setCompleted] = useState<number | null>(null);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    onBrainIndexProgress((p) => setProgress(p.done >= p.total ? null : p))
+    onBrainIndexProgress((p) => {
+      if (p.done >= p.total && p.total > 0) {
+        setProgress(null);
+        setCompleted(p.total);
+      } else {
+        setProgress(p);
+      }
+    })
       .then((fn) => {
         if (cancelled) fn();
         else unlisten = fn;
@@ -82,6 +90,19 @@ function IndexItem(): JSX.Element | null {
     };
   }, []);
 
+  useEffect(() => {
+    if (completed === null) return;
+    const timer = setTimeout(() => setCompleted(null), 3000);
+    return () => clearTimeout(timer);
+  }, [completed]);
+
+  if (completed !== null) {
+    return (
+      <span data-testid="index-completed" style={itemStyle}>
+        <Check {...ICON} /> {completed} notas indexadas
+      </span>
+    );
+  }
   if (!progress) return null;
   return (
     <span data-testid="index-status" style={itemStyle}>

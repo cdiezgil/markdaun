@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { brainReindexFolder } from '../lib/tauri';
 import { useEditorStore } from './editorStore';
 
 export interface VaultEntry {
@@ -31,6 +32,11 @@ interface VaultState {
   deleteEntry(path: string): Promise<void>;
   moveEntry(sourcePath: string, destFolderPath: string): Promise<void>;
   importFileData(destFolderPath: string, fileName: string, contents: Uint8Array): Promise<void>;
+  /** Whether a reindex/sync operation is currently in progress for this vault. */
+  isIndexing: boolean;
+  /** Force-reindex all indexable files under `folderPath`. Returns the count indexed.
+   * No-ops (returns 0) if an indexing operation is already running. */
+  reindexFolder(folderPath: string): Promise<number>;
 }
 
 interface MoveOutcome {
@@ -54,6 +60,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   isLoading: false,
   error: null,
   selectedFolder: null,
+  isIndexing: false,
 
   selectFolder(path) {
     set({ selectedFolder: path });
@@ -220,6 +227,17 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     } catch (e) {
       set({ error: typeof e === 'string' ? e : String(e) });
       throw e;
+    }
+  },
+
+  async reindexFolder(folderPath: string): Promise<number> {
+    if (get().isIndexing) return 0;
+    set({ isIndexing: true });
+    try {
+      const { vaultPath } = get();
+      return await brainReindexFolder(vaultPath!, folderPath);
+    } finally {
+      set({ isIndexing: false });
     }
   },
 }));

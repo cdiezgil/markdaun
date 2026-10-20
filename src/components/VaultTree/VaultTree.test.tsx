@@ -355,3 +355,30 @@ describe('drag & drop a la raíz', () => {
     expect(mockInvoke).not.toHaveBeenCalled();
   });
 });
+
+describe('TC-62e: Reindexar carpeta desde VaultTree llama a brain_reindex_folder', () => {
+  it('TC-62e: context-reindex-folder invoca brain_reindex_folder con vaultPath y folderPath correctos', async () => {
+    const ideasTree: VaultEntry[] = [
+      { name: 'Ideas', path: '/vault/Ideas', kind: 'folder', children: [] },
+    ];
+    useVaultStore.setState({ vaultPath: '/vault', tree: ideasTree, isIndexing: false } as never);
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'inbox_ensure') return '/vault/Entrada';
+      if (cmd === 'brain_reindex_folder') return 3;
+      return [];
+    });
+
+    wrap(<VaultTree />);
+
+    // Open context menu on the Ideas folder and click reindex
+    fireEvent.contextMenu(screen.getByTestId('tree-node-Ideas'));
+    fireEvent.click(await screen.findByTestId('context-reindex-folder'));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('brain_reindex_folder', {
+        vaultPath: '/vault',
+        folderPath: '/vault/Ideas',
+      }),
+    );
+  });
+});

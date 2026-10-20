@@ -22,6 +22,8 @@ interface TreeNodeProps {
   onCreateNote?: (parentPath: string) => void;
   /** Opens the new-folder dialog with this folder as parent. */
   onCreateFolder?: (parentPath: string) => void;
+  /** Triggers a force-reindex of this folder and all its subfolders. */
+  onReindexFolder?: (path: string) => void;
 }
 
 /** MIME type used to drag vault entries between tree nodes. */
@@ -51,7 +53,7 @@ function FileIcon({ fileType, active }: { fileType: VaultEntry['file_type']; act
   }
 }
 
-export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNodeProps) {
+export function TreeNode({ entry, depth, onCreateNote, onCreateFolder, onReindexFolder }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -66,6 +68,7 @@ export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNod
   const refreshTree = useVaultStore((s) => s.refreshTree);
   const selectFolder = useVaultStore((s) => s.selectFolder);
   const selectNoteLocation = useVaultStore((s) => s.selectNoteLocation);
+  const isIndexing = useVaultStore((s) => s.isIndexing);
   const { navigateToFile } = useFileNavigation();
 
   const activeNotePath = useEditorStore((s) => s.activeNotePath);
@@ -217,6 +220,7 @@ export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNod
           depth={depth + 1}
           onCreateNote={onCreateNote}
           onCreateFolder={onCreateFolder}
+          onReindexFolder={onReindexFolder}
         />
       ))}
 
@@ -278,6 +282,30 @@ export function TreeNode({ entry, depth, onCreateNote, onCreateFolder }: TreeNod
               data-testid="context-new-folder"
             >
               Nueva carpeta
+            </button>
+          )}
+          {entry.kind === 'folder' && onReindexFolder && (
+            <button
+              disabled={isIndexing}
+              onClick={() => {
+                closeContextMenu();
+                onReindexFolder(entry.path);
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                background: 'none',
+                border: 'none',
+                padding: 'var(--space-2) var(--space-4)',
+                fontSize: 14,
+                color: 'var(--ink)',
+                cursor: isIndexing ? 'not-allowed' : 'pointer',
+                opacity: isIndexing ? 0.5 : 1,
+              }}
+              data-testid="context-reindex-folder"
+            >
+              Reindexar carpeta
             </button>
           )}
           <button
