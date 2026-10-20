@@ -3,8 +3,10 @@ import type { ChatAttachment } from './types';
 
 const inspectPdf = vi.fn();
 const rasterizeImage = vi.fn();
+const readFile = vi.fn();
 vi.mock('./pdf', () => ({ inspectPdf: (...a: unknown[]) => inspectPdf(...a) }));
 vi.mock('./rasterize', () => ({ rasterizeImage: (...a: unknown[]) => rasterizeImage(...a) }));
+vi.mock('@tauri-apps/plugin-fs', () => ({ readFile: (...a: unknown[]) => readFile(...a) }));
 
 import { prepareAttachments } from './prepare';
 
@@ -15,10 +17,8 @@ const pdf: ChatAttachment = { vaultPath: 'f.pdf', absPath: '/v/f.pdf', name: 'f.
 beforeEach(() => {
   inspectPdf.mockReset();
   rasterizeImage.mockReset();
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({ ok: true, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer })),
-  );
+  readFile.mockReset();
+  readFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
 });
 
 describe('prepareAttachments', () => {
@@ -26,7 +26,7 @@ describe('prepareAttachments', () => {
     const r = await prepareAttachments([png], { nativePdf: true });
     expect(r.inputs).toEqual([{ vaultPath: 'a.png' }]);
     expect(rasterizeImage).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(readFile).not.toHaveBeenCalled();
   });
 
   it('rasterizes SVGs from their asset URL', async () => {
@@ -68,7 +68,7 @@ describe('prepareAttachments', () => {
   });
 
   it('turns a failing read into a Spanish error naming the file', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, status: 404 });
+    readFile.mockRejectedValueOnce(new Error('ENOENT'));
     await expect(prepareAttachments([pdf], { nativePdf: true })).rejects.toThrow(/f\.pdf/);
   });
 });

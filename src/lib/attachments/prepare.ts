@@ -1,4 +1,4 @@
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { readFile } from '@tauri-apps/plugin-fs';
 import { inspectPdf } from './pdf';
 import { rasterizeImage } from './rasterize';
 import {
@@ -20,9 +20,11 @@ export interface Prepared {
 }
 
 async function readBytes(att: ChatAttachment): Promise<Uint8Array> {
-  const res = await fetch(convertFileSrc(att.absPath));
-  if (!res.ok) throw new Error(`No se pudo leer «${att.name}».`);
-  return new Uint8Array(await res.arrayBuffer());
+  try {
+    return await readFile(att.absPath);
+  } catch {
+    throw new Error(`No se pudo leer «${att.name}».`);
+  }
 }
 
 /** Renderer-only processing (SVG rasterization, PDF pages/text); Rust does the rest. */
@@ -47,6 +49,7 @@ export async function prepareAttachments(
         derived: { images: info.images, text: info.text, pageCount: info.pageCount },
       });
     } else if (needsRasterize(att.absPath)) {
+      const { convertFileSrc } = await import('@tauri-apps/api/core');
       const image = await rasterizeImage(convertFileSrc(att.absPath));
       inputs.push({ vaultPath: att.vaultPath, derived: { images: [image] } });
     } else {
