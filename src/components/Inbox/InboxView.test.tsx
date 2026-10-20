@@ -217,6 +217,7 @@ describe('InboxView', () => {
         if (cmd === 'inbox_list') return MIXED;
         if (cmd === 'inbox_list_areas') return [];
         if (cmd === 'inbox_get_last_area') return null;
+        if (cmd === 'inbox_all_folders') return ['Entrada', 'Proyectos'];
         return undefined;
       });
     });
@@ -238,25 +239,61 @@ describe('InboxView', () => {
       renderView();
       expect(await screen.findByTestId('select-informe.docx')).toBeDisabled();
     });
+  });
 
-    it('shows import-result message with stem and note count after successful import', async () => {
+  // ─── TC-19..TC-21: destination picker integration ────────────────────────
+
+  describe('TC-19..TC-21: DestinationPicker integration in InboxView', () => {
+    const docxItem = item('informe.docx', 'docx');
+    const MIXED = [docxItem, item('paper.pdf', 'pdf')];
+
+    beforeEach(() => {
       mockInvoke.mockImplementation(async (cmd: string) => {
         if (cmd === 'inbox_list') return MIXED;
         if (cmd === 'inbox_list_areas') return [];
         if (cmd === 'inbox_get_last_area') return null;
+        if (cmd === 'inbox_all_folders') return ['Entrada', 'Proyectos', 'Personal'];
+        return undefined;
+      });
+    });
+
+    it('TC-19: clicking Importar opens the DestinationPicker', async () => {
+      renderView();
+      const btn = await screen.findByTestId('import-informe.docx');
+      fireEvent.click(btn);
+      expect(await screen.findByTestId('destination-picker')).toBeInTheDocument();
+    });
+
+    it('TC-20: confirming a destination calls importOffice with destPath and shows the result message', async () => {
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'inbox_list') return MIXED;
+        if (cmd === 'inbox_list_areas') return [];
+        if (cmd === 'inbox_get_last_area') return null;
+        if (cmd === 'inbox_all_folders') return ['Entrada', 'Proyectos', 'Personal'];
         if (cmd === 'office_import') return [
-          '/v/Entrada/informe/01 - Intro.md',
-          '/v/Entrada/informe/02 - Datos.md',
-          '/v/Entrada/informe/índice.md',
+          '/v/Proyectos/informe/01 - Intro.md',
+          '/v/Proyectos/informe/02 - Datos.md',
+          '/v/Proyectos/informe/índice.md',
         ];
         if (cmd === 'list_vault_tree') return [];
         return undefined;
       });
       renderView();
-      const btn = await screen.findByTestId('import-informe.docx');
-      fireEvent.click(btn);
-      expect(await screen.findByTestId('import-result')).toHaveTextContent(
-        'Importado: 2 notas en Entrada/informe/.',
-      );
+      fireEvent.click(await screen.findByTestId('import-informe.docx'));
+      fireEvent.click(await screen.findByTestId('dest-Proyectos'));
+      fireEvent.click(screen.getByTestId('confirm-import'));
+      expect(await screen.findByTestId('import-result')).toHaveTextContent('Proyectos');
+      expect(mockInvoke).toHaveBeenCalledWith('office_import', expect.objectContaining({
+        destPath: 'Proyectos',
+      }));
+    });
+
+    it('TC-21: cancelling the picker does NOT call importOffice and closes the picker', async () => {
+      renderView();
+      fireEvent.click(await screen.findByTestId('import-informe.docx'));
+      expect(await screen.findByTestId('destination-picker')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('cancel-import'));
+      expect(screen.queryByTestId('destination-picker')).toBeNull();
+      expect(mockInvoke).not.toHaveBeenCalledWith('office_import', expect.anything());
     });
   });

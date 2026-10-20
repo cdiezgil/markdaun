@@ -500,14 +500,21 @@ export interface OfficeImportResult {
 
 /**
  * Import a `.docx` or `.pptx` by splitting it into notes under
- * `Entrada/<stem>/`. Returns absolute paths of all files created.
+ * `<destPath>/<stem>/`. `destPath` is vault-relative (`''` = vault root).
+ * Returns absolute paths of all files created.
  */
 export async function officeImport(
   sourcePath: string,
   vaultPath: string,
+  destPath: string,
 ): Promise<OfficeImportResult> {
-  const notes = await invoke<string[]>('office_import', { sourcePath, vaultPath });
+  const notes = await invoke<string[]>('office_import', { sourcePath, vaultPath, destPath });
   return { notes };
+}
+
+/** All vault folders (including `Entrada/`), vault-relative, sorted. */
+export async function inboxAllFolders(vaultPath: string): Promise<string[]> {
+  return invoke<string[]>('inbox_all_folders', { vaultPath });
 }
 
 /** Digestion areas: the vault's top-level folders (without `Entrada/`). */

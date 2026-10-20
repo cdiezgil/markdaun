@@ -1,5 +1,6 @@
 use super::inbox::{
-    archive_source_inner, folder_tree, last_area_get, last_area_set, list_areas, inbox_discard_inner, inbox_ensure_inner, inbox_list_inner,
+    all_folders_inner, archive_source_inner, folder_tree, last_area_get, last_area_set, list_areas,
+    inbox_discard_inner, inbox_ensure_inner, inbox_list_inner,
     inbox_list_with_jobs, trash_delete_inner, trash_list_inner, trash_restore_inner, InboxKind, VoiceStateKind,
 };
 use std::fs;
@@ -386,13 +387,142 @@ fn discarding_a_voice_note_discards_its_audio_too() {
     assert_eq!(trash_list_inner(vault.path()).unwrap().len(), 2);
 }
 
-// ─── TC-13..TC-17: office_import_inner ────────────────────────────────────────
+// ─── TC-01..TC-09: all_folders_inner + office_import_inner with dest_dir ──────
+
+#[test]
+fn tc01_all_folders_inner_includes_entrada_and_subfolders() {
+    let vault = tempdir().unwrap();
+    let v = vault.path();
+    fs::create_dir_all(v.join("Entrada")).unwrap();
+    fs::create_dir_all(v.join("Proyectos")).unwrap();
+    fs::create_dir_all(v.join("Proyectos/Sub")).unwrap();
+
+    let folders = all_folders_inner(v);
+    assert!(folders.contains(&"Entrada".to_string()), "folders={folders:?}");
+    assert!(folders.contains(&"Proyectos".to_string()), "folders={folders:?}");
+    assert!(folders.contains(&"Proyectos/Sub".to_string()), "folders={folders:?}");
+    let mut sorted = folders.clone();
+    sorted.sort();
+    assert_eq!(folders, sorted, "result must be sorted");
+}
+
+#[test]
+fn tc02_all_folders_inner_empty_vault_returns_empty() {
+    let vault = tempdir().unwrap();
+    let folders = all_folders_inner(vault.path());
+    assert!(folders.is_empty());
+}
+
+#[test]
+fn tc03_all_folders_inner_hides_hidden_dirs() {
+    let vault = tempdir().unwrap();
+    let v = vault.path();
+    fs::create_dir_all(v.join("Proyectos")).unwrap();
+    fs::create_dir_all(v.join(".oculta")).unwrap();
+
+    let folders = all_folders_inner(v);
+    assert!(folders.contains(&"Proyectos".to_string()), "folders={folders:?}");
+    assert!(!folders.iter().any(|p| p.contains(".oculta")), "hidden dir must be excluded, folders={folders:?}");
+}
+
+#[test]
+fn tc04_office_import_inner_dest_subfolder_creates_notes_there() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let dest = vault.path().join("Proyectos");
+    fs::create_dir_all(&dest).unwrap();
+    let docx_bytes = two_h1_docx();
+    let src = dir.join("reporte.docx");
+    fs::write(&src, &docx_bytes).unwrap();
+
+    let created = office_import_inner(&src, vault.path(), &dest).unwrap();
+    assert!(created.iter().all(|p| p.starts_with(vault.path().join("Proyectos"))),
+        "all notes must be inside Proyectos/, created={created:?}");
+    let names: Vec<String> = created.iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(names.contains(&"01 - Introducción.md".to_string()), "names={names:?}");
+    assert!(names.contains(&"índice.md".to_string()), "names={names:?}");
+}
+
+#[test]
+fn tc05_office_import_inner_dest_root_creates_notes_in_vault_root() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let docx_bytes = two_h1_docx();
+    let src = dir.join("reporte.docx");
+    fs::write(&src, &docx_bytes).unwrap();
+
+    let created = office_import_inner(&src, vault.path(), vault.path()).unwrap();
+    assert!(created.iter().any(|p| {
+        let rel = p.strip_prefix(vault.path()).unwrap().to_string_lossy();
+        rel.starts_with("reporte/")
+    }), "notes must be in vault/<stem>/, created={created:?}");
+    assert!(!created.iter().any(|p| {
+        let rel = p.strip_prefix(vault.path()).unwrap().to_string_lossy();
+        rel.starts_with("Entrada/")
+    }), "notes must NOT be in Entrada/, created={created:?}");
+}
+
+#[test]
+fn tc06_office_import_inner_outside_vault_is_rejected() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let outside = tempdir().unwrap();
+    let docx_bytes = two_h1_docx();
+    let src = dir.join("reporte.docx");
+    fs::write(&src, &docx_bytes).unwrap();
+
+    let err = office_import_inner(&src, vault.path(), outside.path()).unwrap_err();
+    assert!(err.contains("outside_vault") || err.contains("path_outside_vault"), "err={err}");
+}
+
+#[test]
+fn tc07_office_import_inner_discards_source_after_import() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let docx_bytes = two_h1_docx();
+    let src = dir.join("tc07.docx");
+    fs::write(&src, &docx_bytes).unwrap();
+
+    office_import_inner(&src, vault.path(), vault.path()).unwrap();
+    assert!(!src.exists(), "source must be moved to trash after import");
+}
+
+#[test]
+fn tc08_office_import_inner_uses_abs_dest() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let dest = vault.path().join("Proyectos");
+    fs::create_dir_all(&dest).unwrap();
+    let docx_bytes = two_h1_docx();
+    let src = dir.join("doc.docx");
+    fs::write(&src, &docx_bytes).unwrap();
+
+    let created = office_import_inner(&src, vault.path(), &dest).unwrap();
+    assert!(!created.is_empty());
+    let subdir = dest.join("doc");
+    assert!(subdir.is_dir(), "subdir must be created inside Proyectos/");
+}
+
+#[test]
+fn tc09_office_import_inner_path_traversal_rejected() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let docx_bytes = two_h1_docx();
+    let src = dir.join("doc.docx");
+    fs::write(&src, &docx_bytes).unwrap();
+    let outside = tempdir().unwrap();
+    let err = office_import_inner(&src, vault.path(), outside.path()).unwrap_err();
+    assert!(err.contains("outside_vault") || err.contains("path_outside_vault"), "err={err}");
+}
+
+// ─── TC-13..TC-17 (updated to new office_import_inner signature) ──────────────
 
 use super::inbox::office_import_inner;
 use crate::capture::testutil::{zip_of, simple_docx, simple_pptx};
 
 fn two_h1_docx() -> Vec<u8> {
-    // Build a docx manually with two H1 headings so split_docx returns 2 sections.
     let ns = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main""#;
     let styles = format!(
         r#"<?xml version="1.0"?><w:styles {ns}><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/></w:style></w:styles>"#
@@ -426,8 +556,8 @@ fn tc13_office_import_inner_docx_creates_notes_and_index() {
     let src = dir.join("reporte.docx");
     fs::write(&src, &docx_bytes).unwrap();
 
-    let created = office_import_inner(&src, vault.path()).unwrap();
-    // Expect: 01 - Introducción.md, 02 - Conclusión.md, índice.md
+    // dest_dir = Entrada/ — equivalent to the original behaviour.
+    let created = office_import_inner(&src, vault.path(), &dir).unwrap();
     assert_eq!(created.len(), 3);
     let names: Vec<String> = created.iter()
         .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
@@ -435,12 +565,9 @@ fn tc13_office_import_inner_docx_creates_notes_and_index() {
     assert!(names.contains(&"01 - Introducción.md".to_string()), "names={names:?}");
     assert!(names.contains(&"02 - Conclusión.md".to_string()), "names={names:?}");
     assert!(names.contains(&"índice.md".to_string()), "names={names:?}");
-    // All created files must exist
     for p in &created {
         assert!(p.exists(), "{p:?} does not exist");
     }
-    // TC-13b: The original source must be gone from Entrada/ (moved to trash)
-    // so the inbox no longer shows it as an unprocessed item.
     assert!(!src.exists(), "source docx must be discarded from Entrada/ after import");
 }
 
@@ -452,7 +579,7 @@ fn tc14_office_import_inner_pptx_without_sections_creates_notes_and_index() {
     let src = dir.join("deck.pptx");
     fs::write(&src, &pptx_bytes).unwrap();
 
-    let created = office_import_inner(&src, vault.path()).unwrap();
+    let created = office_import_inner(&src, vault.path(), &dir).unwrap();
     assert_eq!(created.len(), 3);
     let names: Vec<String> = created.iter()
         .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
@@ -471,13 +598,10 @@ fn tc15_office_import_inner_with_images_creates_assets() {
     let src = dir.join("con_imagen.docx");
     fs::write(&src, &docx_bytes).unwrap();
 
-    let created = office_import_inner(&src, vault.path()).unwrap();
-    // The notes + index were created
+    let created = office_import_inner(&src, vault.path(), &dir).unwrap();
     assert!(!created.is_empty());
-    // assets/image1.png must exist inside the subdir
     let subdir = vault.path().join("Entrada").join("con_imagen");
     assert!(subdir.join("assets/image1.png").exists(), "asset not found");
-    // The note must contain the rewritten image link
     let note_path = created.iter().find(|p| p.file_name().unwrap() != "índice.md").unwrap();
     let content = fs::read_to_string(note_path).unwrap();
     assert!(content.contains("![image1.png](assets/image1.png)"), "content={content}");
@@ -487,7 +611,6 @@ fn tc15_office_import_inner_with_images_creates_assets() {
 fn tc16_office_import_inner_sanitizes_title_with_invalid_chars() {
     let vault = tempdir().unwrap();
     let dir = inbox_ensure_inner(vault.path()).unwrap();
-    // Build a docx whose H1 contains invalid filename chars
     let ns = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
     let styles = format!(
         r#"<?xml version="1.0"?><w:styles {ns}><w:style w:type="paragraph" w:styleId="H1"><w:name w:val="heading 1"/></w:style></w:styles>"#
@@ -503,11 +626,10 @@ fn tc16_office_import_inner_sanitizes_title_with_invalid_chars() {
     let src = dir.join("invalido.docx");
     fs::write(&src, &bytes).unwrap();
 
-    let created = office_import_inner(&src, vault.path()).unwrap();
+    let created = office_import_inner(&src, vault.path(), &dir).unwrap();
     let names: Vec<String> = created.iter()
         .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
         .collect();
-    // "Cap / 1" sanitized: "/" becomes "-" → "Cap - 1"
     assert!(names.iter().any(|n| n.contains("Cap - 1")), "names={names:?}");
 }
 
@@ -519,10 +641,9 @@ fn tc17_office_import_inner_index_has_correct_wikilinks() {
     let src = dir.join("wikitest.docx");
     fs::write(&src, &docx_bytes).unwrap();
 
-    let created = office_import_inner(&src, vault.path()).unwrap();
+    let created = office_import_inner(&src, vault.path(), &dir).unwrap();
     let index = created.iter().find(|p| p.file_name().unwrap() == "índice.md").unwrap();
     let content = fs::read_to_string(index).unwrap();
-    // H1 of document is "wikitest" (stem), wikilinks to the two sections
     assert!(content.starts_with("# wikitest"), "content={content}");
     assert!(content.contains("- [[01 - Introducción]]"), "content={content}");
     assert!(content.contains("- [[02 - Conclusión]]"), "content={content}");
