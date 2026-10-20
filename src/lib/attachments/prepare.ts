@@ -66,7 +66,11 @@ export async function prepareAttachments(
       // Read via plugin-fs (scoped) then convert to a data: URL via FileReader.
       // Blob URLs taint the canvas in WKWebView ("The operation is insecure"
       // on toDataURL). Data URLs are always same-origin and never taint it.
-      const bytes = await readBytes(att);
+      const rawBytes = await readBytes(att);
+      // Copy into a fresh Uint8Array<ArrayBuffer> — TypeScript strict rejects
+      // Uint8Array<ArrayBufferLike> (returned by readFile) as a BlobPart.
+      const bytes = new Uint8Array(rawBytes.length);
+      bytes.set(rawBytes);
       const blob = new Blob([bytes], { type: mimeForPath(att.absPath) });
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
