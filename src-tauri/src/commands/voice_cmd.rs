@@ -8,6 +8,7 @@ use super::vault_index::spawn_index_update;
 use crate::capture::lifecycle::{hide_quick_capture, is_main_visible, MAIN_WINDOW};
 use crate::db::ConfigDb;
 use crate::llm::embeddings::HF_BASE_URL;
+use crate::models_mirror::Mirror;
 use crate::voice::jobs::{parse_recorded, run_job, VoiceJobs};
 use crate::voice::model::{download_model, is_downloaded, model_path, spec_for, ModelSpec, DEFAULT_MODEL, MODELS};
 use crate::voice::save::save_recording;
@@ -101,7 +102,7 @@ pub async fn voice_download_model(app: tauri::AppHandle, model: String) -> Resul
     let id = model.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut throttle = Throttle::new();
-        download_model(HF_BASE_URL, &dir, &spec, &mut |done, total| {
+        download_model(HF_BASE_URL, &Mirror::production(), &dir, &spec, &mut |done, total| {
             if throttle.ready(done, total) {
                 let _ = emitter.emit(MODEL_PROGRESS_EVENT, ModelProgress { id: id.clone(), done, total });
             }
@@ -159,7 +160,7 @@ fn start_job(app: tauri::AppHandle, vault: String, rel: String) {
             spec.id,
             |progress| {
                 let mut throttle = Throttle::new();
-                download_model(HF_BASE_URL, &dir, &spec, &mut |done, total| {
+                download_model(HF_BASE_URL, &Mirror::production(), &dir, &spec, &mut |done, total| {
                     if throttle.ready(done, total) {
                         progress(done, total);
                     }

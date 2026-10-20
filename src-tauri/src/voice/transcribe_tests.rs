@@ -12,7 +12,7 @@ use std::path::Path;
 fn real_spanish_clip_is_transcribed_with_the_small_model() {
     let models = tempfile::tempdir().unwrap();
     let spec = spec_for("small").unwrap();
-    let path = download_model(crate::llm::embeddings::HF_BASE_URL, models.path(), spec, &mut |_, _| {}).unwrap();
+    let path = download_model(crate::llm::embeddings::HF_BASE_URL, &crate::models_mirror::Mirror::production(), models.path(), spec, &mut |_, _| {}).unwrap();
     let engine = WhisperEngine::load(&path).unwrap();
 
     let work = tempfile::tempdir().unwrap();

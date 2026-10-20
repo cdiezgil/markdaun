@@ -1,3 +1,4 @@
+use crate::models_mirror::{sha256_file, Mirror};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -28,13 +29,17 @@ pub const MODEL_FILES: [&str; 5] = [
     "tokenizer_config.json",
 ];
 
-/// Download any missing model file from `base_url` into `<cache_dir>/MODEL_DIR`.
+/// Download any missing model file into `<cache_dir>/MODEL_DIR`.
+///
+/// Each file is tried on Hugging Face (`base_url`) first and, on any failure,
+/// on the GitHub release `mirror`. Whenever the mirror knows a file's SHA-256
+/// the download is verified against it, whichever source served it.
 ///
 /// hf-hub (used by fastembed) cannot follow the relative redirects Hugging Face
 /// returns, so we fetch with reqwest, which does. Each file is written to a
 /// `.part` file and renamed, so a crash never leaves a truncated file behind.
 /// Files that already exist and are non-empty are skipped.
-pub fn download_model_files(base_url: &str, cache_dir: &Path) -> Result<PathBuf, EmbeddingError> {
+pub fn download_model_files(base_url: &str, mirror: &Mirror, cache_dir: &Path) -> Result<PathBuf, EmbeddingError> {
     let dir = cache_dir.join(MODEL_DIR);
     std::fs::create_dir_all(&dir)?;
     let client = reqwest::blocking::Client::builder()
@@ -48,9 +53,18 @@ pub fn download_model_files(base_url: &str, cache_dir: &Path) -> Result<PathBuf,
         if std::fs::metadata(&target).map(|m| m.len() > 0).unwrap_or(false) {
             continue;
         }
-        let url = format!("{}/{HF_REPO_PATH}/{file}", base_url.trim_end_matches('/'));
         let part = dir.join(format!("{file}.part"));
-        let result = fetch_to(&client, &url, &part, file);
+        let asset = format!("{MODEL_DIR}.{file}");
+        let expected = mirror.sha256_for(&asset);
+        let hf_url = format!("{}/{HF_REPO_PATH}/{file}", base_url.trim_end_matches('/'));
+        let result = fetch_verified(&client, &hf_url, &part, file, expected).or_else(|hf_err| {
+            let Some(mirror_url) = mirror.url_for(&asset) else { return Err(hf_err) };
+            fetch_verified(&client, &mirror_url, &part, file, expected).map_err(|mirror_err| {
+                EmbeddingError::Download(format!(
+                    "{file}: Hugging Face failed ({hf_err}); mirror failed ({mirror_err})"
+                ))
+            })
+        });
         if let Err(e) = result {
             let _ = std::fs::remove_file(&part);
             return Err(e);
@@ -58,6 +72,27 @@ pub fn download_model_files(base_url: &str, cache_dir: &Path) -> Result<PathBuf,
         std::fs::rename(&part, &target)?;
     }
     Ok(dir)
+}
+
+/// Fetch `url` into `part` and, when `expected` is known, check its SHA-256.
+/// On any error the `.part` file is removed.
+fn fetch_verified(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    part: &Path,
+    file: &str,
+    expected: Option<&str>,
+) -> Result<(), EmbeddingError> {
+    let result = fetch_to(client, url, part, file).and_then(|()| match expected {
+        Some(want) if sha256_file(part)? != want => {
+            Err(EmbeddingError::Download(format!("{file}: checksum mismatch")))
+        }
+        _ => Ok(()),
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(part);
+    }
+    result
 }
 
 fn fetch_to(
@@ -87,13 +122,13 @@ fn fetch_to(
 /// Load the `AllMiniLML6V2` embedding model, caching ONNX artifacts in `cache_dir`.
 /// First call requires internet access (~90 MB download).
 pub fn load_model(cache_dir: &Path) -> Result<fastembed::TextEmbedding, EmbeddingError> {
-    load_model_from(HF_BASE_URL, cache_dir)
+    load_model_from(HF_BASE_URL, &Mirror::production(), cache_dir)
 }
 
 /// Like [`load_model`] with an injectable download host.
-pub fn load_model_from(base_url: &str, cache_dir: &Path) -> Result<fastembed::TextEmbedding, EmbeddingError> {
+pub fn load_model_from(base_url: &str, mirror: &Mirror, cache_dir: &Path) -> Result<fastembed::TextEmbedding, EmbeddingError> {
     use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
-    let dir = download_model_files(base_url, cache_dir)?;
+    let dir = download_model_files(base_url, mirror, cache_dir)?;
     let read = |name: &str| std::fs::read(dir.join(name));
     let model = UserDefinedEmbeddingModel {
         onnx_file: read("model.onnx")?,

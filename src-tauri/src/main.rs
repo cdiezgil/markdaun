@@ -9,6 +9,9 @@ mod fs;
 mod graph;
 mod git;
 mod llm;
+mod models_mirror;
+#[cfg(test)]
+mod models_mirror_tests;
 mod voice;
 
 fn main() {
