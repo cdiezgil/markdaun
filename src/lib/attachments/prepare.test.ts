@@ -29,13 +29,20 @@ describe('prepareAttachments', () => {
     expect(readFile).not.toHaveBeenCalled();
   });
 
-  it('rasterizes SVGs from their asset URL', async () => {
+  it('rasterizes SVGs via blob URL (not asset://)', async () => {
+    const createObjectURL = vi.fn().mockReturnValue('blob:mock-svg');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
     rasterizeImage.mockResolvedValue({ mediaType: 'image/png', dataB64: 'QUJD' });
     const r = await prepareAttachments([svg], { nativePdf: true });
-    expect(rasterizeImage).toHaveBeenCalledWith('asset:///v/d.svg');
+    expect(readFile).toHaveBeenCalledWith('/v/d.svg');
+    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(rasterizeImage).toHaveBeenCalledWith('blob:mock-svg');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-svg');
     expect(r.inputs).toEqual([
       { vaultPath: 'd.svg', derived: { images: [{ mediaType: 'image/png', dataB64: 'QUJD' }] } },
     ]);
+    vi.unstubAllGlobals();
   });
 
   it('native-PDF engines get no page images for short PDFs', async () => {

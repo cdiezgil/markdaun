@@ -27,6 +27,20 @@ async function readBytes(att: ChatAttachment): Promise<Uint8Array> {
   }
 }
 
+const MIME_MAP: Record<string, string> = {
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  avif: 'image/avif',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+};
+
+function mimeForPath(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  return MIME_MAP[ext] ?? 'application/octet-stream';
+}
+
 /** Renderer-only processing (SVG rasterization, PDF pages/text); Rust does the rest. */
 export async function prepareAttachments(
   attachments: ChatAttachment[],
@@ -49,9 +63,17 @@ export async function prepareAttachments(
         derived: { images: info.images, text: info.text, pageCount: info.pageCount },
       });
     } else if (needsRasterize(att.absPath)) {
-      const { convertFileSrc } = await import('@tauri-apps/api/core');
-      const image = await rasterizeImage(convertFileSrc(att.absPath));
-      inputs.push({ vaultPath: att.vaultPath, derived: { images: [image] } });
+      // Read via plugin-fs (scoped) and create a blob URL so the <img> element
+      // can load the file without needing the asset:// protocol scope.
+      const bytes = await readBytes(att);
+      const blob = new Blob([bytes], { type: mimeForPath(att.absPath) });
+      const blobUrl = URL.createObjectURL(blob);
+      try {
+        const image = await rasterizeImage(blobUrl);
+        inputs.push({ vaultPath: att.vaultPath, derived: { images: [image] } });
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
     } else {
       inputs.push({ vaultPath: att.vaultPath });
     }
