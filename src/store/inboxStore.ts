@@ -14,6 +14,7 @@ import {
   type InboxItem,
 } from '../lib/tauri';
 import { isBatchable } from '../lib/inbox';
+import { useVaultStore } from './vaultStore';
 
 interface InboxState {
   items: InboxItem[];
@@ -143,6 +144,9 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     try {
       await officeImport(item.path, vaultPath);
       await get().load(vaultPath);
+      // Refresh the vault tree so the new Entrada/<stem>/ directory becomes
+      // visible to the user without requiring a manual navigation.
+      await useVaultStore.getState().refreshTree();
       set({ importing: false });
     } catch (e) {
       set({ importing: false, error: String(e) });

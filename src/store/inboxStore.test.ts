@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { useInboxStore } from './inboxStore';
+import { useVaultStore } from './vaultStore';
 import type { InboxItem } from '../lib/tauri';
 
 const mockInvoke = vi.mocked(invoke);
@@ -19,6 +20,8 @@ const item = (name: string, over: Partial<InboxItem> = {}): InboxItem => ({
 beforeEach(() => {
   vi.clearAllMocks();
   useInboxStore.setState({ items: [], selected: [], loading: false, error: null });
+  // Ensure vaultStore has a vaultPath so importOffice can trigger refreshTree.
+  useVaultStore.setState({ vaultPath: '/v' } as never);
 });
 
 describe('inboxStore', () => {
@@ -105,11 +108,12 @@ describe('inboxStore', () => {
   describe('TC-21..TC-23: importOffice', () => {
     const docxItem = item('reporte.docx', { kind: 'docx' });
 
-    it('TC-21: importOffice calls office_import and reloads the inbox', async () => {
+    it('TC-21: importOffice calls office_import, reloads the inbox, and refreshes the vault tree', async () => {
       useInboxStore.setState({ items: [docxItem], importing: false, error: null } as never);
       mockInvoke.mockImplementation(async (cmd: string) => {
         if (cmd === 'office_import') return ['/v/Entrada/reporte/01 - A.md'];
         if (cmd === 'inbox_list') return [docxItem];
+        if (cmd === 'list_vault_tree') return [];
         return undefined;
       });
       await useInboxStore.getState().importOffice(docxItem, '/v');
@@ -117,6 +121,8 @@ describe('inboxStore', () => {
         sourcePath: docxItem.path,
         vaultPath: '/v',
       });
+      // vault tree must be refreshed so Entrada/<stem>/ becomes visible
+      expect(mockInvoke).toHaveBeenCalledWith('list_vault_tree', { vaultPath: '/v' });
       expect(useInboxStore.getState().importing).toBe(false);
       expect(useInboxStore.getState().error).toBeNull();
     });
