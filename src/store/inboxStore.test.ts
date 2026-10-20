@@ -105,34 +105,80 @@ describe('inboxStore', () => {
   });
 });
 
-  describe('TC-21..TC-23: importOffice', () => {
+  // ─── TC-12..TC-14: loadAllFolders + importOffice with destPath ─────────────
+
+  describe('TC-12..TC-14: allFolders and importOffice with destPath', () => {
     const docxItem = item('reporte.docx', { kind: 'docx' });
 
-    it('TC-21: importOffice calls office_import, reloads the inbox, refreshes the vault tree, and returns stem+count', async () => {
+    it('TC-12: loadAllFolders updates allFolders from inbox_all_folders', async () => {
+      useInboxStore.setState({ allFolders: [] } as never);
+      mockInvoke.mockResolvedValueOnce(['Entrada', 'Proyectos'] as never);
+      await useInboxStore.getState().loadAllFolders('/v');
+      expect(mockInvoke).toHaveBeenCalledWith('inbox_all_folders', { vaultPath: '/v' });
+      expect(useInboxStore.getState().allFolders).toEqual(['Entrada', 'Proyectos']);
+    });
+
+    it('TC-13: importOffice passes destPath to office_import and returns destPath in result', async () => {
       useInboxStore.setState({ items: [docxItem], importing: false, error: null } as never);
       mockInvoke.mockImplementation(async (cmd: string) => {
-        if (cmd === 'office_import') return ['/v/Entrada/reporte/01 - A.md', '/v/Entrada/reporte/índice.md'];
+        if (cmd === 'office_import') return ['/v/Proyectos/reporte/01 - A.md', '/v/Proyectos/reporte/índice.md'];
         if (cmd === 'inbox_list') return [docxItem];
         if (cmd === 'list_vault_tree') return [];
         return undefined;
       });
-      const result = await useInboxStore.getState().importOffice(docxItem, '/v');
+      const result = await useInboxStore.getState().importOffice(docxItem, '/v', 'Proyectos');
       expect(mockInvoke).toHaveBeenCalledWith('office_import', {
         sourcePath: docxItem.path,
         vaultPath: '/v',
+        destPath: 'Proyectos',
       });
-      // vault tree must be refreshed so Entrada/<stem>/ becomes visible
+      expect(mockInvoke).toHaveBeenCalledWith('list_vault_tree', { vaultPath: '/v' });
+      expect(useInboxStore.getState().importing).toBe(false);
+      expect(useInboxStore.getState().error).toBeNull();
+      expect(result).toEqual({ stem: 'reporte', count: 1, destPath: 'Proyectos' });
+    });
+
+    it('TC-14: importOffice sets error on failure and clears importing flag', async () => {
+      useInboxStore.setState({ items: [docxItem], importing: false, error: null } as never);
+      mockInvoke.mockRejectedValueOnce('invalid_document: boom' as never);
+      const result = await useInboxStore.getState().importOffice(docxItem, '/v', 'Proyectos');
+      expect(result).toBeNull();
+      expect(useInboxStore.getState().importing).toBe(false);
+      expect(useInboxStore.getState().error).toBe('invalid_document: boom');
+    });
+  });
+
+  // ─── TC-21..TC-23 (updated to new importOffice signature) ────────────────
+
+  describe('TC-21..TC-23: importOffice', () => {
+    const docxItem = item('reporte.docx', { kind: 'docx' });
+
+    it('TC-21: importOffice calls office_import, reloads the inbox, refreshes the vault tree, and returns stem+count+destPath', async () => {
+      useInboxStore.setState({ items: [docxItem], importing: false, error: null } as never);
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'office_import') return ['/v/Proyectos/reporte/01 - A.md', '/v/Proyectos/reporte/índice.md'];
+        if (cmd === 'inbox_list') return [docxItem];
+        if (cmd === 'list_vault_tree') return [];
+        return undefined;
+      });
+      const result = await useInboxStore.getState().importOffice(docxItem, '/v', 'Proyectos');
+      expect(mockInvoke).toHaveBeenCalledWith('office_import', {
+        sourcePath: docxItem.path,
+        vaultPath: '/v',
+        destPath: 'Proyectos',
+      });
+      // vault tree must be refreshed so <dest>/<stem>/ becomes visible
       expect(mockInvoke).toHaveBeenCalledWith('list_vault_tree', { vaultPath: '/v' });
       expect(useInboxStore.getState().importing).toBe(false);
       expect(useInboxStore.getState().error).toBeNull();
       // returns stem derived from filename and note count excluding index
-      expect(result).toEqual({ stem: 'reporte', count: 1 });
+      expect(result).toEqual({ stem: 'reporte', count: 1, destPath: 'Proyectos' });
     });
 
     it('TC-22: importOffice sets error on failure and clears importing flag', async () => {
       useInboxStore.setState({ items: [docxItem], importing: false, error: null } as never);
       mockInvoke.mockRejectedValueOnce('invalid_document: boom' as never);
-      await useInboxStore.getState().importOffice(docxItem, '/v');
+      await useInboxStore.getState().importOffice(docxItem, '/v', 'Proyectos');
       expect(useInboxStore.getState().importing).toBe(false);
       expect(useInboxStore.getState().error).toBe('invalid_document: boom');
     });

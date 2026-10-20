@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
+  inboxAllFolders,
   inboxClipUrl,
   inboxDiscard,
   inboxGetLastArea,
@@ -28,10 +29,13 @@ interface InboxState {
   error: string | null;
   /** Digestion areas (top-level folders) of the vault. */
   areas: string[];
+  /** All vault folders including Entrada/ (for the destination picker). */
+  allFolders: string[];
   /** Area of the previous digestion ('' = vault root); null if none yet. */
   lastArea: string | null;
 
   loadAreas(vaultPath: string): Promise<void>;
+  loadAllFolders(vaultPath: string): Promise<void>;
   /** Transcribes a recording again after a failure. */
   retryVoice(item: InboxItem, vaultPath: string): Promise<void>;
   rememberArea(vaultPath: string, area: string): Promise<void>;
@@ -44,8 +48,9 @@ interface InboxState {
   clipUrl(url: string, vaultPath: string): Promise<ClipSummary | null>;
   /** Opens the native file picker and copies the chosen files into Entrada/. */
   pickFiles(vaultPath: string): Promise<void>;
-  /** Imports a .docx or .pptx by splitting it into notes. Returns stem and note count on success. */
-  importOffice(item: InboxItem, vaultPath: string): Promise<{ stem: string; count: number } | null>;
+  /** Imports a .docx or .pptx by splitting it into notes in the given destination folder.
+   *  Returns stem, count and destPath on success; null (with `error` set) on failure. */
+  importOffice(item: InboxItem, vaultPath: string, destPath: string): Promise<{ stem: string; count: number; destPath: string } | null>;
 }
 
 export const useInboxStore = create<InboxState>((set, get) => ({
@@ -56,12 +61,22 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   importing: false,
   error: null,
   areas: [],
+  allFolders: [],
   lastArea: null,
 
   async loadAreas(vaultPath) {
     try {
       const [areas, lastArea] = await Promise.all([inboxListAreas(vaultPath), inboxGetLastArea(vaultPath)]);
       set({ areas, lastArea: lastArea ?? null });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async loadAllFolders(vaultPath) {
+    try {
+      const allFolders = await inboxAllFolders(vaultPath);
+      set({ allFolders });
     } catch (e) {
       set({ error: String(e) });
     }
@@ -139,19 +154,19 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     }
   },
 
-  async importOffice(item, vaultPath) {
+  async importOffice(item, vaultPath, destPath) {
     set({ importing: true, error: null });
     try {
-      const result = await officeImport(item.path, vaultPath);
+      const result = await officeImport(item.path, vaultPath, destPath);
       const stem = item.name.replace(/\.(docx|pptx)$/i, '');
       // Count section notes (exclude índice.md which is always the last entry).
       const count = result.notes.filter((n) => !n.endsWith('índice.md')).length;
       await get().load(vaultPath);
-      // Refresh the vault tree so the new Entrada/<stem>/ directory becomes
+      // Refresh the vault tree so the new <dest>/<stem>/ directory becomes
       // visible to the user without requiring a manual navigation.
       await useVaultStore.getState().refreshTree();
       set({ importing: false });
-      return { stem, count };
+      return { stem, count, destPath };
     } catch (e) {
       set({ importing: false, error: String(e) });
       return null;

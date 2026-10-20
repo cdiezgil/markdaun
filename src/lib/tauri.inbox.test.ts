@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import {
   archiveSource,
   brainDigest,
+  inboxAllFolders,
   inboxDiscard,
   inboxClipUrl,
   inboxEnsure,
@@ -114,14 +115,34 @@ describe('inboxClipUrl', () => {
   });
 });
 
+describe('inboxAllFolders', () => {
+  it('TC-10: invokes inbox_all_folders with the correct args', async () => {
+    mockInvoke.mockResolvedValue(['Entrada', 'Proyectos', 'Proyectos/Sub'] as never);
+    const result = await inboxAllFolders('/v');
+    expect(mockInvoke).toHaveBeenCalledWith('inbox_all_folders', { vaultPath: '/v' });
+    expect(result).toEqual(['Entrada', 'Proyectos', 'Proyectos/Sub']);
+  });
+});
+
 describe('officeImport', () => {
-  it('TC-19: invokes office_import with the correct args', async () => {
-    mockInvoke.mockResolvedValue(['/v/Entrada/rep/01 - A.md', '/v/Entrada/rep/índice.md'] as never);
-    const result = await officeImport('Entrada/reporte.docx', '/v');
+  it('TC-11: invokes office_import with sourcePath, vaultPath and destPath', async () => {
+    mockInvoke.mockResolvedValue(['/v/Proyectos/rep/01 - A.md', '/v/Proyectos/rep/índice.md'] as never);
+    const result = await officeImport('/v/a.docx', '/v', 'Proyectos');
+    expect(mockInvoke).toHaveBeenCalledWith('office_import', {
+      sourcePath: '/v/a.docx',
+      vaultPath: '/v',
+      destPath: 'Proyectos',
+    });
+    expect(result.notes).toHaveLength(2);
+  });
+
+  it('TC-11b: vault root (empty destPath) is forwarded correctly', async () => {
+    mockInvoke.mockResolvedValue(['/v/rep/01 - A.md', '/v/rep/índice.md'] as never);
+    await officeImport('Entrada/reporte.docx', '/v', '');
     expect(mockInvoke).toHaveBeenCalledWith('office_import', {
       sourcePath: 'Entrada/reporte.docx',
       vaultPath: '/v',
+      destPath: '',
     });
-    expect(result.notes).toHaveLength(2);
   });
 });

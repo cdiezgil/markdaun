@@ -7,6 +7,7 @@ import { useBrainStore } from '../../store/brainStore';
 import { useLlmStore } from '../../store/llmStore';
 import { formatDate, formatSize, isBatchable, inboxErrorMessage, kindLabel, pluralize, voiceStatusText } from '../../lib/inbox';
 import { AreaMenu } from './AreaMenu';
+import { DestinationPicker } from './DestinationPicker';
 import type { ClipSummary, InboxItem } from '../../lib/tauri';
 
 const SMALL: React.CSSProperties = {
@@ -59,6 +60,8 @@ export function InboxView(): JSX.Element {
   const retryVoice = useInboxStore((s) => s.retryVoice);
   const importOffice = useInboxStore((s) => s.importOffice);
   const importing = useInboxStore((s) => s.importing);
+  const allFolders = useInboxStore((s) => s.allFolders);
+  const loadAllFolders = useInboxStore((s) => s.loadAllFolders);
   const llmLoaded = useLlmStore((s) => s.loaded);
   const llmActive = useLlmStore((s) => s.active);
   const loadLlm = useLlmStore((s) => s.load);
@@ -66,9 +69,11 @@ export function InboxView(): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [url, setUrl] = useState('');
   const [lastClip, setLastClip] = useState<ClipSummary | null>(null);
-  const [lastImport, setLastImport] = useState<{ stem: string; count: number } | null>(null);
+  const [lastImport, setLastImport] = useState<{ stem: string; count: number; destPath: string } | null>(null);
   /** Items waiting for the user to pick an area; `anchor` is the row that opened the menu. */
   const [choosing, setChoosing] = useState<{ list: InboxItem[]; anchor: string } | null>(null);
+  /** Item waiting for the user to pick a destination folder before importing. */
+  const [destinationFor, setDestinationFor] = useState<InboxItem | null>(null);
 
   useEffect(() => {
     void loadLlm();
@@ -78,8 +83,9 @@ export function InboxView(): JSX.Element {
     if (vaultPath) {
       void load(vaultPath);
       void loadAreas(vaultPath);
+      void loadAllFolders(vaultPath);
     }
-  }, [vaultPath, load, loadAreas]);
+  }, [vaultPath, load, loadAreas, loadAllFolders]);
 
   const noConnection = llmLoaded && !llmActive;
 
@@ -215,7 +221,9 @@ export function InboxView(): JSX.Element {
       )}
       {lastImport && (
         <p data-testid="import-result" role="status" style={SMALL}>
-          {`Importado: ${pluralize(lastImport.count, 'nota', 'notas')} en Entrada/${lastImport.stem}/.`}
+          {`Importado: ${pluralize(lastImport.count, 'nota', 'notas')} en ${
+            lastImport.destPath ? `${lastImport.destPath}/${lastImport.stem}` : lastImport.stem
+          }/.`}
         </p>
       )}
 
@@ -295,18 +303,31 @@ export function InboxView(): JSX.Element {
                   )}
                 </div>
                 {(it.kind === 'docx' || it.kind === 'pptx') && (
-                  <button
-                    data-testid={`import-${it.name}`}
-                    onClick={async () => {
-                      if (!vaultPath) return;
-                      const r = await importOffice(it, vaultPath);
-                      if (r) setLastImport(r);
-                    }}
-                    disabled={importing}
-                    style={{ ...BUTTON, opacity: importing ? 0.5 : 1 }}
-                  >
-                    Importar
-                  </button>
+                  <span style={{ position: 'relative', display: 'inline-flex' }}>
+                    <button
+                      data-testid={`import-${it.name}`}
+                      onClick={() => {
+                        if (!vaultPath || importing) return;
+                        setDestinationFor(it);
+                      }}
+                      disabled={importing}
+                      style={{ ...BUTTON, opacity: importing ? 0.5 : 1 }}
+                    >
+                      Importar
+                    </button>
+                    {destinationFor?.rel_path === it.rel_path && (
+                      <DestinationPicker
+                        folders={allFolders}
+                        onConfirm={async (destPath) => {
+                          setDestinationFor(null);
+                          if (!vaultPath) return;
+                          const r = await importOffice(it, vaultPath, destPath);
+                          if (r) setLastImport(r);
+                        }}
+                        onClose={() => setDestinationFor(null)}
+                      />
+                    )}
+                  </span>
                 )}
                 {isBatchable(it) && (
                   <span style={{ position: 'relative', display: 'inline-flex' }}>

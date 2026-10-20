@@ -481,9 +481,11 @@ fn rewrite_image_markers(markdown: &str) -> String {
 }
 
 /// Pure logic (no AppHandle): reads `source`, splits it, writes notes + index into
-/// `vault/Entrada/<stem>/`. Returns absolute paths of all files created.
-pub fn office_import_inner(source: &Path, vault: &Path) -> Result<Vec<PathBuf>, String> {
+/// `<dest_dir>/<stem>/`. Returns absolute paths of all files created.
+/// `dest_dir` must be an absolute path already validated to be within `vault`.
+pub fn office_import_inner(source: &Path, vault: &Path, dest_dir: &Path) -> Result<Vec<PathBuf>, String> {
     assert_within_vault(source, vault)?;
+    assert_within_vault(dest_dir, vault)?;
 
     let name = source
         .file_name()
@@ -500,8 +502,7 @@ pub fn office_import_inner(source: &Path, vault: &Path) -> Result<Vec<PathBuf>, 
         .to_string();
     let stem = sanitize_file_stem(&stem_raw).unwrap_or_else(|| "documento".to_string());
 
-    let inbox_dir = inbox_ensure_inner(vault)?;
-    let subdir = inbox_dir.join(&stem);
+    let subdir = dest_dir.join(&stem);
     let assets_dir = subdir.join("assets");
     std::fs::create_dir_all(&assets_dir).map_err(|e| format!("io_error: {e}"))?;
 
@@ -545,16 +546,47 @@ pub fn office_import_inner(source: &Path, vault: &Path) -> Result<Vec<PathBuf>, 
     Ok(created)
 }
 
+/// All vault folders (including `Entrada/` and its subdirectories), excluding
+/// hidden folders and `Fuentes/` subdirectories. Returns vault-relative paths,
+/// sorted.
+pub fn all_folders_inner(vault: &Path) -> Vec<String> {
+    let mut out: Vec<String> = walkdir::WalkDir::new(vault)
+        .min_depth(1)
+        .max_depth(usize::MAX)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !name.starts_with('.') && name != SOURCES_DIR
+        })
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_dir())
+        .filter_map(|e| rel_of(vault, e.path()))
+        .collect();
+    out.sort();
+    out
+}
+
 /// Tauri command: import a `.docx` or `.pptx`, splitting by headings/sections.
-/// Returns absolute paths of all files created.
+/// `dest_path` is vault-relative (`""` = vault root). Returns absolute paths of
+/// all files created.
 #[tauri::command]
 pub async fn office_import(
     _app: tauri::AppHandle,
     source_path: String,
     vault_path: String,
+    dest_path: String,
 ) -> Result<Vec<String>, String> {
-    let created = office_import_inner(Path::new(&source_path), Path::new(&vault_path))?;
+    let vault = Path::new(&vault_path);
+    let abs_dest = vault.join(&dest_path);
+    assert_within_vault(&abs_dest, vault)?;
+    let created = office_import_inner(Path::new(&source_path), vault, &abs_dest)?;
     Ok(created.into_iter().map(|p| p.to_string_lossy().to_string()).collect())
+}
+
+/// Tauri command: all vault folders (including `Entrada/`), vault-relative, sorted.
+#[tauri::command]
+pub async fn inbox_all_folders(vault_path: String) -> Result<Vec<String>, String> {
+    Ok(all_folders_inner(Path::new(&vault_path)))
 }
 
 // ─── Tauri commands ───────────────────────────────────────────────────────────

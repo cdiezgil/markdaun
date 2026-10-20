@@ -106,6 +106,7 @@ fn main() {
             commands::inbox_list,
             commands::inbox_discard,
             commands::inbox_list_areas,
+            commands::inbox_all_folders,
             commands::inbox_get_last_area,
             commands::inbox_set_last_area,
             commands::trash_list,
