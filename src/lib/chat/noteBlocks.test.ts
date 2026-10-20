@@ -42,6 +42,27 @@ describe('parseNoteBlocks', () => {
     expect(parseNoteBlocks(md)).toEqual([{ type: 'text', text: md }]);
   });
 
+  it('preserves mermaid diagram inside a note block', () => {
+    const content = '# Arq\n\n## Diagrama\n\n```mermaid\ngraph TD\n  A --> B\n```';
+    const segs = parseNoteBlocks(block('path="A/arq.md"', content));
+    expect(segs).toHaveLength(1);
+    expect(segs[0].type).toBe('note');
+    if (segs[0].type === 'note') {
+      expect(segs[0].content).toContain('```mermaid');
+      expect(segs[0].content).toContain('A --> B');
+    }
+  });
+
+  it('handles multiple inner fences inside a note block', () => {
+    const content = '# Note\n\n```mermaid\ngraph TD\n  A-->B\n```\n\n```rust\nlet x = 1;\n```';
+    const segs = parseNoteBlocks(block('path="X.md"', content));
+    expect(segs).toHaveLength(1);
+    expect(segs[0].type).toBe('note');
+    if (segs[0].type === 'note') {
+      expect(segs[0].content).toContain('let x = 1;');
+    }
+  });
+
   it('flags blocks whose path was adjusted into the area', () => {
     const segs = parseNoteBlocks(block('path="Mutua/b.md" adjusted="true" mode="create"'));
     expect(segs).toEqual([{ type: 'note', path: 'Mutua/b.md', mode: 'create', content: '# T\nbody', adjusted: true }]);
