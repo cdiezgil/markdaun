@@ -5,7 +5,7 @@ import { useVaultStore } from '../../store/vaultStore';
 import { useInboxStore } from '../../store/inboxStore';
 import { useBrainStore } from '../../store/brainStore';
 import { useLlmStore } from '../../store/llmStore';
-import { formatDate, formatSize, inboxErrorMessage, kindLabel, pluralize, voiceStatusText } from '../../lib/inbox';
+import { formatDate, formatSize, isBatchable, inboxErrorMessage, kindLabel, pluralize, voiceStatusText } from '../../lib/inbox';
 import { AreaMenu } from './AreaMenu';
 import type { ClipSummary, InboxItem } from '../../lib/tauri';
 
@@ -57,6 +57,8 @@ export function InboxView(): JSX.Element {
   const loadAreas = useInboxStore((s) => s.loadAreas);
   const rememberArea = useInboxStore((s) => s.rememberArea);
   const retryVoice = useInboxStore((s) => s.retryVoice);
+  const importOffice = useInboxStore((s) => s.importOffice);
+  const importing = useInboxStore((s) => s.importing);
   const llmLoaded = useLlmStore((s) => s.loaded);
   const llmActive = useLlmStore((s) => s.active);
   const loadLlm = useLlmStore((s) => s.load);
@@ -64,6 +66,7 @@ export function InboxView(): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [url, setUrl] = useState('');
   const [lastClip, setLastClip] = useState<ClipSummary | null>(null);
+  const [lastImport, setLastImport] = useState<{ stem: string; count: number } | null>(null);
   /** Items waiting for the user to pick an area; `anchor` is the row that opened the menu. */
   const [choosing, setChoosing] = useState<{ list: InboxItem[]; anchor: string } | null>(null);
 
@@ -117,7 +120,7 @@ export function InboxView(): JSX.Element {
     }
   };
 
-  const supported = items.filter((i) => i.supported);
+  const supported = items.filter(isBatchable);
   const chosen = selected
     .map((rel) => items.find((i) => i.rel_path === rel))
     .filter((i): i is InboxItem => !!i);
@@ -210,6 +213,11 @@ export function InboxView(): JSX.Element {
             : `No se pudo recortar: ${lastClip.failure ?? 'motivo desconocido'}. Guardé el enlace en la entrada para que no se pierda.`}
         </p>
       )}
+      {lastImport && (
+        <p data-testid="import-result" role="status" style={SMALL}>
+          {`Importado: ${pluralize(lastImport.count, 'nota', 'notas')} en Entrada/${lastImport.stem}/.`}
+        </p>
+      )}
 
       {noConnection && (
         <p role="status" style={{ ...SMALL, color: 'var(--amber)' }}>
@@ -266,7 +274,7 @@ export function InboxView(): JSX.Element {
                   data-testid={`select-${it.name}`}
                   aria-label={`Seleccionar ${it.name}`}
                   checked={selected.includes(it.rel_path)}
-                  disabled={!it.supported}
+                  disabled={!isBatchable(it)}
                   onChange={() => toggle(it.rel_path)}
                 />
                 <KindIcon kind={it.kind} />
@@ -286,7 +294,21 @@ export function InboxView(): JSX.Element {
                     </div>
                   )}
                 </div>
-                {it.supported && (
+                {(it.kind === 'docx' || it.kind === 'pptx') && (
+                  <button
+                    data-testid={`import-${it.name}`}
+                    onClick={async () => {
+                      if (!vaultPath) return;
+                      const r = await importOffice(it, vaultPath);
+                      if (r) setLastImport(r);
+                    }}
+                    disabled={importing}
+                    style={{ ...BUTTON, opacity: importing ? 0.5 : 1 }}
+                  >
+                    Importar
+                  </button>
+                )}
+                {isBatchable(it) && (
                   <span style={{ position: 'relative', display: 'inline-flex' }}>
                     <button
                       data-testid={`digest-${it.name}`}

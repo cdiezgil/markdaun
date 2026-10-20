@@ -385,3 +385,145 @@ fn discarding_a_voice_note_discards_its_audio_too() {
     assert!(!dir.join("Nota.md").exists() && !dir.join("Nota.m4a").exists());
     assert_eq!(trash_list_inner(vault.path()).unwrap().len(), 2);
 }
+
+// ─── TC-13..TC-17: office_import_inner ────────────────────────────────────────
+
+use super::inbox::office_import_inner;
+use crate::capture::testutil::{zip_of, simple_docx, simple_pptx};
+
+fn two_h1_docx() -> Vec<u8> {
+    // Build a docx manually with two H1 headings so split_docx returns 2 sections.
+    let ns = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main""#;
+    let styles = format!(
+        r#"<?xml version="1.0"?><w:styles {ns}><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/></w:style></w:styles>"#
+    );
+    let body = format!(
+        r#"<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Introducción</w:t></w:r></w:p>
+<w:p><w:r><w:t>Texto de introducción.</w:t></w:r></w:p>
+<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Conclusión</w:t></w:r></w:p>
+<w:p><w:r><w:t>Texto final.</w:t></w:r></w:p>"#
+    );
+    let doc = format!(r#"<?xml version="1.0"?><w:document {ns}><w:body>{body}</w:body></w:document>"#);
+    let rels = format!(
+        r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>"#
+    );
+    zip_of(&[
+        ("word/document.xml", doc.as_bytes()),
+        ("word/_rels/document.xml.rels", rels.as_bytes()),
+        ("word/styles.xml", styles.as_bytes()),
+    ])
+}
+
+fn two_slide_pptx() -> Vec<u8> {
+    simple_pptx(&["Primera diapositiva", "Segunda diapositiva"])
+}
+
+#[test]
+fn tc13_office_import_inner_docx_creates_notes_and_index() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let docx_bytes = two_h1_docx();
+    let src = dir.join("reporte.docx");
+    fs::write(&src, &docx_bytes).unwrap();
+
+    let created = office_import_inner(&src, vault.path()).unwrap();
+    // Expect: 01 - Introducción.md, 02 - Conclusión.md, índice.md
+    assert_eq!(created.len(), 3);
+    let names: Vec<String> = created.iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(names.contains(&"01 - Introducción.md".to_string()), "names={names:?}");
+    assert!(names.contains(&"02 - Conclusión.md".to_string()), "names={names:?}");
+    assert!(names.contains(&"índice.md".to_string()), "names={names:?}");
+    // All created files must exist
+    for p in &created {
+        assert!(p.exists(), "{p:?} does not exist");
+    }
+    // TC-13b: The original source must be gone from Entrada/ (moved to trash)
+    // so the inbox no longer shows it as an unprocessed item.
+    assert!(!src.exists(), "source docx must be discarded from Entrada/ after import");
+}
+
+#[test]
+fn tc14_office_import_inner_pptx_without_sections_creates_notes_and_index() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let pptx_bytes = two_slide_pptx();
+    let src = dir.join("deck.pptx");
+    fs::write(&src, &pptx_bytes).unwrap();
+
+    let created = office_import_inner(&src, vault.path()).unwrap();
+    assert_eq!(created.len(), 3);
+    let names: Vec<String> = created.iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(names.contains(&"01 - Primera diapositiva.md".to_string()), "names={names:?}");
+    assert!(names.contains(&"02 - Segunda diapositiva.md".to_string()), "names={names:?}");
+    assert!(names.contains(&"índice.md".to_string()), "names={names:?}");
+}
+
+#[test]
+fn tc15_office_import_inner_with_images_creates_assets() {
+    use crate::capture::testutil::PNG;
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let docx_bytes = simple_docx(&["Texto con imagen."], &[PNG]);
+    let src = dir.join("con_imagen.docx");
+    fs::write(&src, &docx_bytes).unwrap();
+
+    let created = office_import_inner(&src, vault.path()).unwrap();
+    // The notes + index were created
+    assert!(!created.is_empty());
+    // assets/image1.png must exist inside the subdir
+    let subdir = vault.path().join("Entrada").join("con_imagen");
+    assert!(subdir.join("assets/image1.png").exists(), "asset not found");
+    // The note must contain the rewritten image link
+    let note_path = created.iter().find(|p| p.file_name().unwrap() != "índice.md").unwrap();
+    let content = fs::read_to_string(note_path).unwrap();
+    assert!(content.contains("![image1.png](assets/image1.png)"), "content={content}");
+}
+
+#[test]
+fn tc16_office_import_inner_sanitizes_title_with_invalid_chars() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    // Build a docx whose H1 contains invalid filename chars
+    let ns = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
+    let styles = format!(
+        r#"<?xml version="1.0"?><w:styles {ns}><w:style w:type="paragraph" w:styleId="H1"><w:name w:val="heading 1"/></w:style></w:styles>"#
+    );
+    let body = r#"<w:p><w:pPr><w:pStyle w:val="H1"/></w:pPr><w:r><w:t>Cap / 1</w:t></w:r></w:p><w:p><w:r><w:t>Texto.</w:t></w:r></w:p>"#;
+    let doc = format!(r#"<?xml version="1.0"?><w:document {ns}><w:body>{body}</w:body></w:document>"#);
+    let rels = r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>"#;
+    let bytes = zip_of(&[
+        ("word/document.xml", doc.as_bytes()),
+        ("word/_rels/document.xml.rels", rels.as_bytes()),
+        ("word/styles.xml", styles.as_bytes()),
+    ]);
+    let src = dir.join("invalido.docx");
+    fs::write(&src, &bytes).unwrap();
+
+    let created = office_import_inner(&src, vault.path()).unwrap();
+    let names: Vec<String> = created.iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    // "Cap / 1" sanitized: "/" becomes "-" → "Cap - 1"
+    assert!(names.iter().any(|n| n.contains("Cap - 1")), "names={names:?}");
+}
+
+#[test]
+fn tc17_office_import_inner_index_has_correct_wikilinks() {
+    let vault = tempdir().unwrap();
+    let dir = inbox_ensure_inner(vault.path()).unwrap();
+    let docx_bytes = two_h1_docx();
+    let src = dir.join("wikitest.docx");
+    fs::write(&src, &docx_bytes).unwrap();
+
+    let created = office_import_inner(&src, vault.path()).unwrap();
+    let index = created.iter().find(|p| p.file_name().unwrap() == "índice.md").unwrap();
+    let content = fs::read_to_string(index).unwrap();
+    // H1 of document is "wikitest" (stem), wikilinks to the two sections
+    assert!(content.starts_with("# wikitest"), "content={content}");
+    assert!(content.contains("- [[01 - Introducción]]"), "content={content}");
+    assert!(content.contains("- [[02 - Conclusión]]"), "content={content}");
+}

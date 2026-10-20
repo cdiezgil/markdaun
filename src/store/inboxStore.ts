@@ -7,11 +7,14 @@ import {
   inboxImportFiles,
   inboxList,
   inboxListAreas,
+  officeImport,
   voiceRetry,
   inboxSetLastArea,
   type ClipSummary,
   type InboxItem,
 } from '../lib/tauri';
+import { isBatchable } from '../lib/inbox';
+import { useVaultStore } from './vaultStore';
 
 interface InboxState {
   items: InboxItem[];
@@ -20,6 +23,8 @@ interface InboxState {
   loading: boolean;
   /** A URL is being clipped. */
   clipping: boolean;
+  /** A .docx or .pptx is being imported. */
+  importing: boolean;
   error: string | null;
   /** Digestion areas (top-level folders) of the vault. */
   areas: string[];
@@ -39,6 +44,8 @@ interface InboxState {
   clipUrl(url: string, vaultPath: string): Promise<ClipSummary | null>;
   /** Opens the native file picker and copies the chosen files into Entrada/. */
   pickFiles(vaultPath: string): Promise<void>;
+  /** Imports a .docx or .pptx by splitting it into notes. Returns stem and note count on success. */
+  importOffice(item: InboxItem, vaultPath: string): Promise<{ stem: string; count: number } | null>;
 }
 
 export const useInboxStore = create<InboxState>((set, get) => ({
@@ -46,6 +53,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   selected: [],
   loading: false,
   clipping: false,
+  importing: false,
   error: null,
   areas: [],
   lastArea: null,
@@ -90,7 +98,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
 
   toggle(relPath) {
     const item = get().items.find((i) => i.rel_path === relPath);
-    if (!item?.supported) return;
+    if (!item || !isBatchable(item)) return;
     const { selected } = get();
     set({
       selected: selected.includes(relPath) ? selected.filter((p) => p !== relPath) : [...selected, relPath],
@@ -98,7 +106,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   },
 
   selectAll() {
-    set({ selected: get().items.filter((i) => i.supported).map((i) => i.rel_path) });
+    set({ selected: get().items.filter(isBatchable).map((i) => i.rel_path) });
   },
 
   clearSelection() {
@@ -127,6 +135,25 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       return summary;
     } catch (e) {
       set({ clipping: false, error: String(e) });
+      return null;
+    }
+  },
+
+  async importOffice(item, vaultPath) {
+    set({ importing: true, error: null });
+    try {
+      const result = await officeImport(item.path, vaultPath);
+      const stem = item.name.replace(/\.(docx|pptx)$/i, '');
+      // Count section notes (exclude índice.md which is always the last entry).
+      const count = result.notes.filter((n) => !n.endsWith('índice.md')).length;
+      await get().load(vaultPath);
+      // Refresh the vault tree so the new Entrada/<stem>/ directory becomes
+      // visible to the user without requiring a manual navigation.
+      await useVaultStore.getState().refreshTree();
+      set({ importing: false });
+      return { stem, count };
+    } catch (e) {
+      set({ importing: false, error: String(e) });
       return null;
     }
   },

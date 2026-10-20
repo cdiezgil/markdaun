@@ -11,6 +11,7 @@ import {
   inboxList,
   inboxListAreas,
   inboxSetLastArea,
+  officeImport,
   onDigestProgress,
   trashDelete,
   trashList,
@@ -110,5 +111,17 @@ describe('inboxClipUrl', () => {
     mockInvoke.mockResolvedValue({ clipped: true } as never);
     await inboxClipUrl('https://example.com/a', '/v');
     expect(mockInvoke).toHaveBeenCalledWith('inbox_clip_url', { url: 'https://example.com/a', vaultPath: '/v' });
+  });
+});
+
+describe('officeImport', () => {
+  it('TC-19: invokes office_import with the correct args', async () => {
+    mockInvoke.mockResolvedValue(['/v/Entrada/rep/01 - A.md', '/v/Entrada/rep/índice.md'] as never);
+    const result = await officeImport('Entrada/reporte.docx', '/v');
+    expect(mockInvoke).toHaveBeenCalledWith('office_import', {
+      sourcePath: 'Entrada/reporte.docx',
+      vaultPath: '/v',
+    });
+    expect(result.notes).toHaveLength(2);
   });
 });

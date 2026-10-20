@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { useInboxStore } from './inboxStore';
+import { useVaultStore } from './vaultStore';
 import type { InboxItem } from '../lib/tauri';
 
 const mockInvoke = vi.mocked(invoke);
@@ -19,6 +20,8 @@ const item = (name: string, over: Partial<InboxItem> = {}): InboxItem => ({
 beforeEach(() => {
   vi.clearAllMocks();
   useInboxStore.setState({ items: [], selected: [], loading: false, error: null });
+  // Ensure vaultStore has a vaultPath so importOffice can trigger refreshTree.
+  useVaultStore.setState({ vaultPath: '/v' } as never);
 });
 
 describe('inboxStore', () => {
@@ -101,3 +104,42 @@ describe('inboxStore', () => {
     });
   });
 });
+
+  describe('TC-21..TC-23: importOffice', () => {
+    const docxItem = item('reporte.docx', { kind: 'docx' });
+
+    it('TC-21: importOffice calls office_import, reloads the inbox, refreshes the vault tree, and returns stem+count', async () => {
+      useInboxStore.setState({ items: [docxItem], importing: false, error: null } as never);
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'office_import') return ['/v/Entrada/reporte/01 - A.md', '/v/Entrada/reporte/índice.md'];
+        if (cmd === 'inbox_list') return [docxItem];
+        if (cmd === 'list_vault_tree') return [];
+        return undefined;
+      });
+      const result = await useInboxStore.getState().importOffice(docxItem, '/v');
+      expect(mockInvoke).toHaveBeenCalledWith('office_import', {
+        sourcePath: docxItem.path,
+        vaultPath: '/v',
+      });
+      // vault tree must be refreshed so Entrada/<stem>/ becomes visible
+      expect(mockInvoke).toHaveBeenCalledWith('list_vault_tree', { vaultPath: '/v' });
+      expect(useInboxStore.getState().importing).toBe(false);
+      expect(useInboxStore.getState().error).toBeNull();
+      // returns stem derived from filename and note count excluding index
+      expect(result).toEqual({ stem: 'reporte', count: 1 });
+    });
+
+    it('TC-22: importOffice sets error on failure and clears importing flag', async () => {
+      useInboxStore.setState({ items: [docxItem], importing: false, error: null } as never);
+      mockInvoke.mockRejectedValueOnce('invalid_document: boom' as never);
+      await useInboxStore.getState().importOffice(docxItem, '/v');
+      expect(useInboxStore.getState().importing).toBe(false);
+      expect(useInboxStore.getState().error).toBe('invalid_document: boom');
+    });
+
+    it('TC-23: toggle does not select a docx item (not batchable)', () => {
+      useInboxStore.setState({ items: [docxItem], selected: [] });
+      useInboxStore.getState().toggle(docxItem.rel_path);
+      expect(useInboxStore.getState().selected).toEqual([]);
+    });
+  });
