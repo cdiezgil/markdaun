@@ -1,3 +1,4 @@
+use super::vault_index::spawn_vault_sync;
 use crate::db::ConfigDb;
 use crate::git::{
     git_connect_apply_inner, git_connect_preview_inner, git_pull_inner, git_push_inner,
@@ -104,6 +105,8 @@ pub async fn github_connect_apply(
         .set_password(&pat)
         .map_err(|e| format!("keyring_error: {e}"))?;
 
+    spawn_vault_sync(&app, vault_path);
+
     Ok(result)
 }
 
@@ -181,8 +184,12 @@ pub async fn github_pull(app: tauri::AppHandle) -> Result<SyncResult, String> {
         .get_password()
         .map_err(|e| format!("keyring_error: {e}"))?;
 
-    git_pull_inner(Path::new(&vault_path), &repo_url, &pat)
-        .map_err(|e| format!("git_error: {e}"))
+    let result = git_pull_inner(Path::new(&vault_path), &repo_url, &pat)
+        .map_err(|e| format!("git_error: {e}"))?;
+
+    spawn_vault_sync(&app, vault_path);
+
+    Ok(result)
 }
 
 #[tauri::command]
