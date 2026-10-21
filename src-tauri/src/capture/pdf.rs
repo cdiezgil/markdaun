@@ -41,7 +41,7 @@ pub fn extract_pdf_images(bytes: &[u8]) -> Result<Vec<ExtractedImage>, String> {
     let mut result: Vec<ExtractedImage> = Vec::new();
     let mut idx = 0usize;
 
-    for (_id, obj) in &doc.objects {
+    for obj in doc.objects.values() {
         let stream = match obj.as_stream() {
             Ok(s) => s,
             Err(_) => continue,

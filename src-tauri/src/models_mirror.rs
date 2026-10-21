@@ -24,11 +24,9 @@ pub const MIRROR_ASSETS: [(&str, &str); 1] = [
 pub const EMBED_MIRROR_BASE_URL: &str =
     "https://github.com/cdiezgil/markdaun/releases/download/models-v2";
 
-/// `(asset name, sha256)` for the 5 paraphrase-multilingual-MiniLM-L12-v2 files.
-/// TODO: replace the placeholder hashes with real sha256 values computed from
-/// the files downloaded from Qdrant/paraphrase-multilingual-MiniLM-L12-v2 on
-/// Hugging Face **after** publishing the models-v2 GitHub release.
-/// Command to compute: `shasum -a 256 <file>` for each of the 5 files.
+/// `(asset name, sha256)` for the 5 paraphrase-multilingual-MiniLM-L12-v2 files
+/// published in models-v2. Verified 2026-10-21: identical to the release assets
+/// and to Xenova/paraphrase-multilingual-MiniLM-L12-v2 on Hugging Face.
 pub const EMBED_MIRROR_ASSETS: [(&str, &str); 5] = [
     ("paraphrase-multilingual-MiniLM-L12-v2-onnx.model.onnx",             "185ae63f47e17a7e8d30d0e6a3cde6a6e4b79bc5b81666ecffc279a6856ca113"),
     ("paraphrase-multilingual-MiniLM-L12-v2-onnx.tokenizer.json",         "b60b6b43406a48bf3638526314f3d232d97058bc93472ff2de930d43686fa441"),
