@@ -24,6 +24,7 @@ fn ensure_sqlite_vec_loaded() {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct SearchResult {
     pub file_path: String,
     pub content: String,

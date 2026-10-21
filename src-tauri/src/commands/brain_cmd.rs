@@ -178,8 +178,8 @@ pub async fn brain_query_core(
         query_embedding.clone().and_then(|emb| {
             let vec_db = VectorsDb::open(vectors_db_path).map_err(|e| format!("db_error: {e}"))?;
             match filter {
-                None => vec_db.search_similar(vault_path, &emb, 5),
-                Some(keep) => vec_db.search_similar_where(vault_path, &emb, 5, &*keep),
+                None => vec_db.search_similar(vault_path, &emb, 15),
+                Some(keep) => vec_db.search_similar_where(vault_path, &emb, 15, &*keep),
             }
             .map_err(|e| format!("db_error: {e}"))
         })
@@ -192,7 +192,16 @@ pub async fn brain_query_core(
         }))),
     };
     let (results, warning) = match found {
-        Ok(r) => (r, None),
+        Ok(r) => {
+            // Deduplicate: keep at most 2 chunks per file so diverse notes fill the context.
+            // Results are already ordered by similarity (best first).
+            let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+            let deduped: Vec<_> = r.iter().filter(|chunk| {
+                let count = seen.entry(chunk.file_path.as_str()).or_insert(0);
+                if *count < 2 { *count += 1; true } else { false }
+            }).cloned().collect();
+            (deduped, None)
+        }
         Err(detail) => (Vec::new(), Some(format!("notes_context_unavailable: {detail}"))),
     };
 
