@@ -75,6 +75,8 @@ export function InboxView(): JSX.Element {
   const [choosing, setChoosing] = useState<{ list: InboxItem[]; anchor: string } | null>(null);
   /** Item waiting for the user to pick a destination folder before importing. */
   const [destinationFor, setDestinationFor] = useState<InboxItem | null>(null);
+  /** Name of the item currently being imported (for per-row loading feedback). */
+  const [importingName, setImportingName] = useState<string | null>(null);
 
   useEffect(() => {
     void loadLlm();
@@ -317,7 +319,7 @@ export function InboxView(): JSX.Element {
                         opacity: (importing || (it.kind === 'pdf' && noConnection)) ? 0.5 : 1,
                       }}
                     >
-                      Importar
+                      {importingName === it.name ? 'Analizando con IA…' : 'Importar'}
                     </button>
                     {destinationFor?.rel_path === it.rel_path && (
                       <DestinationPicker
@@ -325,10 +327,15 @@ export function InboxView(): JSX.Element {
                         onConfirm={async (destPath) => {
                           setDestinationFor(null);
                           if (!vaultPath) return;
-                          const r = it.kind === 'pdf'
-                            ? await importPdf(it, vaultPath, destPath)
-                            : await importOffice(it, vaultPath, destPath);
-                          if (r) setLastImport(r);
+                          setImportingName(it.name);
+                          try {
+                            const r = it.kind === 'pdf'
+                              ? await importPdf(it, vaultPath, destPath)
+                              : await importOffice(it, vaultPath, destPath);
+                            if (r) setLastImport(r);
+                          } finally {
+                            setImportingName(null);
+                          }
                         }}
                         onClose={() => setDestinationFor(null)}
                       />
