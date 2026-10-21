@@ -5,7 +5,7 @@ use super::testutil::{spawn, MockResponse};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-const REPO_PREFIX: &str = "/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/";
+const REPO_PREFIX: &str = "/Qdrant/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/";
 
 #[test]
 fn download_follows_relative_redirects() {
@@ -224,11 +224,11 @@ fn when_both_sources_fail_the_error_names_both() {
 }
 
 #[test]
-#[ignore = "downloads from the real GitHub release mirror"]
+#[ignore = "downloads from the real GitHub release mirror (models-v2); requires real sha256 in EMBED_MIRROR_ASSETS"]
 fn the_real_mirror_serves_the_expected_bytes() {
-    use crate::models_mirror::{sha256_file, MIRROR_ASSETS};
-    let mirror = Mirror::production();
-    let name = "all-MiniLM-L6-v2-onnx.tokenizer_config.json";
+    use crate::models_mirror::{sha256_file, EMBED_MIRROR_ASSETS};
+    let mirror = crate::models_mirror::Mirror::embed_production();
+    let name = "paraphrase-multilingual-MiniLM-L12-v2-onnx.tokenizer_config.json";
     let url = mirror.url_for(name).unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("tokenizer_config.json");
@@ -236,6 +236,6 @@ fn the_real_mirror_serves_the_expected_bytes() {
     assert!(resp.status().is_success(), "{}", resp.status());
     let mut out = std::fs::File::create(&path).unwrap();
     resp.copy_to(&mut out).unwrap();
-    let expected = MIRROR_ASSETS.iter().find(|(a, _)| *a == name).unwrap().1;
+    let expected = EMBED_MIRROR_ASSETS.iter().find(|(a, _)| *a == name).unwrap().1;
     assert_eq!(sha256_file(&path).unwrap(), expected);
 }
