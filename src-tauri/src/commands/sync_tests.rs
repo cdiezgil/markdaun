@@ -10,6 +10,7 @@
 
 use crate::commands::sync_cmd::{configure_inner, disconnect_inner, get_config_inner};
 use crate::db::ConfigDb;
+use crate::git::sync::ConnectAction;
 use crate::git::ConnectChoice;
 use tempfile::TempDir;
 
@@ -136,5 +137,67 @@ fn disconnect_removes_url_and_pat() {
     assert!(
         after.is_none(),
         "TC-14: github_repo_url must be cleared after disconnect"
+    );
+}
+
+// ─── TC-65: spawn_vault_sync is triggered on successful pull/connect ───────────────
+//
+// spawn_vault_sync requires AppHandle and cannot be unit-tested here.
+// These tests verify the success paths of configure_inner that the Tauri
+// layer builds on (the same paths that trigger spawn_vault_sync in prod).
+
+#[test]
+fn tc_65a_configure_inner_sync_pushes_local_notes_to_empty_remote() {
+    let vault = vault_with_file();
+    let (_remote_dir, remote_url) = bare_remote();
+    let (_db_dir, db_path) = mem_db();
+
+    let result = configure_inner(
+        &db_path,
+        &remote_url,
+        "unused-pat",
+        vault.path().to_str().unwrap(),
+        ConnectChoice::Sync,
+    );
+
+    assert!(result.is_ok(), "TC-65a: configure_inner should succeed");
+    assert_eq!(
+        result.unwrap().action,
+        ConnectAction::Pushed,
+        "TC-65a: local notes pushed to empty remote"
+    );
+}
+
+#[test]
+fn tc_65b_configure_inner_download_clones_remote_into_empty_vault() {
+    // Step 1: populate a bare remote via a first vault.
+    let source_vault = vault_with_file();
+    let (_remote_dir, remote_url) = bare_remote();
+    let (_db_dir1, db_path1) = mem_db();
+    configure_inner(
+        &db_path1,
+        &remote_url,
+        "unused-pat",
+        source_vault.path().to_str().unwrap(),
+        ConnectChoice::Sync,
+    )
+    .expect("TC-65b setup: push to remote");
+
+    // Step 2: download remote into an empty vault.
+    let empty_vault = TempDir::new().unwrap();
+    let (_db_dir2, db_path2) = mem_db();
+    let result = configure_inner(
+        &db_path2,
+        &remote_url,
+        "unused-pat",
+        empty_vault.path().to_str().unwrap(),
+        ConnectChoice::Download,
+    );
+
+    assert!(result.is_ok(), "TC-65b: configure_inner download should succeed");
+    assert_eq!(
+        result.unwrap().action,
+        ConnectAction::Cloned,
+        "TC-65b: remote downloaded into empty vault"
     );
 }
