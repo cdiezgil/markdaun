@@ -1,19 +1,27 @@
-use super::embeddings::{download_model_files, MODEL_DIR, MODEL_FILES};
+use super::embeddings::{download_model_files, HF_MODEL_FILE, MODEL_DIR, MODEL_FILES};
 use crate::models_mirror::Mirror;
 use sha2::{Digest, Sha256};
 use super::testutil::{spawn, MockResponse};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-const REPO_PREFIX: &str = "/Qdrant/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/";
+/// Path prefix for all files in the Xenova HF repo.
+const REPO_PREFIX: &str = "/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/";
+
+/// Translate an HF request path to the **local** model file name.
+/// `onnx/model.onnx` (remote path) → `model.onnx` (local name).
+fn local_name(hf_path: &str) -> &str {
+    if hf_path == HF_MODEL_FILE { "model.onnx" } else { hf_path }
+}
 
 #[test]
 fn download_follows_relative_redirects() {
+    // The mock server redirects `/blob/<hf_path>` → serves content keyed by local name.
     let server = spawn(|req| {
-        if let Some(file) = req.path.strip_prefix(REPO_PREFIX) {
-            MockResponse::redirect(302, &format!("/blob/{file}"))
-        } else if let Some(file) = req.path.strip_prefix("/blob/") {
-            MockResponse::json(200, &format!("content-of-{file}"))
+        if let Some(hf_path) = req.path.strip_prefix(REPO_PREFIX) {
+            MockResponse::redirect(302, &format!("/blob/{hf_path}"))
+        } else if let Some(hf_path) = req.path.strip_prefix("/blob/") {
+            MockResponse::json(200, &format!("content-of-{}", local_name(hf_path)))
         } else {
             MockResponse::json(404, "")
         }
@@ -62,8 +70,9 @@ fn download_refetches_only_missing_or_empty_files() {
     download_model_files(&server.url, &Mirror::none(), tmp.path()).unwrap();
 
     let paths: Vec<String> = server.requests().into_iter().map(|r| r.path).collect();
+    // model.onnx is cached → neither "model.onnx" nor "onnx/model.onnx" should appear.
     assert_eq!(paths.len(), MODEL_FILES.len() - 1, "model.onnx is skipped: {paths:?}");
-    assert!(!paths.iter().any(|p| p.ends_with("model.onnx")));
+    assert!(!paths.iter().any(|p| p.contains("model.onnx")));
     assert_eq!(std::fs::read_to_string(dir.join("tokenizer.json")).unwrap(), "fresh");
     assert_eq!(std::fs::read_to_string(dir.join("model.onnx")).unwrap(), "cached");
 }
@@ -125,8 +134,9 @@ fn mirror_for(url: &str) -> Mirror {
     Mirror::new(url, MODEL_FILES.iter().map(|f| (asset(f), sha(content(f).as_bytes()))).collect())
 }
 
+/// Returns the **local** file name for an HF request path, or None if unrecognised.
 fn hf_file(path: &str) -> Option<&str> {
-    path.strip_prefix(REPO_PREFIX)
+    path.strip_prefix(REPO_PREFIX).map(local_name)
 }
 
 fn no_part_files(dir: &std::path::Path) {
@@ -171,6 +181,7 @@ fn falls_back_when_hugging_face_is_unreachable_or_empty() {
 
 #[test]
 fn the_mirror_is_untouched_when_hugging_face_works() {
+    // hf_file() already normalises onnx/model.onnx → model.onnx.
     let hf = spawn(|req| MockResponse::json(200, &content(hf_file(&req.path).unwrap())));
     let mirror = spawn(|_| MockResponse::json(200, "from-mirror"));
     let tmp = tempfile::tempdir().unwrap();

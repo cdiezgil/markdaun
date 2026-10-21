@@ -17,15 +17,21 @@ pub enum EmbeddingError {
 /// Hugging Face host used in production; tests inject a local server instead.
 pub const HF_BASE_URL: &str = "https://huggingface.co";
 /// Repo path (under the base URL) holding the ONNX export of
-/// paraphrase-multilingual-MiniLM-L12-v2.
-const HF_REPO_PATH: &str = "Qdrant/paraphrase-multilingual-MiniLM-L12-v2/resolve/main";
+/// paraphrase-multilingual-MiniLM-L12-v2 (Xenova's ONNX conversion).
+const HF_REPO_PATH: &str = "Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main";
+/// Remote path of the ONNX model file inside the HuggingFace repo.
+/// Xenova exports place the model under `onnx/` while all other files sit at root.
+pub const HF_MODEL_FILE: &str = "onnx/model.onnx";
 /// Sub-directory of the cache dir that holds the model files.
 pub const MODEL_DIR: &str = "paraphrase-multilingual-MiniLM-L12-v2-onnx";
 /// Identifier stored in `config.db` under the key `"embed_model"` to record
 /// which model generated the current embeddings. Absence of this key
 /// (or a different value) triggers a full re-index on startup.
 pub const EMBED_MODEL_ID: &str = "paraphrase-multilingual-MiniLM-L12-v2";
-/// Files fastembed needs to build the model from user-defined bytes.
+/// Files (local name) fastembed needs to build the model from user-defined bytes.
+/// Note: `model.onnx` lives under `onnx/model.onnx` in the HF repo; the
+/// download function uses `HF_MODEL_FILE` for the remote path and saves it
+/// locally as `model.onnx`.
 pub const MODEL_FILES: [&str; 5] = [
     "model.onnx",
     "tokenizer.json",
@@ -61,7 +67,9 @@ pub fn download_model_files(base_url: &str, mirror: &Mirror, cache_dir: &Path) -
         let part = dir.join(format!("{file}.part"));
         let asset = format!("{MODEL_DIR}.{file}");
         let expected = mirror.sha256_for(&asset);
-        let hf_url = format!("{}/{HF_REPO_PATH}/{file}", base_url.trim_end_matches('/'));
+        // `model.onnx` lives under the `onnx/` sub-directory in the Xenova HF repo.
+        let hf_file = if file == "model.onnx" { HF_MODEL_FILE } else { file };
+        let hf_url = format!("{}/{HF_REPO_PATH}/{hf_file}", base_url.trim_end_matches('/'));
         let result = fetch_verified(&client, &hf_url, &part, file, expected).or_else(|hf_err| {
             let Some(mirror_url) = mirror.url_for(&asset) else { return Err(hf_err) };
             fetch_verified(&client, &mirror_url, &part, file, expected).map_err(|mirror_err| {
