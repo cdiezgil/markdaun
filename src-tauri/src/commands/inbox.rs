@@ -835,7 +835,7 @@ pub async fn pdf_import(
     assert_within_vault(&abs_dest, vault)?;
 
     // Read and extract text from the PDF
-    let bytes = std::fs::read(&abs_source).map_err(|e| format!("io_error: {e}"))?;
+    let bytes = std::fs::read(abs_source).map_err(|e| format!("io_error: {e}"))?;
     let raw_text = extract_pdf_text(&bytes)?;
 
     // Extract images (non-fatal: we keep going even if image extraction fails)
@@ -875,7 +875,7 @@ pub async fn pdf_import(
     }
 
     // Write files
-    let created = pdf_import_inner(&abs_source, vault, &abs_dest, blocks, images)?;
+    let created = pdf_import_inner(abs_source, vault, &abs_dest, blocks, images)?;
 
     let created_strings: Vec<String> = created
         .iter()

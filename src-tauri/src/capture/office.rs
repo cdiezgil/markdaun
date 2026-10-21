@@ -57,10 +57,10 @@ fn heading_level_of_line(line: &str) -> Option<usize> {
     }
 }
 
-fn flush_section<'a>(
+fn flush_section(
     sections: &mut Vec<Section>,
     current_title: &mut Option<String>,
-    current_lines: &mut Vec<&'a str>,
+    current_lines: &mut Vec<&str>,
 ) {
     let text = current_lines.join("\n");
     match current_title.take() {
@@ -101,7 +101,7 @@ pub(crate) fn split_markdown_by_headings(md: &str) -> (Vec<Section>, usize) {
         if heading_level_of_line(line) == Some(cut_level) {
             flush_section(&mut sections, &mut current_title, &mut current_lines);
             let after_hashes = &line[cut_level..];
-            let title_text = if after_hashes.starts_with(' ') { &after_hashes[1..] } else { after_hashes };
+            let title_text = after_hashes.strip_prefix(' ').unwrap_or(after_hashes);
             let title = title_text.trim().to_string();
             let title = if title.is_empty() { "Sin título".to_string() } else { title };
             current_title = Some(title);
