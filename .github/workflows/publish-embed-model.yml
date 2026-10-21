@@ -25,9 +25,12 @@ jobs:
 
       - name: Download model files from HuggingFace
         run: |
-          HF="https://huggingface.co/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx/resolve/main"
+          # Xenova's ONNX export: model is under onnx/ subdirectory, other files at root.
+          HF="https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main"
           mkdir -p /tmp/model
-          for f in model.onnx tokenizer.json config.json special_tokens_map.json tokenizer_config.json; do
+          echo "Downloading model.onnx …"
+          curl -fL --retry 3 -o "/tmp/model/model.onnx" "$HF/onnx/model.onnx"
+          for f in tokenizer.json config.json special_tokens_map.json tokenizer_config.json; do
             echo "Downloading $f …"
             curl -fL --retry 3 -o "/tmp/model/$f" "$HF/$f"
           done
@@ -110,4 +113,3 @@ jobs:
           echo "| config.json | \`${{ steps.hashes.outputs.config_json }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| special_tokens_map.json | \`${{ steps.hashes.outputs.special_tokens }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| tokenizer_config.json | \`${{ steps.hashes.outputs.tokenizer_config }}\` |" >> $GITHUB_STEP_SUMMARY
-
