@@ -7,19 +7,34 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::Path;
 
-/// Release that hosts the mirrored assets. Publish a new `models-vN` release
-/// (see AGENTS.md) and bump this URL when the files change.
+/// Release that hosts the mirrored Whisper assets (unchanged since models-v1).
 pub const MIRROR_BASE_URL: &str = "https://github.com/cdiezgil/markdaun/releases/download/models-v1";
 
-/// `(asset name, sha256)` of every mirrored file. The `small` Whisper model is
-/// deliberately absent: it is Hugging Face only.
-pub const MIRROR_ASSETS: [(&str, &str); 6] = [
+/// `(asset name, sha256)` of every Whisper file in models-v1.
+/// The `small` Whisper model is deliberately absent: it is Hugging Face only.
+/// The old MiniLM-L6-v2 entries have been removed; they are superseded by
+/// `EMBED_MIRROR_ASSETS` / `EMBED_MIRROR_BASE_URL` pointing at models-v2.
+pub const MIRROR_ASSETS: [(&str, &str); 1] = [
     ("ggml-large-v3-turbo-q5_0.bin", "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"),
-    ("all-MiniLM-L6-v2-onnx.model.onnx", "bbd7b466f6d58e646fdc2bd5fd67b2f5e93c0b687011bd4548c420f7bd46f0c5"),
-    ("all-MiniLM-L6-v2-onnx.tokenizer.json", "851ca67100d372ca3ae031a6abd168f53489eebfd7d89523f35c5c9b4d372c3c"),
-    ("all-MiniLM-L6-v2-onnx.config.json", "1b4d8e2a3988377ed8b519a31d8d31025a25f1c5f8606998e8014111438efcd7"),
-    ("all-MiniLM-L6-v2-onnx.special_tokens_map.json", "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a"),
-    ("all-MiniLM-L6-v2-onnx.tokenizer_config.json", "abda01c8c14c5151ae498aceb30db406d6b91242c394fd88d3b6fd5a63a101e6"),
+];
+
+/// Release that hosts the new paraphrase-multilingual-MiniLM-L12-v2 ONNX export.
+/// Publish a `models-v2` release (see AGENTS.md §2.6) and update
+/// `EMBED_MIRROR_ASSETS` with the sha256 of the uploaded assets.
+pub const EMBED_MIRROR_BASE_URL: &str =
+    "https://github.com/cdiezgil/markdaun/releases/download/models-v2";
+
+/// `(asset name, sha256)` for the 5 paraphrase-multilingual-MiniLM-L12-v2 files.
+/// TODO: replace the placeholder hashes with real sha256 values computed from
+/// the files downloaded from Qdrant/paraphrase-multilingual-MiniLM-L12-v2 on
+/// Hugging Face **after** publishing the models-v2 GitHub release.
+/// Command to compute: `shasum -a 256 <file>` for each of the 5 files.
+pub const EMBED_MIRROR_ASSETS: [(&str, &str); 5] = [
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.model.onnx",             "185ae63f47e17a7e8d30d0e6a3cde6a6e4b79bc5b81666ecffc279a6856ca113"),
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.tokenizer.json",         "b60b6b43406a48bf3638526314f3d232d97058bc93472ff2de930d43686fa441"),
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.config.json",            "05b570bff786faa5c4604152aa16f19f77ed6dfc31e47dd0f3dd987078693ac7"),
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.special_tokens_map.json","06e405a36dfe4b9604f484f6a1e619af1a7f7d09e34a8555eb0b77b66318067f"),
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.tokenizer_config.json",  "3f5961b9ac86288cccdb97f32fb848d6187c78e1603958c53f3ea1f296b7d8a2"),
 ];
 
 /// A mirror base URL plus the known hash of each of its assets. Injectable so
@@ -33,6 +48,15 @@ pub struct Mirror {
 impl Mirror {
     pub fn production() -> Self {
         Self::new(MIRROR_BASE_URL, MIRROR_ASSETS.iter().map(|(a, h)| (a.to_string(), h.to_string())).collect())
+    }
+
+    /// Mirror for the paraphrase-multilingual-MiniLM-L12-v2 ONNX model assets
+    /// hosted in the models-v2 GitHub release.
+    pub fn embed_production() -> Self {
+        Self::new(
+            EMBED_MIRROR_BASE_URL,
+            EMBED_MIRROR_ASSETS.iter().map(|(a, h)| (a.to_string(), h.to_string())).collect(),
+        )
     }
 
     /// No mirror and no known hashes (downloads are unverified unless the host
