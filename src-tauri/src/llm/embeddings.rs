@@ -16,10 +16,15 @@ pub enum EmbeddingError {
 
 /// Hugging Face host used in production; tests inject a local server instead.
 pub const HF_BASE_URL: &str = "https://huggingface.co";
-/// Repo path (under the base URL) holding the ONNX export of all-MiniLM-L6-v2.
-const HF_REPO_PATH: &str = "Qdrant/all-MiniLM-L6-v2-onnx/resolve/main";
+/// Repo path (under the base URL) holding the ONNX export of
+/// paraphrase-multilingual-MiniLM-L12-v2.
+const HF_REPO_PATH: &str = "Qdrant/paraphrase-multilingual-MiniLM-L12-v2/resolve/main";
 /// Sub-directory of the cache dir that holds the model files.
-pub const MODEL_DIR: &str = "all-MiniLM-L6-v2-onnx";
+pub const MODEL_DIR: &str = "paraphrase-multilingual-MiniLM-L12-v2-onnx";
+/// Identifier stored in `config.db` under the key `"embed_model"` to record
+/// which model generated the current embeddings. Absence of this key
+/// (or a different value) triggers a full re-index on startup.
+pub const EMBED_MODEL_ID: &str = "paraphrase-multilingual-MiniLM-L12-v2";
 /// Files fastembed needs to build the model from user-defined bytes.
 pub const MODEL_FILES: [&str; 5] = [
     "model.onnx",
@@ -122,7 +127,7 @@ fn fetch_to(
 /// Load the `AllMiniLML6V2` embedding model, caching ONNX artifacts in `cache_dir`.
 /// First call requires internet access (~90 MB download).
 pub fn load_model(cache_dir: &Path) -> Result<fastembed::TextEmbedding, EmbeddingError> {
-    load_model_from(HF_BASE_URL, &Mirror::production(), cache_dir)
+    load_model_from(HF_BASE_URL, &Mirror::embed_production(), cache_dir)
 }
 
 /// Like [`load_model`] with an injectable download host.

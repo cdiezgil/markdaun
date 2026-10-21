@@ -354,3 +354,102 @@ fn tc_62i_reindex_folder_core_with_vault_root_indexes_all_notes() {
     files.sort();
     assert_eq!(files, vec!["a.md", "dir/b.md", "dir/sub/c.md"]);
 }
+
+// ─── TC-69: embedding model migration ─────────────────────────────────────────
+
+use crate::db::ConfigDb;
+use crate::llm::embeddings::EMBED_MODEL_ID;
+
+/// Helper: open (or create) a ConfigDb at `path`.
+fn open_cfg(path: &Path) -> ConfigDb {
+    ConfigDb::open(path).expect("ConfigDb::open")
+}
+
+#[test]
+fn tc_69a_check_and_clear_migrates_when_embed_model_key_absent() {
+    let db_dir = tempfile::tempdir().unwrap();
+    let vdb_dir = tempfile::tempdir().unwrap();
+    let cache_dir = tempfile::tempdir().unwrap();
+
+    let db_path = db_dir.path().join("config.db");
+    let vdb_path = vdb_dir.path().join("vectors.db");
+    let old_dir = cache_dir.path().join(OLD_MODEL_DIR);
+
+    // Preconditions: vectors.db exists with data; old model dir exists; embed_model key absent
+    std::fs::write(&vdb_path, b"some data").unwrap();
+    std::fs::create_dir_all(&old_dir).unwrap();
+    // Touch a file in the old model dir
+    std::fs::write(old_dir.join("model.onnx"), b"weights").unwrap();
+
+    // config.db is created on first open; embed_model key is absent by default
+    let _ = open_cfg(&db_path);
+
+    let migrated = check_and_clear_embedding_index(&db_path, &vdb_path, cache_dir.path());
+
+    assert!(migrated, "TC-69a: should return true when embed_model key is absent");
+    assert!(!vdb_path.exists(), "TC-69a: vectors.db must be deleted after migration");
+    assert!(!old_dir.exists(), "TC-69a: old model dir must be deleted after migration");
+
+    let value = open_cfg(&db_path).get("embed_model").unwrap();
+    assert_eq!(
+        value.as_deref(),
+        Some(EMBED_MODEL_ID),
+        "TC-69a: embed_model key must be set to EMBED_MODEL_ID"
+    );
+}
+
+#[test]
+fn tc_69b_check_and_clear_migrates_when_embed_model_key_has_old_value() {
+    let db_dir = tempfile::tempdir().unwrap();
+    let vdb_dir = tempfile::tempdir().unwrap();
+    let cache_dir = tempfile::tempdir().unwrap();
+
+    let db_path = db_dir.path().join("config.db");
+    let vdb_path = vdb_dir.path().join("vectors.db");
+    let old_dir = cache_dir.path().join(OLD_MODEL_DIR);
+
+    // Preconditions: old model value, vectors.db exists
+    std::fs::write(&vdb_path, b"old embeddings").unwrap();
+    std::fs::create_dir_all(&old_dir).unwrap();
+
+    let cfg = open_cfg(&db_path);
+    cfg.set("embed_model", "all-MiniLM-L6-v2").unwrap();
+    drop(cfg);
+
+    let migrated = check_and_clear_embedding_index(&db_path, &vdb_path, cache_dir.path());
+
+    assert!(migrated, "TC-69b: should return true when embed_model has an old value");
+    assert!(!vdb_path.exists(), "TC-69b: vectors.db must be deleted");
+    assert!(!old_dir.exists(), "TC-69b: old model dir must be deleted");
+
+    let value = open_cfg(&db_path).get("embed_model").unwrap();
+    assert_eq!(
+        value.as_deref(),
+        Some(EMBED_MODEL_ID),
+        "TC-69b: embed_model must be updated to EMBED_MODEL_ID"
+    );
+}
+
+#[test]
+fn tc_69c_check_and_clear_is_noop_when_model_already_current() {
+    let db_dir = tempfile::tempdir().unwrap();
+    let vdb_dir = tempfile::tempdir().unwrap();
+    let cache_dir = tempfile::tempdir().unwrap();
+
+    let db_path = db_dir.path().join("config.db");
+    let vdb_path = vdb_dir.path().join("vectors.db");
+
+    // Precondition: embed_model already set to EMBED_MODEL_ID
+    std::fs::write(&vdb_path, b"current embeddings").unwrap();
+    let cfg = open_cfg(&db_path);
+    cfg.set("embed_model", EMBED_MODEL_ID).unwrap();
+    drop(cfg);
+
+    let migrated = check_and_clear_embedding_index(&db_path, &vdb_path, cache_dir.path());
+
+    assert!(!migrated, "TC-69c: should return false when embed_model is already current");
+    assert!(
+        vdb_path.exists(),
+        "TC-69c: vectors.db must NOT be deleted when no migration is needed"
+    );
+}

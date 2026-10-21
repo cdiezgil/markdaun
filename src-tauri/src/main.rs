@@ -45,7 +45,14 @@ fn main() {
         .setup(|app| {
             use tauri::Manager;
             commands::run_startup_migration(app.handle());
-            commands::sync_active_vault_index(app.handle());
+            // Detect a model change: clear stale vectors.db and spawn re-index.
+            // If a migration happened, run_embedding_migration already called
+            // spawn_vault_sync, so skip sync_active_vault_index to avoid a
+            // redundant concurrent acquisition of the same IndexLock.
+            let migrated = commands::run_embedding_migration(app.handle());
+            if !migrated {
+                commands::sync_active_vault_index(app.handle());
+            }
             capture::tray::build(app.handle())?;
             if let Ok(db) = commands::brain_cmd::app_db_path(app.handle()) {
                 let registrar = commands::quick_cmd::PluginRegistrar(app.handle().clone());

@@ -2,7 +2,10 @@
 //! the note listing injected into the chat prompt. The embedder is injected
 //! (`EmbedFn`) so the logic is testable without the ONNX model.
 
-use crate::commands::brain_cmd::{model_cache_dir, vectors_db_path, IndexProgress, INDEX_PROGRESS_EVENT};
+use crate::commands::brain_cmd::{app_db_path, model_cache_dir, vectors_db_path, IndexProgress, INDEX_PROGRESS_EVENT};
+use crate::commands::vault::get_active_vault_inner;
+use crate::db::ConfigDb;
+use crate::llm::embeddings::EMBED_MODEL_ID;
 use crate::capture::office::{extract_office, is_office_name};
 use crate::db::{Fingerprint, VectorsDb};
 use crate::llm::{chunk_text, embed_text, load_model, EmbedderState};
@@ -408,4 +411,62 @@ pub fn spawn_index_update(app: &tauri::AppHandle, vault_path: String, removed: V
             Ok(Ok(())) => {}
         }
     });
+}
+
+// ─── Embedding model migration ───────────────────────────────────────────────
+
+/// Directory name of the superseded embedding model kept in the fastembed cache.
+/// The migration removes this directory so the old ONNX weights are not kept.
+pub const OLD_MODEL_DIR: &str = "all-MiniLM-L6-v2-onnx";
+
+/// Check whether `config.db[\"embed_model\"]` matches [`EMBED_MODEL_ID`].
+///
+/// * If it does → return `false` (no action needed).
+/// * If it does not (or is missing) → delete `vdb_path`, delete
+///   `<cache_dir>/OLD_MODEL_DIR`, write the new key, return `true`.
+///
+/// This function is pure (no `AppHandle`) so it can be called from tests.
+pub(crate) fn check_and_clear_embedding_index(
+    db_path: &Path,
+    vdb_path: &Path,
+    cache_dir: &Path,
+) -> bool {
+    let Ok(cfg) = ConfigDb::open(db_path) else { return false };
+    if cfg.get("embed_model").ok().flatten().as_deref() == Some(EMBED_MODEL_ID) {
+        return false; // already up-to-date
+    }
+
+    // Clear vectors.db (will be recreated empty on next open).
+    let _ = std::fs::remove_file(vdb_path);
+
+    // Delete old model files from the fastembed cache.
+    let old_dir = cache_dir.join(OLD_MODEL_DIR);
+    let _ = std::fs::remove_dir_all(&old_dir);
+
+    // Record the new model ID; best-effort (log on error, never fatal).
+    if let Err(e) = cfg.set("embed_model", EMBED_MODEL_ID) {
+        eprintln!("[embed_migration] cannot write embed_model key: {e}");
+    }
+
+    true
+}
+
+/// Called once at app startup (before `sync_active_vault_index`).
+///
+/// Detects a stale embedding index (different model than [`EMBED_MODEL_ID`]),
+/// clears it, spawns a full vault re-index, and returns `true`.
+/// Returns `false` when no migration was needed (common case after the first run).
+pub fn run_embedding_migration(app: &tauri::AppHandle) -> bool {
+    let Ok(db_path) = app_db_path(app) else { return false };
+    let Ok(vdb_path) = vectors_db_path(app) else { return false };
+    let Ok(cache_dir) = model_cache_dir(app) else { return false };
+
+    if !check_and_clear_embedding_index(&db_path, &vdb_path, &cache_dir) {
+        return false;
+    }
+
+    // Re-index the active vault in the background.
+    let Ok(Some(vault)) = get_active_vault_inner(&db_path) else { return true };
+    spawn_vault_sync(app, vault);
+    true
 }
