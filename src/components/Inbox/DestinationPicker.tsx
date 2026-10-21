@@ -199,10 +199,10 @@ export function DestinationPicker({ folders, onConfirm, onClose }: DestinationPi
         top: '100%',
         zIndex: 10,
         minWidth: 260,
-        maxHeight: 400,
-        overflowY: 'auto',
+        maxHeight: 440,
+        display: 'flex',
+        flexDirection: 'column',
         marginTop: 'var(--space-1)',
-        padding: 'var(--space-2)',
         background: 'var(--surface)',
         border: '1px solid var(--line)',
         borderRadius: 'var(--radius-md)',
@@ -210,57 +210,61 @@ export function DestinationPicker({ folders, onConfirm, onClose }: DestinationPi
         outline: 'none',
       }}
     >
+      {/* Header — fixed */}
       <div
         style={{
-          padding: 'var(--space-1) var(--space-3)',
+          padding: 'var(--space-2) var(--space-3) var(--space-1)',
           fontFamily: 'var(--font-sans)',
           fontSize: 12,
           color: 'var(--ink-muted)',
-          marginBottom: 'var(--space-1)',
+          flexShrink: 0,
         }}
       >
         ¿En qué carpeta importar?
       </div>
 
-      {/* Vault root option */}
-      <button
-        data-testid="dest-root"
-        onClick={() => setSelected('')}
-        style={{
-          ...ROW_BASE,
-          gap: 'var(--space-2)',
-          padding: 'var(--space-1) var(--space-3)',
-          marginBottom: 'var(--space-1)',
-          justifyContent: 'flex-start',
-          background: selected === '' ? 'var(--selection)' : 'transparent',
-        }}
-      >
-        <Folder size={14} strokeWidth={1.5} color={selected === '' ? 'var(--daun)' : 'var(--ink-muted)'} />
-        <span style={{ color: selected === '' ? 'var(--daun)' : 'var(--ink)' }}>Bóveda (raíz)</span>
-      </button>
+      {/* Scrollable tree area */}
+      <div style={{ overflowY: 'auto', flex: 1, padding: '0 var(--space-2)' }}>
+        {/* Vault root option */}
+        <button
+          data-testid="dest-root"
+          onClick={() => setSelected('')}
+          style={{
+            ...ROW_BASE,
+            gap: 'var(--space-2)',
+            padding: 'var(--space-1) var(--space-3)',
+            marginBottom: 'var(--space-1)',
+            justifyContent: 'flex-start',
+            background: selected === '' ? 'var(--selection)' : 'transparent',
+          }}
+        >
+          <Folder size={14} strokeWidth={1.5} color={selected === '' ? 'var(--daun)' : 'var(--ink-muted)'} />
+          <span style={{ color: selected === '' ? 'var(--daun)' : 'var(--ink)' }}>Bóveda (raíz)</span>
+        </button>
 
-      {/* Folder tree */}
-      {tree.map((node) => (
-        <TreeRow
-          key={node.path}
-          node={node}
-          depth={0}
-          expanded={expanded}
-          selected={selected}
-          onToggle={toggle}
-          onSelect={handleSelect}
-        />
-      ))}
+        {/* Folder tree */}
+        {tree.map((node) => (
+          <TreeRow
+            key={node.path}
+            node={node}
+            depth={0}
+            expanded={expanded}
+            selected={selected}
+            onToggle={toggle}
+            onSelect={handleSelect}
+          />
+        ))}
+      </div>
 
-      {/* Action buttons */}
+      {/* Action buttons — sticky footer, always visible */}
       <div
         style={{
           display: 'flex',
           gap: 'var(--space-2)',
           justifyContent: 'flex-end',
-          marginTop: 'var(--space-3)',
-          paddingTop: 'var(--space-2)',
+          padding: 'var(--space-2) var(--space-3)',
           borderTop: '1px solid var(--line)',
+          flexShrink: 0,
         }}
       >
         <button

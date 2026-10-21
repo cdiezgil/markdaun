@@ -682,19 +682,22 @@ fn llm_err_inbox(e: LlmError) -> String {
 /// Build the two-message conversation that asks the LLM to split a PDF's text
 /// into `markdaun-note` sections.
 pub fn build_pdf_import_messages(text: &str, stem: &str) -> Vec<ChatMessage> {
-    let system = "Eres un asistente que divide el texto de un PDF en notas de conocimiento \
-        en Markdown.\n\
-        Divide el texto en secciones temáticas coherentes. Para cada sección devuelve un \
-        bloque en este formato exacto (sin texto adicional fuera de los bloques):\n\
-        ```markdaun-note path=\"01 - Título.md\" mode=\"create\"\n\
-        # Título de la sección\n\
-        Contenido en Markdown...\n\
+    let system = "Divide el texto de un documento en notas de conocimiento en Markdown.\n\
+        Reglas:\n\
+        1. Identifica las secciones temáticas principales del texto.\n\
+        2. Para cada sección, genera EXACTAMENTE un bloque con este formato (respeta las comillas dobles):\n\
+        \n\
+        ```markdaun-note path=\"01 - Nombre de la sección.md\" mode=\"create\"\n\
+        # Nombre de la sección\n\
+        Contenido de la sección en Markdown limpio.\n\
         ```\n\
-        Numera correlativamente (01, 02...). El path es solo el nombre de fichero, sin \
-        carpetas, terminado en .md. Si el texto es corto o sin divisiones claras, \
-        devuelve una única sección."
+        \n\
+        3. Numera los paths correlativamente: 01, 02, 03...\n\
+        4. El path contiene SOLO el nombre de fichero (sin carpetas) terminado en .md.\n\
+        5. Escribe SOLO los bloques, sin texto introductorio ni explicaciones.\n\
+        6. Si el texto es corto o de un solo tema, devuelve un único bloque."
         .to_string();
-    let user = format!("Documento: «{stem}»\n\n{text}");
+    let user = format!("Documento: {stem}\n\n---\n\n{text}");
     vec![
         ChatMessage::text("system", system),
         ChatMessage::text("user", user),
@@ -779,8 +782,30 @@ pub fn pdf_import_inner(
     Ok(created)
 }
 
-/// Maximum characters of PDF text sent to the LLM in one request.
-const PDF_TEXT_LIMIT: usize = 50_000;
+/// Maximum characters of cleaned PDF text sent to the LLM in one request.
+const PDF_TEXT_LIMIT: usize = 30_000;
+
+/// Remove lopdf extraction noise: standalone page numbers, dot-leader lines,
+/// repeated whitespace-only lines, and lines shorter than 3 non-space chars.
+fn clean_pdf_text(raw: &str) -> String {
+    let mut out = Vec::new();
+    let mut blank_run = 0usize;
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        // Skip: empty, dot leaders, standalone numbers (page numbers)
+        let non_dot_non_space: String = trimmed.chars().filter(|c| !matches!(c, '.' | ' ' | '\t')).collect();
+        if trimmed.is_empty() {
+            blank_run += 1;
+            if blank_run <= 1 { out.push("".to_string()); }
+            continue;
+        }
+        blank_run = 0;
+        if non_dot_non_space.is_empty() { continue; }       // only dots/spaces
+        if non_dot_non_space.len() <= 2 && non_dot_non_space.chars().all(|c| c.is_ascii_digit()) { continue; } // page number
+        out.push(trimmed.to_string());
+    }
+    out.join("\n")
+}
 
 /// Tauri command: import a `.pdf` from the inbox using the active LLM to
 /// split it into sections (one note per section).
@@ -816,12 +841,13 @@ pub async fn pdf_import(
     // Extract images (non-fatal: we keep going even if image extraction fails)
     let images = extract_pdf_images(&bytes).unwrap_or_default();
 
-    // Truncate to avoid exceeding LLM context limits
-    let text = if raw_text.chars().count() > PDF_TEXT_LIMIT {
-        let truncated: String = raw_text.chars().take(PDF_TEXT_LIMIT).collect();
+    // Clean extraction noise then truncate to avoid exceeding LLM context limits
+    let cleaned = clean_pdf_text(&raw_text);
+    let text = if cleaned.chars().count() > PDF_TEXT_LIMIT {
+        let truncated: String = cleaned.chars().take(PDF_TEXT_LIMIT).collect();
         format!("{truncated}\n\n[Texto truncado]")
     } else {
-        raw_text
+        cleaned
     };
 
     // Derive stem for the section prompt
@@ -836,7 +862,17 @@ pub async fn pdf_import(
         .await
         .map_err(llm_err_inbox)?;
 
-    let blocks = parse_note_blocks(&answer);
+    let mut blocks = parse_note_blocks(&answer);
+
+    // Fallback: if the LLM didn't use markdaun-note format but returned content,
+    // wrap the entire answer as a single note so the import doesn't fail.
+    if blocks.is_empty() && !answer.trim().is_empty() {
+        blocks.push(NoteBlock {
+            path: format!("01 - {stem}.md"),
+            mode: "create".to_string(),
+            content: answer.trim().to_string(),
+        });
+    }
 
     // Write files
     let created = pdf_import_inner(&abs_source, vault, &abs_dest, blocks, images)?;
