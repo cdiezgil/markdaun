@@ -1,0 +1,112 @@
+name: Publish embedding model (models-v2)
+
+# One-shot workflow: downloads paraphrase-multilingual-MiniLM-L12-v2 ONNX files
+# from HuggingFace (runners are not on the corporate network), creates the
+# models-v2 GitHub release, and patches the sha256 placeholders in models_mirror.rs
+# on the agents/69-multilingual-embeddings branch.
+#
+# Run once from Actions → "Publish embedding model (models-v2)" → Run workflow.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agents/69-multilingual-embeddings
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download model files from HuggingFace
+        run: |
+          HF="https://huggingface.co/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx/resolve/main"
+          mkdir -p /tmp/model
+          for f in model.onnx tokenizer.json config.json special_tokens_map.json tokenizer_config.json; do
+            echo "Downloading $f …"
+            curl -fL --retry 3 -o "/tmp/model/$f" "$HF/$f"
+          done
+
+      - name: Compute sha256 hashes
+        id: hashes
+        run: |
+          cd /tmp/model
+          sha256sum model.onnx tokenizer.json config.json special_tokens_map.json tokenizer_config.json | tee /tmp/sha256sums.txt
+
+          # Export each hash as a step output
+          echo "model_onnx=$(sha256sum model.onnx | awk '{print $1}')"           >> $GITHUB_OUTPUT
+          echo "tokenizer_json=$(sha256sum tokenizer.json | awk '{print $1}')"   >> $GITHUB_OUTPUT
+          echo "config_json=$(sha256sum config.json | awk '{print $1}')"         >> $GITHUB_OUTPUT
+          echo "special_tokens=$(sha256sum special_tokens_map.json | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "tokenizer_config=$(sha256sum tokenizer_config.json | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Rename assets with model prefix
+        run: |
+          cd /tmp/model
+          PREFIX="paraphrase-multilingual-MiniLM-L12-v2-onnx"
+          mv model.onnx             "${PREFIX}.model.onnx"
+          mv tokenizer.json         "${PREFIX}.tokenizer.json"
+          mv config.json            "${PREFIX}.config.json"
+          mv special_tokens_map.json "${PREFIX}.special_tokens_map.json"
+          mv tokenizer_config.json  "${PREFIX}.tokenizer_config.json"
+
+      - name: Delete existing models-v2 release (if any)
+        run: |
+          gh release delete models-v2 --repo ${{ github.repository }} --yes 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create models-v2 release and upload assets
+        run: |
+          PREFIX="paraphrase-multilingual-MiniLM-L12-v2-onnx"
+          cd /tmp/model
+          gh release create models-v2 \
+            --repo ${{ github.repository }} \
+            --title "Models v2 (multilingual embeddings)" \
+            --notes "$(cat /tmp/sha256sums.txt)" \
+            "${PREFIX}.model.onnx" \
+            "${PREFIX}.tokenizer.json" \
+            "${PREFIX}.config.json" \
+            "${PREFIX}.special_tokens_map.json" \
+            "${PREFIX}.tokenizer_config.json"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch sha256 placeholders in models_mirror.rs
+        run: |
+          PLACEHOLDER="TODO_replace_with_real_sha256_after_publishing_models_v2_release_____"
+          PREFIX="paraphrase-multilingual-MiniLM-L12-v2-onnx"
+          FILE="src-tauri/src/models_mirror.rs"
+
+          sed -i "s|\"${PREFIX}.model.onnx\",             \"${PLACEHOLDER}\"|\"${PREFIX}.model.onnx\",             \"${{ steps.hashes.outputs.model_onnx }}\"|g" "$FILE"
+          sed -i "s|\"${PREFIX}.tokenizer.json\",         \"${PLACEHOLDER}\"|\"${PREFIX}.tokenizer.json\",         \"${{ steps.hashes.outputs.tokenizer_json }}\"|g" "$FILE"
+          sed -i "s|\"${PREFIX}.config.json\",            \"${PLACEHOLDER}\"|\"${PREFIX}.config.json\",            \"${{ steps.hashes.outputs.config_json }}\"|g" "$FILE"
+          sed -i "s|\"${PREFIX}.special_tokens_map.json\",\"${PLACEHOLDER}\"|\"${PREFIX}.special_tokens_map.json\",\"${{ steps.hashes.outputs.special_tokens }}\"|g" "$FILE"
+          sed -i "s|\"${PREFIX}.tokenizer_config.json\",  \"${PLACEHOLDER}\"|\"${PREFIX}.tokenizer_config.json\",  \"${{ steps.hashes.outputs.tokenizer_config }}\"|g" "$FILE"
+
+          grep -A 10 "EMBED_MIRROR_ASSETS" "$FILE"
+
+      - name: Commit patched models_mirror.rs
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/models_mirror.rs
+          git commit -m "Fix sha256 hashes in EMBED_MIRROR_ASSETS after models-v2 release"
+          git push origin agents/69-multilingual-embeddings
+
+      - name: Print summary
+        run: |
+          echo "## models-v2 published ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Asset | sha256 |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| model.onnx | \`${{ steps.hashes.outputs.model_onnx }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| tokenizer.json | \`${{ steps.hashes.outputs.tokenizer_json }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| config.json | \`${{ steps.hashes.outputs.config_json }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| special_tokens_map.json | \`${{ steps.hashes.outputs.special_tokens }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| tokenizer_config.json | \`${{ steps.hashes.outputs.tokenizer_config }}\` |" >> $GITHUB_STEP_SUMMARY
