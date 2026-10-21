@@ -30,11 +30,11 @@ pub const EMBED_MIRROR_BASE_URL: &str =
 /// Hugging Face **after** publishing the models-v2 GitHub release.
 /// Command to compute: `shasum -a 256 <file>` for each of the 5 files.
 pub const EMBED_MIRROR_ASSETS: [(&str, &str); 5] = [
-    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.model.onnx",             "TODO_replace_with_real_sha256_after_publishing_models_v2_release_____"),
-    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.tokenizer.json",         "TODO_replace_with_real_sha256_after_publishing_models_v2_release_____"),
-    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.config.json",            "TODO_replace_with_real_sha256_after_publishing_models_v2_release_____"),
-    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.special_tokens_map.json","TODO_replace_with_real_sha256_after_publishing_models_v2_release_____"),
-    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.tokenizer_config.json",  "TODO_replace_with_real_sha256_after_publishing_models_v2_release_____"),
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.model.onnx",             "185ae63f47e17a7e8d30d0e6a3cde6a6e4b79bc5b81666ecffc279a6856ca113"),
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.tokenizer.json",         "b60b6b43406a48bf3638526314f3d232d97058bc93472ff2de930d43686fa441"),
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.config.json",            "05b570bff786faa5c4604152aa16f19f77ed6dfc31e47dd0f3dd987078693ac7"),
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.special_tokens_map.json","06e405a36dfe4b9604f484f6a1e619af1a7f7d09e34a8555eb0b77b66318067f"),
+    ("paraphrase-multilingual-MiniLM-L12-v2-onnx.tokenizer_config.json",  "3f5961b9ac86288cccdb97f32fb848d6187c78e1603958c53f3ea1f296b7d8a2"),
 ];
 
 /// A mirror base URL plus the known hash of each of its assets. Injectable so
