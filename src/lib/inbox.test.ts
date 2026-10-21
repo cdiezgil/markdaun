@@ -65,12 +65,12 @@ const mkItem = (kind: InboxItem['kind'], supported = true): InboxItem => ({
 });
 
 describe('isBatchable', () => {
-  it('TC-20: returns false for docx and pptx, true for other supported kinds', () => {
+  it('TC-20: returns false for docx, pptx and pdf (own import flow), true for other supported kinds', () => {
     expect(isBatchable(mkItem('docx'))).toBe(false);
     expect(isBatchable(mkItem('pptx'))).toBe(false);
+    expect(isBatchable(mkItem('pdf'))).toBe(false); // pdf now uses dedicated import flow
     expect(isBatchable(mkItem('md'))).toBe(true);
     expect(isBatchable(mkItem('txt'))).toBe(true);
-    expect(isBatchable(mkItem('pdf'))).toBe(true);
     expect(isBatchable(mkItem('audio', false))).toBe(false);
     expect(isBatchable(mkItem('other', false))).toBe(false);
   });

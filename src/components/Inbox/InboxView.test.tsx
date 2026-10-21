@@ -228,11 +228,10 @@ describe('InboxView', () => {
       expect(screen.queryByTestId('digest-informe.docx')).toBeNull();
     });
 
-    it('TC-25: pdf item shows Digerir button, not Importar', async () => {
+    it('TC-25: pdf item shows Importar button, not Digerir (PDF now uses import flow)', async () => {
       renderView();
-      await screen.findByTestId('inbox-item-paper.pdf');
-      expect(screen.getByTestId('digest-paper.pdf')).toBeInTheDocument();
-      expect(screen.queryByTestId('import-paper.pdf')).toBeNull();
+      expect(await screen.findByTestId('import-paper.pdf')).toBeInTheDocument();
+      expect(screen.queryByTestId('digest-paper.pdf')).toBeNull();
     });
 
     it('TC-26: docx item checkbox is disabled', async () => {
@@ -295,5 +294,54 @@ describe('InboxView', () => {
       fireEvent.click(screen.getByTestId('cancel-import'));
       expect(screen.queryByTestId('destination-picker')).toBeNull();
       expect(mockInvoke).not.toHaveBeenCalledWith('office_import', expect.anything());
+    });
+  });
+
+  // ─── TC-67: PDF import UI ───────────────────────────────────────────────
+
+  describe('TC-67i, TC-67j: PDF import via DestinationPicker', () => {
+    const pdfItem = item('doc.pdf', 'pdf');
+    const PDF_INBOX = [pdfItem];
+
+    beforeEach(() => {
+      // LLM is active by default (set in outer beforeEach)
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'inbox_list') return PDF_INBOX;
+        if (cmd === 'inbox_list_areas') return [];
+        if (cmd === 'inbox_get_last_area') return null;
+        if (cmd === 'inbox_all_folders') return ['Entrada', 'Ideas'];
+        if (cmd === 'pdf_import') return ['/v/Ideas/doc/01 - Sección.md', '/v/Ideas/doc/índice.md'];
+        if (cmd === 'list_vault_tree') return [];
+        return undefined;
+      });
+    });
+
+    it('TC-67i: clicking Importar on a PDF opens DestinationPicker; confirming calls pdf_import', async () => {
+      renderView();
+      const btn = await screen.findByTestId('import-doc.pdf');
+      expect(btn).not.toBeDisabled();
+      fireEvent.click(btn);
+
+      // DestinationPicker is shown
+      expect(await screen.findByTestId('destination-picker')).toBeInTheDocument();
+
+      // Confirm with 'Ideas' folder
+      fireEvent.click(await screen.findByTestId('dest-Ideas'));
+      fireEvent.click(screen.getByTestId('confirm-import'));
+
+      await waitFor(() =>
+        expect(mockInvoke).toHaveBeenCalledWith('pdf_import', expect.objectContaining({
+          sourcePath: '/v/Entrada/doc.pdf',
+          vaultPath: '/v',
+          destPath: 'Ideas',
+        })),
+      );
+    });
+
+    it('TC-67j: Importar button is disabled for PDFs when no LLM connection is active', async () => {
+      useLlmStore.setState({ loaded: true, active: null, load: vi.fn() } as never);
+      renderView();
+      const btn = await screen.findByTestId('import-doc.pdf');
+      expect(btn).toBeDisabled();
     });
   });

@@ -9,6 +9,7 @@ import {
   inboxList,
   inboxListAreas,
   officeImport,
+  pdfImport,
   voiceRetry,
   inboxSetLastArea,
   type ClipSummary,
@@ -51,6 +52,9 @@ interface InboxState {
   /** Imports a .docx or .pptx by splitting it into notes in the given destination folder.
    *  Returns stem, count and destPath on success; null (with `error` set) on failure. */
   importOffice(item: InboxItem, vaultPath: string, destPath: string): Promise<{ stem: string; count: number; destPath: string } | null>;
+  /** Imports a .pdf using the active LLM to split it into sections.
+   *  Returns stem, count and destPath on success; null (with `error` set) on failure. */
+  importPdf(item: InboxItem, vaultPath: string, destPath: string): Promise<{ stem: string; count: number; destPath: string } | null>;
 }
 
 export const useInboxStore = create<InboxState>((set, get) => ({
@@ -164,6 +168,25 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       await get().load(vaultPath);
       // Refresh the vault tree so the new <dest>/<stem>/ directory becomes
       // visible to the user without requiring a manual navigation.
+      await useVaultStore.getState().refreshTree();
+      set({ importing: false });
+      return { stem, count, destPath };
+    } catch (e) {
+      set({ importing: false, error: String(e) });
+      return null;
+    }
+  },
+
+  async importPdf(item, vaultPath, destPath) {
+    set({ importing: true, error: null });
+    try {
+      const created = await pdfImport(item.path, vaultPath, destPath);
+      const stem = item.name.replace(/\.pdf$/i, '');
+      // Count section notes: exclude índice.md and anything in img/
+      const count = created.filter(
+        (n) => !n.endsWith('índice.md') && !n.includes('/img/'),
+      ).length;
+      await get().load(vaultPath);
       await useVaultStore.getState().refreshTree();
       set({ importing: false });
       return { stem, count, destPath };

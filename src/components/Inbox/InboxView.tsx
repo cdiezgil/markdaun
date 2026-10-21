@@ -59,6 +59,7 @@ export function InboxView(): JSX.Element {
   const rememberArea = useInboxStore((s) => s.rememberArea);
   const retryVoice = useInboxStore((s) => s.retryVoice);
   const importOffice = useInboxStore((s) => s.importOffice);
+  const importPdf = useInboxStore((s) => s.importPdf);
   const importing = useInboxStore((s) => s.importing);
   const allFolders = useInboxStore((s) => s.allFolders);
   const loadAllFolders = useInboxStore((s) => s.loadAllFolders);
@@ -302,16 +303,19 @@ export function InboxView(): JSX.Element {
                     </div>
                   )}
                 </div>
-                {(it.kind === 'docx' || it.kind === 'pptx') && (
+                {(it.kind === 'docx' || it.kind === 'pptx' || it.kind === 'pdf') && (
                   <span style={{ position: 'relative', display: 'inline-flex' }}>
                     <button
                       data-testid={`import-${it.name}`}
                       onClick={() => {
-                        if (!vaultPath || importing) return;
+                        if (!vaultPath || importing || (it.kind === 'pdf' && noConnection)) return;
                         setDestinationFor(it);
                       }}
-                      disabled={importing}
-                      style={{ ...BUTTON, opacity: importing ? 0.5 : 1 }}
+                      disabled={importing || (it.kind === 'pdf' && noConnection)}
+                      style={{
+                        ...BUTTON,
+                        opacity: (importing || (it.kind === 'pdf' && noConnection)) ? 0.5 : 1,
+                      }}
                     >
                       Importar
                     </button>
@@ -321,7 +325,9 @@ export function InboxView(): JSX.Element {
                         onConfirm={async (destPath) => {
                           setDestinationFor(null);
                           if (!vaultPath) return;
-                          const r = await importOffice(it, vaultPath, destPath);
+                          const r = it.kind === 'pdf'
+                            ? await importPdf(it, vaultPath, destPath)
+                            : await importOffice(it, vaultPath, destPath);
                           if (r) setLastImport(r);
                         }}
                         onClose={() => setDestinationFor(null)}
