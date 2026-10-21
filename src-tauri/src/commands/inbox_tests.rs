@@ -648,3 +648,130 @@ fn tc17_office_import_inner_index_has_correct_wikilinks() {
     assert!(content.contains("- [[01 - Introducción]]"), "content={content}");
     assert!(content.contains("- [[02 - Conclusión]]"), "content={content}");
 }
+
+// ─── TC-67: pdf_import_inner + build_pdf_import_messages ─────────────────────────
+
+use super::inbox::{build_pdf_import_messages, pdf_import_inner};
+use crate::capture::office::ExtractedImage;
+use crate::commands::digest::NoteBlock;
+
+fn nb(path: &str, content: &str) -> NoteBlock {
+    NoteBlock { path: path.to_string(), mode: "create".to_string(), content: content.to_string() }
+}
+
+fn img(name: &str) -> ExtractedImage {
+    ExtractedImage {
+        name: name.to_string(),
+        bytes: vec![0u8; 512], // minimum size to pass the filter
+        media_type: "image/png".to_string(),
+    }
+}
+
+#[test]
+fn tc_67a_pdf_import_inner_creates_notes_and_index() {
+    let vault = tempdir().unwrap();
+    let entrada = vault.path().join("Entrada");
+    fs::create_dir_all(&entrada).unwrap();
+    let src = entrada.join("doc.pdf");
+    fs::write(&src, b"%PDF-1.4").unwrap(); // minimal placeholder
+
+    let blocks = vec![nb("01 - Intro.md", "# Intro\nHola")];
+    let created = pdf_import_inner(&src, vault.path(), vault.path(), blocks, vec![]).unwrap();
+
+    let names: Vec<String> = created.iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(names.contains(&"01 - Intro.md".to_string()), "TC-67a: note not found in {names:?}");
+    assert!(names.contains(&"índice.md".to_string()), "TC-67a: index not found in {names:?}");
+    // Source discarded
+    assert!(!src.exists(), "TC-67a: source PDF must be moved to trash");
+}
+
+#[test]
+fn tc_67b_pdf_import_inner_empty_blocks_returns_error() {
+    let vault = tempdir().unwrap();
+    let entrada = vault.path().join("Entrada");
+    fs::create_dir_all(&entrada).unwrap();
+    let src = entrada.join("doc.pdf");
+    fs::write(&src, b"%PDF-1.4").unwrap();
+
+    let result = pdf_import_inner(&src, vault.path(), vault.path(), vec![], vec![]);
+    assert_eq!(result, Err("llm_no_sections".to_string()), "TC-67b: expected llm_no_sections");
+}
+
+#[test]
+fn tc_67c_pdf_import_inner_block_with_slash_is_omitted() {
+    let vault = tempdir().unwrap();
+    let entrada = vault.path().join("Entrada");
+    fs::create_dir_all(&entrada).unwrap();
+    let src = entrada.join("doc.pdf");
+    fs::write(&src, b"%PDF-1.4").unwrap();
+
+    // All blocks have '/' in path → all invalid → llm_no_sections
+    let blocks = vec![nb("sub/nota.md", "# Sub\nContenido")];
+    let result = pdf_import_inner(&src, vault.path(), vault.path(), blocks, vec![]);
+    assert_eq!(result, Err("llm_no_sections".to_string()), "TC-67c: path with slash should be rejected");
+
+    // Valid block mixed with invalid → only valid one is written
+    let src2 = vault.path().join("Entrada/doc2.pdf");
+    fs::write(&src2, b"%PDF-1.4").unwrap();
+    let blocks2 = vec![
+        nb("sub/nota.md", "# Malo\nX"),
+        nb("01 - Bueno.md", "# Bueno\nY"),
+    ];
+    let created = pdf_import_inner(&src2, vault.path(), vault.path(), blocks2, vec![]).unwrap();
+    let names: Vec<String> = created.iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(!names.contains(&"nota.md".to_string()), "TC-67c: invalid block must not be created");
+    assert!(names.contains(&"01 - Bueno.md".to_string()), "TC-67c: valid block must be created");
+}
+
+#[test]
+fn tc_67d_pdf_import_inner_writes_images_and_adds_image_section_to_index() {
+    let vault = tempdir().unwrap();
+    let entrada = vault.path().join("Entrada");
+    fs::create_dir_all(&entrada).unwrap();
+    let src = entrada.join("doc.pdf");
+    fs::write(&src, b"%PDF-1.4").unwrap();
+
+    let blocks = vec![
+        nb("01 - A.md", "# A\nTexto A"),
+        nb("02 - B.md", "# B\nTexto B"),
+    ];
+    let images = vec![img("img-1.png"), img("img-2.png")];
+
+    let created = pdf_import_inner(&src, vault.path(), vault.path(), blocks, images).unwrap();
+
+    let path_strs: Vec<String> = created.iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+
+    assert!(path_strs.iter().any(|p| p.contains("img-1.png")), "TC-67d: img-1.png missing");
+    assert!(path_strs.iter().any(|p| p.contains("img-2.png")), "TC-67d: img-2.png missing");
+
+    // índice.md must have ## Imágenes section
+    let index = created.iter().find(|p| p.file_name().unwrap() == "índice.md").unwrap();
+    let content = fs::read_to_string(index).unwrap();
+    assert!(content.contains("## Imágenes"), "TC-67d: index must contain ## Imágenes\n{content}");
+    assert!(content.contains("img-1.png"), "TC-67d: index must reference img-1.png\n{content}");
+}
+
+#[test]
+fn tc_67e_build_pdf_import_messages_user_message_contains_stem_and_text() {
+    let messages = build_pdf_import_messages("Texto de prueba", "Mi PDF");
+    assert_eq!(messages.len(), 2, "TC-67e: must have exactly 2 messages");
+    let user_content = &messages[1].content;
+    assert!(user_content.contains("Mi PDF"), "TC-67e: user message must contain stem");
+    assert!(user_content.contains("Texto de prueba"), "TC-67e: user message must contain text");
+}
+
+#[test]
+fn tc_67f_build_pdf_import_messages_system_message_contains_markdaun_note() {
+    let messages = build_pdf_import_messages("Cualquier texto", "Doc");
+    let system_content = &messages[0].content;
+    assert!(
+        system_content.contains("markdaun-note"),
+        "TC-67f: system message must mention markdaun-note\n{system_content}"
+    );
+}

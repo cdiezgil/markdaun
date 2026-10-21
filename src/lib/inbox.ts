@@ -33,12 +33,15 @@ export const INBOX_DIR = 'Entrada';
  * `.docx` and `.pptx` use the dedicated "Importar" flow instead.
  */
 export function isBatchable(item: InboxItem): boolean {
-  return item.supported && item.kind !== 'docx' && item.kind !== 'pptx';
+  return item.supported && item.kind !== 'docx' && item.kind !== 'pptx' && item.kind !== 'pdf';
 }
 
 /** User-facing text for the errors the inbox commands return. */
 export function inboxErrorMessage(error: string): string {
-  if (error === 'invalid_url') return 'Esa dirección no es válida. Usa una URL que empiece por http:// o https://.';
+  if (error === 'invalid_url') return 'Esa dirección no es válida. Usa una URL que empiece por http:// o https://';
+  if (error === 'no_active_connection') return 'Configura una conexión de IA para importar PDFs.';
+  if (error === 'empty_pdf') return 'El PDF no contiene texto seleccionable.';
+  if (error === 'llm_no_sections') return 'El modelo no devolvió ninguna sección. Inténtalo de nuevo.';
   return error;
 }
 

@@ -2,13 +2,19 @@
 //! The inbox is the single landing place for incoming material; digesting an
 //! item turns it into notes and archives the original under `<folder>/Fuentes/`.
 
-use super::brain_cmd::app_db_path;
+use super::brain_cmd::{app_db_path, resolve_active};
+use super::digest::{parse_note_blocks, NoteBlock};
 use super::fs_ops::{assert_within_vault, finish_relocation, MoveOutcome};
 use super::vault_index::spawn_index_update;
-use crate::capture::office::split_office;
+use crate::capture::office::{split_office, ExtractedImage};
+use crate::capture::pdf::{extract_pdf_images, extract_pdf_text};
 use crate::db::{ConfigDb, ConversationsDb};
 use crate::fs::naming::{sanitize_file_stem, unique_name};
 use crate::fs::tree::APP_DIR;
+use crate::llm::engines;
+use crate::llm::env::LlmEnv;
+use crate::llm::error::LlmError;
+use crate::llm::ChatMessage;
 use crate::voice::jobs::{JobState, VoiceJobs};
 use serde::Serialize;
 use std::path::{Component, Path, PathBuf};
@@ -665,4 +671,183 @@ pub async fn inbox_get_last_area(app: tauri::AppHandle, vault_path: String) -> R
 pub async fn inbox_set_last_area(app: tauri::AppHandle, vault_path: String, area: String) -> Result<(), String> {
     let db = app_db_path(&app)?;
     last_area_set(&db, &vault_path, &area)
+}
+
+// ─── PDF import ───────────────────────────────────────────────────────────────
+
+fn llm_err_inbox(e: LlmError) -> String {
+    format!("llm_error: {e}")
+}
+
+/// Build the two-message conversation that asks the LLM to split a PDF's text
+/// into `markdaun-note` sections.
+pub fn build_pdf_import_messages(text: &str, stem: &str) -> Vec<ChatMessage> {
+    let system = "Eres un asistente que divide el texto de un PDF en notas de conocimiento \
+        en Markdown.\n\
+        Divide el texto en secciones temáticas coherentes. Para cada sección devuelve un \
+        bloque en este formato exacto (sin texto adicional fuera de los bloques):\n\
+        ```markdaun-note path=\"01 - Título.md\" mode=\"create\"\n\
+        # Título de la sección\n\
+        Contenido en Markdown...\n\
+        ```\n\
+        Numera correlativamente (01, 02...). El path es solo el nombre de fichero, sin \
+        carpetas, terminado en .md. Si el texto es corto o sin divisiones claras, \
+        devuelve una única sección."
+        .to_string();
+    let user = format!("Documento: «{stem}»\n\n{text}");
+    vec![
+        ChatMessage::text("system", system),
+        ChatMessage::text("user", user),
+    ]
+}
+
+/// Pure function (no AppHandle) that writes the note files from a PDF import.
+/// Validates paths, writes images into `img/`, writes one note per valid block,
+/// creates `índice.md`, discards the source and returns all created paths.
+pub fn pdf_import_inner(
+    source: &Path,
+    vault: &Path,
+    dest_dir: &Path,
+    blocks: Vec<NoteBlock>,
+    images: Vec<ExtractedImage>,
+) -> Result<Vec<PathBuf>, String> {
+    assert_within_vault(source, vault)?;
+    assert_within_vault(dest_dir, vault)?;
+
+    if blocks.is_empty() {
+        return Err("llm_no_sections".to_string());
+    }
+
+    let stem_raw = source
+        .file_stem()
+        .ok_or_else(|| "invalid_path".to_string())?
+        .to_string_lossy()
+        .to_string();
+    let stem = sanitize_file_stem(&stem_raw).unwrap_or_else(|| "documento".to_string());
+
+    let subdir = dest_dir.join(&stem);
+    let img_dir = subdir.join("img");
+    std::fs::create_dir_all(&img_dir).map_err(|e| format!("io_error: {e}"))?;
+
+    let mut created: Vec<PathBuf> = Vec::new();
+
+    // Write extracted images into img/
+    for img in &images {
+        let img_path = img_dir.join(&img.name);
+        std::fs::write(&img_path, &img.bytes).map_err(|e| format!("io_error: {e}"))?;
+        created.push(img_path);
+    }
+
+    // Validate and write each NoteBlock: path must end in .md, no '/' or '..'
+    let valid: Vec<&NoteBlock> = blocks
+        .iter()
+        .filter(|b| b.path.ends_with(".md") && !b.path.contains('/') && !b.path.contains(".."))
+        .collect();
+
+    if valid.is_empty() {
+        return Err("llm_no_sections".to_string());
+    }
+
+    for block in &valid {
+        let note_path = subdir.join(&block.path);
+        std::fs::write(&note_path, &block.content).map_err(|e| format!("io_error: {e}"))?;
+        created.push(note_path);
+    }
+
+    // Build índice.md
+    let mut index_lines: Vec<String> = vec![format!("# {stem}"), String::new()];
+    for block in &valid {
+        let title = block.path.trim_end_matches(".md");
+        index_lines.push(format!("- [[{title}]]"));
+    }
+    if !images.is_empty() {
+        index_lines.push(String::new());
+        index_lines.push("## Imágenes".to_string());
+        index_lines.push(String::new());
+        for img in &images {
+            let label = img.name.trim_end_matches(".png");
+            index_lines.push(format!("![{label}](img/{})", img.name));
+        }
+    }
+    let index_content = index_lines.join("\n");
+    let index_path = subdir.join("índice.md");
+    std::fs::write(&index_path, &index_content).map_err(|e| format!("io_error: {e}"))?;
+    created.push(index_path);
+
+    inbox_discard_inner(source, vault)?;
+
+    Ok(created)
+}
+
+/// Maximum characters of PDF text sent to the LLM in one request.
+const PDF_TEXT_LIMIT: usize = 50_000;
+
+/// Tauri command: import a `.pdf` from the inbox using the active LLM to
+/// split it into sections (one note per section).
+#[tauri::command]
+pub async fn pdf_import(
+    app: tauri::AppHandle,
+    env: tauri::State<'_, LlmEnv>,
+    source_path: String,
+    vault_path: String,
+    dest_path: String,
+) -> Result<Vec<String>, String> {
+    let db_path = app_db_path(&app)?;
+
+    // Resolve the active LLM connection
+    let (conn, model, secret) = match resolve_active(&db_path, &env) {
+        Ok(v) => v,
+        Err(e) if e.contains("not_configured") => return Err("no_active_connection".to_string()),
+        Err(e) => return Err(e),
+    };
+
+    let vault = Path::new(&vault_path);
+    // source_path is absolute (same convention as office_import)
+    let abs_source = Path::new(&source_path);
+    assert_within_vault(abs_source, vault)?;
+
+    let abs_dest = vault.join(&dest_path);
+    assert_within_vault(&abs_dest, vault)?;
+
+    // Read and extract text from the PDF
+    let bytes = std::fs::read(&abs_source).map_err(|e| format!("io_error: {e}"))?;
+    let raw_text = extract_pdf_text(&bytes)?;
+
+    // Extract images (non-fatal: we keep going even if image extraction fails)
+    let images = extract_pdf_images(&bytes).unwrap_or_default();
+
+    // Truncate to avoid exceeding LLM context limits
+    let text = if raw_text.chars().count() > PDF_TEXT_LIMIT {
+        let truncated: String = raw_text.chars().take(PDF_TEXT_LIMIT).collect();
+        format!("{truncated}\n\n[Texto truncado]")
+    } else {
+        raw_text
+    };
+
+    // Derive stem for the section prompt
+    let stem = abs_source
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "documento".to_string());
+
+    // Call the LLM
+    let messages = build_pdf_import_messages(&text, &stem);
+    let answer = engines::chat(&conn, &model, &messages, secret.as_deref(), &env)
+        .await
+        .map_err(llm_err_inbox)?;
+
+    let blocks = parse_note_blocks(&answer);
+
+    // Write files
+    let created = pdf_import_inner(&abs_source, vault, &abs_dest, blocks, images)?;
+
+    let created_strings: Vec<String> = created
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+
+    // Schedule background embedding of the new notes
+    spawn_index_update(&app, vault_path, vec![], created_strings.clone());
+
+    Ok(created_strings)
 }

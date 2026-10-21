@@ -2,6 +2,7 @@
 pub mod clip;
 pub mod lifecycle;
 pub mod office;
+pub mod pdf;
 pub mod quick;
 pub mod shortcut;
 pub mod tray;
@@ -11,6 +12,8 @@ pub mod testutil;
 
 #[cfg(test)]
 mod office_tests;
+#[cfg(test)]
+mod pdf_tests;
 
 #[cfg(test)]
 mod clip_tests;

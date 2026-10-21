@@ -248,6 +248,20 @@ export async function brainUpdateEmbedding(
   });
 }
 
+/** Import a `.pdf` from the inbox using the active LLM to split it into
+ * sections. Returns absolute paths of all files created.
+ * Throws `"no_active_connection"` when no LLM connection is active.
+ * Throws `"empty_pdf"` when the PDF contains no extractable text.
+ * Throws `"llm_no_sections"` when the model returns no valid sections.
+ */
+export async function pdfImport(
+  sourcePath: string,
+  vaultPath: string,
+  destPath: string,
+): Promise<string[]> {
+  return invoke<string[]>('pdf_import', { sourcePath, vaultPath, destPath });
+}
+
 /** Force-reindex all indexable files under `folderPath` (and subfolders).
  * Returns the number of successfully indexed files.
  * Throws `"indexing_in_progress"` if an indexing operation is already running.
