@@ -77,5 +77,12 @@ describe('processImagesOnSave', () => {
     const md = '![cat](https://cdn.example.com/cat.gif)';
     expect(processImagesOnSave(md, '/vault')).toBe('![cat](https://cdn.example.com/cat.gif)');
   });
+
+  it('correctly converts multiple images within markdown table rows on save', () => {
+    const noteDir = '/Users/carlosdiez/Documents/markdaun/Personal/Recetas/elbulli-catalogo-md/recipes/1983-1993';
+    const tableRow = '| ![Terrina de melón con gelée de oporto - Plato Completo](//Users/carlosdiez/Documents/markdaun/Personal/Recetas/elbulli-catalogo-md/media/recipes/0001_completo.jpg) | ![Terrina de melón con gelée de oporto - Detalle](//Users/carlosdiez/Documents/markdaun/Personal/Recetas/elbulli-catalogo-md/media/recipes/0001_detalle.jpg) |';
+    const expected = '| ![Terrina de melón con gelée de oporto - Plato Completo](../../media/recipes/0001_completo.jpg) | ![Terrina de melón con gelée de oporto - Detalle](../../media/recipes/0001_detalle.jpg) |';
+    expect(processImagesOnSave(tableRow, noteDir)).toBe(expected);
+  });
 });
 
