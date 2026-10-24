@@ -8,3 +8,5 @@ coverage/
 src-tauri/target/
 src-tauri/.ort/
 *.db
+.worktrees
+.worktrees/
