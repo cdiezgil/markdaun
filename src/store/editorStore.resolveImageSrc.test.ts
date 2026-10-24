@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveImageSrc, processImagesOnLoad } from './editorStore';
+import { resolveImageSrc, processImagesOnLoad, processImagesOnSave } from './editorStore';
 
 describe('resolveImageSrc', () => {
   it('keeps remote URLs unchanged', () => {
@@ -49,3 +49,33 @@ describe('processImagesOnLoad', () => {
     expect(processImagesOnLoad(md, '/vault')).toBe(md);
   });
 });
+
+describe('processImagesOnSave', () => {
+  it('converts asset URLs in subdirectories to relative paths', () => {
+    const md = '![Foto](asset:///vault/notes/img/a.png)';
+    expect(processImagesOnSave(md, '/vault/notes')).toBe('![Foto](img/a.png)');
+  });
+
+  it('converts asset URLs across sibling/parent directories to relative paths (e.g. recipe catalog)', () => {
+    const noteDir = '/Users/carlosdiez/Documents/markdaun/Personal/Recetas/elbulli-catalogo-md/recipes/1983-1993';
+    const md = '![Terrina](asset:///Users/carlosdiez/Documents/markdaun/Personal/Recetas/elbulli-catalogo-md/media/recipes/0001_completo.jpg)';
+    expect(processImagesOnSave(md, noteDir)).toBe('![Terrina](../../media/recipes/0001_completo.jpg)');
+  });
+
+  it('converts local paths starting with //Users/... to relative paths on save', () => {
+    const noteDir = '/Users/carlosdiez/Documents/markdaun/Personal/Recetas/elbulli-catalogo-md/recipes/1983-1993';
+    const md = '![Terrina](//Users/carlosdiez/Documents/markdaun/Personal/Recetas/elbulli-catalogo-md/media/recipes/0001_completo.jpg)';
+    expect(processImagesOnSave(md, noteDir)).toBe('![Terrina](../../media/recipes/0001_completo.jpg)');
+  });
+
+  it('converts http://asset.localhost URLs (Windows) to relative paths', () => {
+    const md = '![Foto](http://asset.localhost/vault/notes/img/a.png)';
+    expect(processImagesOnSave(md, '/vault/notes')).toBe('![Foto](img/a.png)');
+  });
+
+  it('preserves remote image URLs on save', () => {
+    const md = '![cat](https://cdn.example.com/cat.gif)';
+    expect(processImagesOnSave(md, '/vault')).toBe('![cat](https://cdn.example.com/cat.gif)');
+  });
+});
+

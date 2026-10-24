@@ -115,21 +115,52 @@ export function processImagesOnLoad(markdown: string, noteDir: string): string {
   });
 }
 
+export function computeRelativePosixPath(fromDir: string, toPath: string): string {
+  const normFrom = fromDir.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normTo = toPath.replace(/\\/g, '/');
+
+  const fromParts = normFrom.split('/').filter(Boolean);
+  const toParts = normTo.split('/').filter(Boolean);
+
+  let common = 0;
+  while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
+    common++;
+  }
+
+  if (common === 0) {
+    return toPath;
+  }
+
+  const upCount = fromParts.length - common;
+  const upSegments = Array(upCount).fill('..');
+  const remainingTo = toParts.slice(common);
+
+  const rel = [...upSegments, ...remainingTo].join('/');
+  return rel || '.';
+}
+
 export function processImagesOnSave(markdown: string, noteDir: string): string {
   return markdown.replace(IMAGE_RE, (match, alt: string, src: string) => {
-    if (!src.startsWith('tauri://') && !src.startsWith('asset://')) return match;
-    try {
-      // Both tauri:// (production) and asset:// (test mock) paths
-      const absPath = decodeURIComponent(new URL(src).pathname);
-      // Compute relative path from noteDir
-      const notePrefix = noteDir.endsWith('/') ? noteDir : noteDir + '/';
-      const rel = absPath.startsWith(notePrefix)
-        ? absPath.slice(notePrefix.length)
-        : absPath;
-      return `![${alt}](${rel})`;
-    } catch {
+    const trimmed = src.trim();
+    if (/^https?:\/\/(?!asset\.localhost)/i.test(trimmed) || /^data:/i.test(trimmed)) {
       return match;
     }
+
+    let absPath: string | null = null;
+    if (trimmed.startsWith('tauri://') || trimmed.startsWith('asset://') || trimmed.startsWith('http://asset.localhost')) {
+      try {
+        absPath = decodeURIComponent(new URL(trimmed).pathname);
+      } catch {
+        absPath = null;
+      }
+    } else if (trimmed.startsWith('//') || trimmed.startsWith('/')) {
+      absPath = trimmed.replace(/^\/\/+/, '/');
+    }
+
+    if (!absPath) return match;
+
+    const rel = computeRelativePosixPath(noteDir, absPath);
+    return `![${alt}](${rel})`;
   });
 }
 
