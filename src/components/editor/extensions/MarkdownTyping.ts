@@ -6,7 +6,7 @@ export interface MarkdownTypingOptions {
 }
 
 const LINK_RULE = /(^|[^!])\[([^[\]]+)\]\(([^\s)]+)\)$/;
-const IMAGE_RULE = /!\[([^[\]]*)\]\(([^\s)]+)\)$/;
+const IMAGE_RULE = /!\[([^[\]]*)\]\(([^)]+)\)$/;
 const ALLOWED_HREF = /^(https?:\/\/|mailto:)/i;
 
 /**

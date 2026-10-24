@@ -121,6 +121,26 @@ describe('TC-15: drag-and-drop image', () => {
     Object.defineProperty(event, 'preventDefault', { value: vi.fn() });
     wrapper.dispatchEvent(event);
   });
+
+  it('TC-15: dropping .gif and .jpg files inserts images', async () => {
+    useEditorStore.setState({ activeNotePath: '/vault/note.md', vaultPath: '/vault' });
+    const { default: EditorCanvas } = await import('./EditorCanvas');
+    const { container } = render(<EditorCanvas />);
+    const wrapper = container.querySelector(
+      '[data-testid="editor-canvas-container"]',
+    ) as HTMLElement;
+
+    const gifFile = new File(['gif'], 'animacion.gif', { type: 'image/gif' });
+    const jpgFile = new File(['jpg'], 'foto.jpg', { type: 'image/jpeg' });
+
+    const dropEvent = new Event('drop', { bubbles: true });
+    Object.defineProperty(dropEvent, 'preventDefault', { value: vi.fn() });
+    Object.defineProperty(dropEvent, 'dataTransfer', {
+      value: { files: [gifFile, jpgFile] },
+    });
+
+    wrapper.dispatchEvent(dropEvent);
+  });
 });
 
 // ── TC-02: setContent is called on editor update ──────────────────────────────
