@@ -62,27 +62,56 @@ let relocating = false;
 // ── Image path helpers ────────────────────────────────────────────────────────
 
 const IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+const REMOTE_OR_ASSET_URL = /^(https?|tauri|asset):\/\//i;
+const DATA_URL = /^data:/i;
+
+export function normalizePosixPath(path: string): string {
+  const isAbs = path.startsWith('/');
+  const segments = path.split('/');
+  const resolved: string[] = [];
+  for (const seg of segments) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (resolved.length > 0 && resolved[resolved.length - 1] !== '..') {
+        resolved.pop();
+      } else if (!isAbs) {
+        resolved.push('..');
+      }
+    } else {
+      resolved.push(seg);
+    }
+  }
+  return (isAbs ? '/' : '') + resolved.join('/');
+}
 
 /** The `src` the editor shows for an image path typed/written in a note (remote URLs unchanged). */
 export function resolveImageSrc(src: string, noteDir: string): string {
-  if (/^(https?|tauri):\/\//.test(src)) return src;
-  try {
-    const absPath = new URL(src, 'file://' + noteDir + '/').pathname;
-    return convertAssetSrc(absPath);
-  } catch {
-    return src;
+  const trimmed = src.trim();
+  if (DATA_URL.test(trimmed) || REMOTE_OR_ASSET_URL.test(trimmed)) {
+    return trimmed;
   }
+
+  let normalized = trimmed.replace(/^\/\/+/, '/');
+  try {
+    normalized = decodeURI(normalized);
+  } catch {
+    // Keep as is if decodeURI fails
+  }
+
+  const isWinAbs = /^[a-zA-Z]:[/\\]/.test(normalized);
+  const isAbs = normalized.startsWith('/') || isWinAbs;
+
+  const unified = isAbs
+    ? normalized.replace(/\\/g, '/')
+    : noteDir.replace(/\\/g, '/') + '/' + normalized.replace(/\\/g, '/');
+
+  const absPath = normalizePosixPath(unified);
+  return convertAssetSrc(absPath);
 }
 
-function processImagesOnLoad(markdown: string, noteDir: string): string {
-  return markdown.replace(IMAGE_RE, (match, alt: string, src: string) => {
-    if (/^(https?|tauri):\/\//.test(src)) return match;
-    try {
-      const absPath = new URL(src, 'file://' + noteDir + '/').pathname;
-      return `![${alt}](${convertAssetSrc(absPath)})`;
-    } catch {
-      return match;
-    }
+export function processImagesOnLoad(markdown: string, noteDir: string): string {
+  return markdown.replace(IMAGE_RE, (_match, alt: string, src: string) => {
+    return `![${alt}](${resolveImageSrc(src, noteDir)})`;
   });
 }
 
