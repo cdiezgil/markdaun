@@ -63,9 +63,23 @@ let relocating = false;
 
 const IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
 
+/**
+ * Matches any src that is already an absolute served URL:
+ * https://, http://, tauri:// (Tauri v1) or asset:// (Tauri v2 macOS/Linux).
+ * These must NOT be re-resolved against the note directory on LOAD.
+ */
+const SERVED_URL_RE = /^(https?|tauri|asset):\/\//i;
+
+/**
+ * Matches only the LOCAL asset URLs produced by convertAssetSrc.
+ * On SAVE these are converted back to relative paths in the Markdown source.
+ * Remote https:// images stay as-is in the saved Markdown.
+ */
+const LOCAL_ASSET_RE = /^(tauri|asset):\/\//i;
+
 /** The `src` the editor shows for an image path typed/written in a note (remote URLs unchanged). */
 export function resolveImageSrc(src: string, noteDir: string): string {
-  if (/^(https?|tauri):\/\//.test(src)) return src;
+  if (SERVED_URL_RE.test(src)) return src;
   try {
     const absPath = new URL(src, 'file://' + noteDir + '/').pathname;
     return convertAssetSrc(absPath);
@@ -76,7 +90,7 @@ export function resolveImageSrc(src: string, noteDir: string): string {
 
 function processImagesOnLoad(markdown: string, noteDir: string): string {
   return markdown.replace(IMAGE_RE, (match, alt: string, src: string) => {
-    if (/^(https?|tauri):\/\//.test(src)) return match;
+    if (SERVED_URL_RE.test(src)) return match;
     try {
       const absPath = new URL(src, 'file://' + noteDir + '/').pathname;
       return `![${alt}](${convertAssetSrc(absPath)})`;
@@ -88,7 +102,7 @@ function processImagesOnLoad(markdown: string, noteDir: string): string {
 
 export function processImagesOnSave(markdown: string, noteDir: string): string {
   return markdown.replace(IMAGE_RE, (match, alt: string, src: string) => {
-    if (!src.startsWith('tauri://') && !src.startsWith('asset://')) return match;
+    if (!LOCAL_ASSET_RE.test(src)) return match;
     try {
       // Both tauri:// (production) and asset:// (test mock) paths
       const absPath = decodeURIComponent(new URL(src).pathname);
