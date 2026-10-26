@@ -139,10 +139,14 @@ impl VectorsDb {
 
     /// Return the top-`k` most similar chunks to `query_embedding` within the given vault.
     ///
-    /// The KNN search runs first in a subquery (so sqlite-vec always drives it),
-    /// then the vault_path filter is applied on the outer JOIN.  Mixing MATCH with
-    /// a cross-table WHERE in a flat query lets SQLite choose the wrong join order
-    /// and return 0 rows even when chunks exist.
+    /// Uses two separate queries to avoid any query-planner interaction between
+    /// the sqlite-vec virtual table (KNN) and the regular `chunks` table (metadata):
+    ///
+    /// 1. KNN-only query on `chunk_embeddings` — pure vec0 scan, no JOINs.
+    /// 2. Metadata lookup in `chunks` using the returned IDs.
+    ///
+    /// This is the safest pattern for sqlite-vec 0.1.x, which can silently return
+    /// 0 rows when MATCH is mixed with cross-table WHERE conditions in one query.
     pub fn search_similar(
         &self,
         vault_path: &str,
@@ -151,35 +155,63 @@ impl VectorsDb {
     ) -> Result<Vec<SearchResult>, DbError> {
         let emb_blob = Self::to_blob(query_embedding);
 
-        // Inner subquery: pure KNN over the virtual table (no cross-table filter).
-        // Outer query: join metadata and restrict to the right vault.
-        //
-        // sqlite-vec 0.1.x exposes the INTEGER PRIMARY KEY as the named column
-        // (chunk_id), not as the generic rowid alias, inside a subquery context.
-        let mut stmt = self.conn.prepare(
-            "SELECT c.file_path, c.content, knn.distance
-             FROM (
-                 SELECT chunk_id, distance
+        // Step 1 — pure KNN: get (chunk_id, distance) pairs from sqlite-vec.
+        // No JOIN, no cross-table filter — sqlite-vec drives this entirely.
+        let knn: Vec<(i64, f64)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT chunk_id, distance
                  FROM chunk_embeddings
-                 WHERE embedding MATCH ?1 AND k = ?2
-             ) knn
-             JOIN chunks c ON c.id = knn.chunk_id
-             WHERE c.vault_path = ?3
-             ORDER BY knn.distance",
-        )?;
+                 WHERE embedding MATCH ?1 AND k = ?2",
+            )?;
+            let rows: Result<Vec<_>, _> = stmt
+                .query_map(rusqlite::params![emb_blob, k as i64], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+                })?
+                .collect();
+            rows?
+        };
 
-        let results: Vec<SearchResult> = stmt
-            .query_map(
-                rusqlite::params![emb_blob, k as i64, vault_path],
-                |row| {
-                    Ok(SearchResult {
-                        file_path: row.get(0)?,
-                        content: row.get(1)?,
-                        distance: row.get::<_, f64>(2)? as f32,
-                    })
-                },
-            )?
+        if knn.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Step 2 — metadata lookup: fetch file_path and content for each ID.
+        // Build a parameterized IN clause for the IDs we got from KNN.
+        let placeholders: String = knn
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 2))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT id, file_path, content FROM chunks
+             WHERE vault_path = ?1 AND id IN ({placeholders})"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::with_capacity(knn.len() + 1);
+        params.push(Box::new(vault_path.to_string()));
+        for (id, _) in &knn {
+            params.push(Box::new(*id));
+        }
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let meta: std::collections::HashMap<i64, (String, String)> = stmt
+            .query_map(param_refs.as_slice(), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })?
             .filter_map(|r| r.ok())
+            .map(|(id, fp, content)| (id, (fp, content)))
+            .collect();
+
+        // Step 3 — merge: keep KNN order, skip IDs not found (wrong vault).
+        let results: Vec<SearchResult> = knn
+            .into_iter()
+            .filter_map(|(id, dist)| {
+                meta.get(&id).map(|(fp, content)| SearchResult {
+                    file_path: fp.clone(),
+                    content: content.clone(),
+                    distance: dist as f32,
+                })
+            })
             .collect();
 
         Ok(results)
@@ -195,10 +227,11 @@ impl VectorsDb {
         k: usize,
         keep: &dyn Fn(&str) -> bool,
     ) -> Result<Vec<SearchResult>, DbError> {
-        let total: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM chunks WHERE vault_path = ?1", rusqlite::params![vault_path], |r| r.get(0))?;
-        let all = self.search_similar(vault_path, query_embedding, (total.max(1)) as usize)?;
+        // Ask KNN for a pool large enough to cover the folder after filtering,
+        // but capped at 1000 to stay within sqlite-vec's practical limits.
+        // The pool is 20× the requested k (min 200, max 1000).
+        let pool = (k.saturating_mul(20)).clamp(200, 1000);
+        let all = self.search_similar(vault_path, query_embedding, pool)?;
         Ok(all.into_iter().filter(|r| keep(&r.file_path)).take(k).collect())
     }
 
@@ -387,6 +420,34 @@ mod tests {
         let query = fake_embedding(0.1);
         let results = db.search_similar("/vault", &query, 2).unwrap();
         assert_eq!(results.len(), 2, "TC-05: top-2 returned");
+    }
+
+    /// TC-05b: search works when chunk IDs start at a large value (simulates
+    /// a real vault that has been re-indexed after deletions, giving IDs like
+    /// 11233+ instead of 1, 2, 3 -- this is the production scenario).
+    #[test]
+    fn search_similar_works_with_large_chunk_ids() {
+        let (db, _tmp) = make_db();
+
+        // Advance the autoincrement counter so new chunks get high IDs.
+        db.conn
+            .execute_batch("INSERT INTO sqlite_sequence(name, seq) VALUES ('chunks', 11232);")
+            .unwrap();
+
+        let e1 = fake_embedding(0.1); // ID will be 11233
+        let e2 = fake_embedding(0.5); // ID will be 11234
+        let e3 = fake_embedding(0.9); // ID will be 11235
+        db.upsert_file_chunks("/vault", "/vault/a.md", &[(0, "alpha", e1.as_slice())]).unwrap();
+        db.upsert_file_chunks("/vault", "/vault/b.md", &[(0, "beta",  e2.as_slice())]).unwrap();
+        db.upsert_file_chunks("/vault", "/vault/c.md", &[(0, "gamma", e3.as_slice())]).unwrap();
+
+        // Verify the IDs are as expected.
+        let min_id: i64 = db.conn.query_row("SELECT MIN(id) FROM chunks", [], |r| r.get(0)).unwrap();
+        assert_eq!(min_id, 11233, "chunk IDs must start at 11233 (production-like)");
+
+        let query = fake_embedding(0.1);
+        let results = db.search_similar("/vault", &query, 2).unwrap();
+        assert_eq!(results.len(), 2, "TC-05b: search must return 2 results even with large IDs");
     }
 
     /// TC-06b: upsert replaces old chunks.
