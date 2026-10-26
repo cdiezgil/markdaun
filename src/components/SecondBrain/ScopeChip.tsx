@@ -99,6 +99,7 @@ export function ScopeChip({ scope, onChange, vaultPath, disabled }: ScopeChipPro
         aria-expanded={open}
         disabled={disabled}
         onClick={openMenu}
+        title={`@ ${scopeLabel(scope)}`}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
