@@ -138,6 +138,11 @@ impl VectorsDb {
     }
 
     /// Return the top-`k` most similar chunks to `query_embedding` within the given vault.
+    ///
+    /// The KNN search runs first in a subquery (so sqlite-vec always drives it),
+    /// then the vault_path filter is applied on the outer JOIN.  Mixing MATCH with
+    /// a cross-table WHERE in a flat query lets SQLite choose the wrong join order
+    /// and return 0 rows even when chunks exist.
     pub fn search_similar(
         &self,
         vault_path: &str,
@@ -146,20 +151,26 @@ impl VectorsDb {
     ) -> Result<Vec<SearchResult>, DbError> {
         let emb_blob = Self::to_blob(query_embedding);
 
-        // sqlite-vec KNN: find top-k nearest chunk_ids, then JOIN for metadata.
+        // Inner subquery: pure KNN over the virtual table (no cross-table filter).
+        // Outer query: join metadata and restrict to the right vault.
+        //
+        // sqlite-vec 0.1.x exposes the INTEGER PRIMARY KEY as the named column
+        // (chunk_id), not as the generic rowid alias, inside a subquery context.
         let mut stmt = self.conn.prepare(
-            "SELECT c.file_path, c.content, ce.distance
-             FROM chunk_embeddings ce
-             JOIN chunks c ON c.id = ce.chunk_id
-             WHERE c.vault_path = ?1
-               AND ce.embedding MATCH ?2
-               AND ce.k = ?3
-             ORDER BY ce.distance",
+            "SELECT c.file_path, c.content, knn.distance
+             FROM (
+                 SELECT chunk_id, distance
+                 FROM chunk_embeddings
+                 WHERE embedding MATCH ?1 AND k = ?2
+             ) knn
+             JOIN chunks c ON c.id = knn.chunk_id
+             WHERE c.vault_path = ?3
+             ORDER BY knn.distance",
         )?;
 
         let results: Vec<SearchResult> = stmt
             .query_map(
-                rusqlite::params![vault_path, emb_blob, k as i64],
+                rusqlite::params![emb_blob, k as i64, vault_path],
                 |row| {
                     Ok(SearchResult {
                         file_path: row.get(0)?,
