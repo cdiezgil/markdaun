@@ -174,22 +174,35 @@ pub async fn brain_query_core(
 
     // 1. Context: full text of the scoped notes, or similar chunks (restricted
     //    to the scope when there is one). Failures degrade to "no context".
-    let search = |filter: Option<PathFilter>| {
+    let search = |filter: Option<PathFilter>, folder_prefix: Option<String>| {
         query_embedding.clone().and_then(|emb| {
             let vec_db = VectorsDb::open(vectors_db_path).map_err(|e| format!("db_error: {e}"))?;
             match filter {
                 None => vec_db.search_similar(vault_path, &emb, 15),
-                Some(keep) => vec_db.search_similar_where(vault_path, &emb, 15, &*keep),
+                Some(keep) => vec_db.search_similar_where(
+                    vault_path,
+                    &emb,
+                    15,
+                    &*keep,
+                    folder_prefix.as_deref(),
+                ),
             }
             .map_err(|e| format!("db_error: {e}"))
         })
     };
     let found = match context {
         ScopeContext::FullText(notes) => Ok(notes),
-        ScopeContext::Retrieve => search(None),
-        ScopeContext::RetrieveIn(files, prefix) => search(Some(Box::new(move |p: &str| {
-            files.iter().any(|f| f == p) || prefix.as_deref().is_some_and(|pre| p.starts_with(pre))
-        }))),
+        ScopeContext::Retrieve => search(None, None),
+        ScopeContext::RetrieveIn(files, prefix) => {
+            let folder_prefix = prefix.clone();
+            search(
+                Some(Box::new(move |p: &str| {
+                    files.iter().any(|f| f == p)
+                        || prefix.as_deref().is_some_and(|pre| p.starts_with(pre))
+                })),
+                folder_prefix,
+            )
+        }
     };
     let (results, warning) = match found {
         Ok(r) => {
