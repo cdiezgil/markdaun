@@ -46,7 +46,7 @@ export function buildEditorExtensions({
     Blockquote.extend({ addKeyboardShortcuts: () => ({}) }),
     MermaidCodeBlock,
     Link.configure({
-      openOnClick: true,
+      openOnClick: false,   // handled by EditorCanvas click-delegate
       autolink: true,
       protocols: ['https', 'http', 'mailto'],
       validate: (href) => /^https?:\/\//i.test(href) || href.startsWith('mailto:'),

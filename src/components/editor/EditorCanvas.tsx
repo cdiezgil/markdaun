@@ -1,12 +1,30 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
+import { useNavigate } from 'react-router-dom';
 import { useEditorStore, resolveImageSrc } from '../../store/editorStore';
 import { vaultStoreWikilinkOptions } from './extensions/vaultWikilinkOptions';
 import { buildEditorExtensions } from './editorExtensions';
 import { convertAssetSrc } from '../../lib/tauri';
+import { openExternal } from '../../lib/openExternal';
 import BacklinksSection from './BacklinksSection';
 import { useH1Follow } from '../../hooks/useH1Follow';
 import { firstH1ContentEnd } from '../../lib/h1Follow';
+
+/**
+ * Resolve an href (possibly relative) against the directory of the current
+ * note and return an absolute vault path.
+ *
+ * Examples:
+ *   resolveNoteHref('/vault/folder', './sibling.md') → '/vault/folder/sibling.md'
+ *   resolveNoteHref('/vault/folder', '../other.md')  → '/vault/other.md'
+ *   resolveNoteHref('/vault/folder', 'bare')          → '/vault/folder/bare'
+ */
+export function resolveNoteHref(noteDir: string, href: string): string {
+  // Use the browser's URL resolver — fake file:// scheme so it works offline.
+  const base = new URL('file://' + noteDir + '/');
+  const resolved = new URL(href, base);
+  return decodeURIComponent(resolved.pathname);
+}
 
 import './editor.css';
 
@@ -55,6 +73,38 @@ export default function EditorCanvas({ onEditorReady, plainMdMode = false }: Edi
     setContent,
     setSelectionText,
   } = useEditorStore();
+
+  const navigate = useNavigate();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Delegate link clicks from the editor area:
+   *  - External URLs (https/http/mailto) → system browser via openExternal
+   *  - Everything else (relative or absolute file paths) → navigate in-app
+   */
+  const handleLinkClick = useCallback(
+    (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+      if (!anchor) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const href = anchor.getAttribute('href') ?? '';
+      if (/^https?:\/\//i.test(href) || href.startsWith('mailto:')) {
+        openExternal(href).catch(console.error);
+        return;
+      }
+
+      // Internal link — resolve relative to the current note’s directory
+      const notePath = useEditorStore.getState().activeNotePath;
+      if (!notePath) return;
+      const noteDir = notePath.substring(0, notePath.lastIndexOf('/'));
+      const absPath = resolveNoteHref(noteDir, href);
+      navigate(`/editor/${encodeURIComponent(absPath)}`);
+    },
+    [navigate],
+  );
 
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
 
@@ -114,6 +164,14 @@ export default function EditorCanvas({ onEditorReady, plainMdMode = false }: Edi
 
   useH1Follow(editor);
 
+  // Attach the link-click delegate to the editor's scroll container
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('click', handleLinkClick);
+    return () => el.removeEventListener('click', handleLinkClick);
+  }, [handleLinkClick]);
+
   // Handle drag-and-drop of images
   const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     const { vaultPath } = useEditorStore.getState();
@@ -137,6 +195,7 @@ export default function EditorCanvas({ onEditorReady, plainMdMode = false }: Edi
 
   return (
     <div
+      ref={containerRef}
       style={{ flex: 1, overflowY: 'auto', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}

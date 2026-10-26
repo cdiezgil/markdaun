@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useCallback } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
+import { openExternal } from '../../lib/openExternal';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Table from '@tiptap/extension-table';
@@ -46,7 +47,7 @@ export function AssistantMarkdown({ content, onOpenNote }: AssistantMarkdownProp
       StarterKit.configure({ heading: { levels: [1, 2, 3] }, codeBlock: false }),
       MermaidCodeBlock,
       Link.configure({
-        openOnClick: true,
+        openOnClick: false,   // handled below via click delegate
         autolink: false,
         protocols: ['https', 'http', 'mailto'],
         validate: (href) => /^https?:\/\//i.test(href) || href.startsWith('mailto:'),
@@ -70,5 +71,25 @@ export function AssistantMarkdown({ content, onOpenNote }: AssistantMarkdownProp
     if (current !== content) editor.commands.setContent(content);
   }, [editor, content]);
 
-  return <EditorContent editor={editor} />;
+  // Delegate external link clicks to the system browser via Tauri opener.
+  // Wikilink clicks are already handled by the WikilinkExtension (onOpen).
+  const containerRef = useRef<HTMLDivElement>(null);
+  const handleLinkClick = useCallback((e: MouseEvent) => {
+    const anchor = (e.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+    if (!anchor) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const href = anchor.getAttribute('href') ?? '';
+    if (/^https?:\/\//i.test(href) || href.startsWith('mailto:')) {
+      openExternal(href).catch(console.error);
+    }
+  }, []);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('click', handleLinkClick);
+    return () => el.removeEventListener('click', handleLinkClick);
+  }, [handleLinkClick]);
+
+  return <div ref={containerRef}><EditorContent editor={editor} /></div>;
 }

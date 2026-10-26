@@ -4,6 +4,11 @@ import { render } from '@testing-library/react';
 import { act } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return { ...actual, useNavigate: () => vi.fn() };
+});
+
 vi.mock('./editorExtensions', () => ({ buildEditorExtensions: () => [] }));
 vi.mock('./BacklinksSection', () => ({ default: () => null }));
 vi.mock('../../hooks/useH1Follow', () => ({ useH1Follow: vi.fn() }));

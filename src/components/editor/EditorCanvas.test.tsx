@@ -4,6 +4,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../store/editorStore';
 
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return { ...actual, useNavigate: () => vi.fn() };
+});
+
 // Mock TipTap to avoid full DOM editor in unit tests
 vi.mock('./editorExtensions', () => ({ buildEditorExtensions: () => [] }));
 vi.mock('./BacklinksSection', () => ({ default: () => null }));
@@ -197,5 +202,27 @@ describe('noteCaption', () => {
   it('appends the save time when known', async () => {
     const { noteCaption } = await import('./EditorCanvas');
     expect(noteCaption('/vault/a.md', '/vault', Date.now())).toMatch(/^a · guardado \d{2}:\d{2}/);
+  });
+});
+
+describe('resolveNoteHref', () => {
+  it('resolves a sibling relative link', async () => {
+    const { resolveNoteHref } = await import('./EditorCanvas');
+    expect(resolveNoteHref('/vault/folder', './sibling.md')).toBe('/vault/folder/sibling.md');
+  });
+
+  it('resolves a bare relative link (no ./)', async () => {
+    const { resolveNoteHref } = await import('./EditorCanvas');
+    expect(resolveNoteHref('/vault/folder', 'sibling.md')).toBe('/vault/folder/sibling.md');
+  });
+
+  it('resolves a parent-dir relative link (../)', async () => {
+    const { resolveNoteHref } = await import('./EditorCanvas');
+    expect(resolveNoteHref('/vault/folder', '../other.md')).toBe('/vault/other.md');
+  });
+
+  it('passes through an absolute path unchanged', async () => {
+    const { resolveNoteHref } = await import('./EditorCanvas');
+    expect(resolveNoteHref('/vault/folder', '/vault/other/note.md')).toBe('/vault/other/note.md');
   });
 });
