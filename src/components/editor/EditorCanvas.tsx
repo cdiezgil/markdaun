@@ -6,6 +6,7 @@ import { vaultStoreWikilinkOptions } from './extensions/vaultWikilinkOptions';
 import { buildEditorExtensions } from './editorExtensions';
 import { convertAssetSrc } from '../../lib/tauri';
 import { openExternal } from '../../lib/openExternal';
+import { attachmentKindOf } from '../../lib/attachments/types';
 import BacklinksSection from './BacklinksSection';
 import { useH1Follow } from '../../hooks/useH1Follow';
 import { firstH1ContentEnd } from '../../lib/h1Follow';
@@ -101,7 +102,13 @@ export default function EditorCanvas({ onEditorReady, plainMdMode = false }: Edi
       if (!notePath) return;
       const noteDir = notePath.substring(0, notePath.lastIndexOf('/'));
       const absPath = resolveNoteHref(noteDir, href);
-      navigate(`/editor/${encodeURIComponent(absPath)}`);
+      // Images and PDFs open in the preview panel; everything else in the editor
+      const kind = attachmentKindOf(absPath);
+      if (kind === 'image' || kind === 'pdf') {
+        navigate(`/preview/${encodeURIComponent(absPath)}`);
+      } else {
+        navigate(`/editor/${encodeURIComponent(absPath)}`);
+      }
     },
     [navigate],
   );
