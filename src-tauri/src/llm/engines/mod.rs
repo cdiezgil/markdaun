@@ -6,7 +6,9 @@ use super::connection::{Connection, Engine};
 use super::env::LlmEnv;
 use super::error::LlmError;
 use super::http;
+use super::oauth::OAuthProvider;
 
+pub mod antigravity;
 pub mod anthropic;
 pub mod cli;
 pub mod openai;
@@ -58,6 +60,7 @@ pub async fn list_models(conn: &Connection, secret: Option<&str>, env: &LlmEnv) 
             let cred = auth::resolve(conn, secret, &env.az, &env.oauth).await?;
             anthropic::list_models(conn, &cred, &client).await
         }
+        Engine::Antigravity => Ok(antigravity::list_models()),
     }
 }
 
@@ -95,6 +98,19 @@ pub async fn chat_unchecked(
             let client = http::build_client(conn, env.timeout)?;
             let cred = auth::resolve(conn, secret, &env.az, &env.oauth).await?;
             anthropic::chat(conn, &cred, &client, model, messages).await
+        }
+        Engine::Antigravity => {
+            let client = http::build_client(conn, env.timeout)?;
+            // token: from OAuth (may refresh automatically)
+            let token = env.oauth.token(OAuthProvider::Google).await?;
+            // project_id: discovered at login and stored in keyring
+            let stored = env.oauth.stored(OAuthProvider::Google)
+                .ok_or_else(|| LlmError::Unauthorized)?;
+            let project_id = stored.project_id
+                .ok_or_else(|| LlmError::BadResponse(
+                    "antigravity: projectId not found — please reconnect".into()
+                ))?;
+            antigravity::chat(model, messages, &token, &project_id, &client).await
         }
     }
 }

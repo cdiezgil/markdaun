@@ -9,6 +9,8 @@ pub enum Engine {
     AnthropicMessages,
     CliClaude,
     CliGemini,
+    /// Google Antigravity / Cloud Code Assist (Gemini-format SSE)
+    Antigravity,
 }
 
 impl Engine {

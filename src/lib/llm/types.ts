@@ -1,6 +1,6 @@
 // TypeScript mirrors of the Rust types in src-tauri/src/llm (serde camelCase).
 
-export type Engine = 'openAiCompat' | 'anthropicMessages' | 'cliClaude' | 'cliGemini';
+export type Engine = 'openAiCompat' | 'anthropicMessages' | 'cliClaude' | 'cliGemini' | 'antigravity';
 
 export type OAuthProvider = 'google' | 'anthropic';
 

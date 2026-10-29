@@ -39,9 +39,8 @@ export const PRESETS: Preset[] = [
     name: 'Google Antigravity',
     route: 'subscription',
     icon: 'cloud',
-    engine: 'openAiCompat',
-    // Antigravity uses a Vertex-AI-style endpoint; base URL includes the project.
-    // The engine substitutes {projectId} at runtime via the stored OAuthTokens.
+    engine: 'antigravity',
+    // Endpoint is hardcoded in the Rust engine; baseUrl is kept for validation shape only.
     baseUrl: 'https://daily-cloudcode-pa.googleapis.com',
     auth: { type: 'oauth', provider: 'google' } as const,
     authHeader: 'bearer',
