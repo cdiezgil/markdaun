@@ -1,6 +1,7 @@
 use super::auth::{AzTokenProvider, Clock, SystemClock};
 use super::connection::Connection;
 use super::error::LlmError;
+use super::oauth::OAuthTokenProvider;
 use super::proc::{BinaryResolver, LoginShellResolver};
 use super::secrets::{connection_account, KeyringStore, SecretStore};
 use std::sync::Arc;
@@ -11,6 +12,7 @@ use std::time::Duration;
 pub struct LlmEnv {
     pub resolver: Arc<dyn BinaryResolver>,
     pub az: Arc<AzTokenProvider>,
+    pub oauth: Arc<OAuthTokenProvider>,
     pub secrets: Arc<dyn SecretStore>,
     pub timeout: Duration,
 }
@@ -23,7 +25,8 @@ impl LlmEnv {
         timeout: Duration,
     ) -> Self {
         let az = Arc::new(AzTokenProvider::new(resolver.clone(), clock, timeout));
-        Self { resolver, az, secrets, timeout }
+        let oauth = Arc::new(OAuthTokenProvider::new(secrets.clone()));
+        Self { resolver, az, oauth, secrets, timeout }
     }
 
     pub fn production() -> Self {

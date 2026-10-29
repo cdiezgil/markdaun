@@ -225,3 +225,66 @@ pub async fn llm_get_active(app: tauri::AppHandle) -> Result<Option<ActiveSelect
 pub async fn llm_detect_cli(env: tauri::State<'_, LlmEnv>, engine: Engine) -> Result<CliDetection, LlmError> {
     Ok(detect_cli_inner(&env, engine))
 }
+
+// ─── OAuth commands ───────────────────────────────────────────────────────────
+
+use crate::llm::oauth::{OAuthProvider, OAuthTokens};
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthStatus {
+    pub logged_in: bool,
+    pub email: Option<String>,
+    pub project_id: Option<String>,
+}
+
+/// Google Antigravity: full login (opens browser, waits for callback).
+/// Runs for up to 5 minutes while the user completes the Google sign-in.
+#[tauri::command]
+pub async fn llm_oauth_login_google(
+    env: tauri::State<'_, LlmEnv>,
+) -> Result<OAuthTokens, LlmError> {
+    env.oauth.login_google().await
+}
+
+/// Anthropic step 1: returns the URL to open in the browser and a verifier token.
+/// Keep the verifier; pass it to `llm_oauth_finish_anthropic` along with the pasted code.
+#[tauri::command]
+pub async fn llm_oauth_start_anthropic(
+    env: tauri::State<'_, LlmEnv>,
+) -> Result<(String, String), LlmError> {
+    Ok(env.oauth.start_anthropic_login())
+}
+
+/// Anthropic step 2: exchange the code pasted by the user for tokens.
+#[tauri::command]
+pub async fn llm_oauth_finish_anthropic(
+    env: tauri::State<'_, LlmEnv>,
+    pasted_code: String,
+    verifier: String,
+) -> Result<OAuthTokens, LlmError> {
+    env.oauth.finish_anthropic_login(&pasted_code, &verifier).await
+}
+
+/// Check login status for a provider.
+#[tauri::command]
+pub async fn llm_oauth_status(
+    env: tauri::State<'_, LlmEnv>,
+    provider: OAuthProvider,
+) -> Result<OAuthStatus, LlmError> {
+    let stored = env.oauth.stored(provider);
+    Ok(OAuthStatus {
+        logged_in: stored.is_some(),
+        email: stored.as_ref().and_then(|t| t.email.clone()),
+        project_id: stored.as_ref().and_then(|t| t.project_id.clone()),
+    })
+}
+
+/// Remove stored OAuth tokens for a provider (logout).
+#[tauri::command]
+pub async fn llm_oauth_logout(
+    env: tauri::State<'_, LlmEnv>,
+    provider: OAuthProvider,
+) -> Result<(), LlmError> {
+    env.oauth.logout(provider)
+}

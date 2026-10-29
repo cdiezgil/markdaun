@@ -13,3 +13,6 @@ src-tauri/.ort/
 .worktrees/
 mobile/test-results/
 mobile/playwright-report/
+
+# OAuth credentials (never commit the real file)
+src-tauri/src/llm/oauth_creds.rs

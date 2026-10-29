@@ -1,0 +1,14 @@
+/// OAuth client credentials template.
+/// Copy this file to oauth_creds.rs and fill in your values.
+/// oauth_creds.rs is listed in .gitignore and must never be committed.
+///
+/// Google credentials: desktop-app client registered for Google Code Assist CLI.
+/// Public, MIT-licensed source: github.com/Rahularya01/pi-antigravity
+///
+/// Anthropic: public client_id, no secret needed.
+
+pub const GOOGLE_CLIENT_ID: &str = "YOUR_GOOGLE_CLIENT_ID";
+
+pub const GOOGLE_CLIENT_SECRET: &str = "YOUR_GOOGLE_CLIENT_SECRET";
+
+pub const ANTHROPIC_CLIENT_ID: &str = "YOUR_ANTHROPIC_CLIENT_ID";

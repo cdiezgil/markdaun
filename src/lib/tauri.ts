@@ -5,6 +5,9 @@ import type {
   CliDetection,
   Connection,
   Engine,
+  OAuthProvider,
+  OAuthStatus,
+  OAuthTokens,
   ProgressEvent,
   ValidateResult,
 } from './llm/types';
@@ -817,4 +820,31 @@ export async function ideGetProjects(): Promise<string[]> {
 /** Persists the list of IDE project root paths in config.db. */
 export async function ideSaveProjects(projects: string[]): Promise<void> {
   return invoke<void>('ide_save_projects', { projects });
+}
+
+// ── OAuth commands ─────────────────────────────────────────────────────
+
+/** Google Antigravity: full login flow (opens browser, waits ≤45 min). */
+export async function llmOAuthLoginGoogle(): Promise<OAuthTokens> {
+  return invoke<OAuthTokens>('llm_oauth_login_google');
+}
+
+/** Anthropic step 1: returns [authUrl, verifier]. Open authUrl in the browser. */
+export async function llmOAuthStartAnthropic(): Promise<[string, string]> {
+  return invoke<[string, string]>('llm_oauth_start_anthropic');
+}
+
+/** Anthropic step 2: exchange the code pasted by the user for tokens. */
+export async function llmOAuthFinishAnthropic(pastedCode: string, verifier: string): Promise<OAuthTokens> {
+  return invoke<OAuthTokens>('llm_oauth_finish_anthropic', { pastedCode, verifier });
+}
+
+/** Check login status for a provider. */
+export async function llmOAuthStatus(provider: OAuthProvider): Promise<OAuthStatus> {
+  return invoke<OAuthStatus>('llm_oauth_status', { provider });
+}
+
+/** Remove stored OAuth tokens for a provider. */
+export async function llmOAuthLogout(provider: OAuthProvider): Promise<void> {
+  return invoke<void>('llm_oauth_logout', { provider });
 }

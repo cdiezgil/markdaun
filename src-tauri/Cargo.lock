@@ -2797,6 +2797,7 @@ dependencies = [
  "lopdf",
  "notify",
  "notify-debouncer-full",
+ "open",
  "ort-sys",
  "pulldown-cmark",
  "quick-xml",

@@ -1,4 +1,5 @@
 use super::error::LlmError;
+use super::oauth::OAuthProvider;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,13 +17,18 @@ impl Engine {
     }
 }
 
-/// Where the credential comes from. `ApiKey` secrets live in the OS keyring.
+/// Where the credential comes from.
+/// - `ApiKey` / `OAuth` secrets live in the OS keyring.
+/// - `AzureCli` calls `az account get-access-token`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AuthSource {
     None,
     ApiKey,
     AzureCli { scope: String },
+    /// Token obtained via the browser-based OAuth PKCE flow.
+    /// The refresh_token is persisted in the OS keyring by `OAuthTokenProvider`.
+    OAuth { provider: OAuthProvider },
 }
 
 /// Which HTTP header carries the credential.

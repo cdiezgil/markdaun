@@ -1,5 +1,6 @@
 use super::connection::{AuthSource, Connection};
 use super::error::LlmError;
+use super::oauth::OAuthTokenProvider;
 use super::proc::{self, BinaryResolver};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -104,7 +105,12 @@ impl AzTokenProvider {
 
 /// Turns the connection's `AuthSource` into a concrete credential.
 /// `secret` is the keyring value (or the freshly typed one during validation).
-pub async fn resolve(conn: &Connection, secret: Option<&str>, az: &AzTokenProvider) -> Result<Credential, LlmError> {
+pub async fn resolve(
+    conn: &Connection,
+    secret: Option<&str>,
+    az: &AzTokenProvider,
+    oauth: &OAuthTokenProvider,
+) -> Result<Credential, LlmError> {
     match &conn.auth {
         AuthSource::None => Ok(Credential::None),
         AuthSource::ApiKey => match secret.filter(|s| !s.is_empty()) {
@@ -112,5 +118,6 @@ pub async fn resolve(conn: &Connection, secret: Option<&str>, az: &AzTokenProvid
             None => Err(LlmError::Unauthorized),
         },
         AuthSource::AzureCli { scope } => Ok(Credential::Secret(az.token(scope).await?)),
+        AuthSource::OAuth { provider } => Ok(Credential::Secret(oauth.token(*provider).await?)),
     }
 }

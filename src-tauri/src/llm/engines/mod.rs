@@ -50,12 +50,12 @@ pub async fn list_models(conn: &Connection, secret: Option<&str>, env: &LlmEnv) 
         }
         Engine::OpenAiCompat => {
             let client = http::build_client(conn, env.timeout)?;
-            let cred = auth::resolve(conn, secret, &env.az).await?;
+            let cred = auth::resolve(conn, secret, &env.az, &env.oauth).await?;
             openai::list_models(conn, &cred, &client).await
         }
         Engine::AnthropicMessages => {
             let client = http::build_client(conn, env.timeout)?;
-            let cred = auth::resolve(conn, secret, &env.az).await?;
+            let cred = auth::resolve(conn, secret, &env.az, &env.oauth).await?;
             anthropic::list_models(conn, &cred, &client).await
         }
     }
@@ -88,12 +88,12 @@ pub async fn chat_unchecked(
         Engine::CliClaude | Engine::CliGemini => cli::chat(conn.engine, env, model, messages).await,
         Engine::OpenAiCompat => {
             let client = http::build_client(conn, env.timeout)?;
-            let cred = auth::resolve(conn, secret, &env.az).await?;
+            let cred = auth::resolve(conn, secret, &env.az, &env.oauth).await?;
             openai::chat(conn, &cred, &client, model, messages).await
         }
         Engine::AnthropicMessages => {
             let client = http::build_client(conn, env.timeout)?;
-            let cred = auth::resolve(conn, secret, &env.az).await?;
+            let cred = auth::resolve(conn, secret, &env.az, &env.oauth).await?;
             anthropic::chat(conn, &cred, &client, model, messages).await
         }
     }

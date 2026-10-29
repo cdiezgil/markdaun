@@ -1,6 +1,8 @@
 pub mod attachment;
+pub(crate) mod oauth_creds;
 pub mod auth;
 pub mod connection;
+pub mod oauth;
 pub mod embeddings;
 pub mod engines;
 pub mod env;

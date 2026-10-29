@@ -3,18 +3,24 @@ import { PRESETS, draftFromPreset, presetsForRoute } from './presets';
 import { isCliEngine } from './types';
 
 describe('PRESETS', () => {
-  it('has unique ids and the 11 spec presets', () => {
+  it('has unique ids and all spec presets', () => {
     const ids = PRESETS.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual([
+      // OAuth subscription presets
+      'google-antigravity',
+      'anthropic-oauth',
+      // CLI subscription presets
       'claude-code',
       'gemini-cli',
+      // API key presets
       'anthropic-api',
       'gemini-api',
       'kimi-coding',
       'kimi-api',
       'zai-coding',
       'zai-api',
+      // Company / proxy presets
       'azure-openai',
       'azure-anthropic',
       'proxy',
@@ -69,7 +75,12 @@ describe('PRESETS', () => {
 
 describe('presetsForRoute / draftFromPreset', () => {
   it('groups presets by route', () => {
-    expect(presetsForRoute('subscription').map((p) => p.id)).toEqual(['claude-code', 'gemini-cli']);
+    expect(presetsForRoute('subscription').map((p) => p.id)).toEqual([
+      'google-antigravity',
+      'anthropic-oauth',
+      'claude-code',
+      'gemini-cli',
+    ]);
     expect(presetsForRoute('company').map((p) => p.id)).toEqual(['azure-openai', 'azure-anthropic', 'proxy']);
     expect(presetsForRoute('apiKey')).toHaveLength(6);
   });

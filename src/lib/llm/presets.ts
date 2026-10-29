@@ -33,6 +33,38 @@ export interface Preset {
 // Endpoint URLs and model names are re-verified against provider docs in the
 // "Verify preset endpoints" step of this task; keep this table the single source.
 export const PRESETS: Preset[] = [
+  // ── OAuth subscription presets (browser-based login, no API key) ─────────
+  {
+    id: 'google-antigravity',
+    name: 'Google Antigravity',
+    route: 'subscription',
+    icon: 'cloud',
+    engine: 'openAiCompat',
+    // Antigravity uses a Vertex-AI-style endpoint; base URL includes the project.
+    // The engine substitutes {projectId} at runtime via the stored OAuthTokens.
+    baseUrl: 'https://daily-cloudcode-pa.googleapis.com',
+    auth: { type: 'oauth', provider: 'google' } as const,
+    authHeader: 'bearer',
+    azureApiVersion: null,
+    keyUrl: null,
+    suggestedModels: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+    help: 'Usa tu suscripción de Google Antigravity (Google One AI Premium). Inicia sesión con tu cuenta de Google — no se necesita API key.',
+  },
+  {
+    id: 'anthropic-oauth',
+    name: 'Anthropic (Claude Pro/Max)',
+    route: 'subscription',
+    icon: 'cloud',
+    engine: 'anthropicMessages',
+    baseUrl: 'https://api.anthropic.com',
+    auth: { type: 'oauth', provider: 'anthropic' } as const,
+    authHeader: 'bearer',
+    azureApiVersion: null,
+    keyUrl: null,
+    suggestedModels: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
+    help: 'Usa tu suscripción de Claude Pro o Max — sin coste adicional de API. Requiere pegar un código de autorización en el navegador.',
+  },
+  // ── CLI subscription presets ───────────────────────────────────────────────
   {
     id: 'claude-code',
     name: 'Claude Code',

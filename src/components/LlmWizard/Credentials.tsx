@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { llmDetectCli } from '../../lib/tauri';
+import { llmDetectCli, llmOAuthLoginGoogle, llmOAuthStartAnthropic, llmOAuthFinishAnthropic, llmOAuthStatus } from '../../lib/tauri';
 import { openExternal } from '../../lib/openExternal';
 import {
   DEFAULT_AZURE_SCOPE,
@@ -8,6 +8,7 @@ import {
   type AuthHeader,
   type CliDetection,
   type Connection,
+  type OAuthTokens,
 } from '../../lib/llm/types';
 import type { Preset } from '../../lib/llm/presets';
 import {
@@ -60,9 +61,16 @@ function formatHeaders(h: [string, string][]): string {
 
 export function Credentials({ preset, draft, secret, onChange, onSecret, onBack, onNext }: Props): JSX.Element {
   const isCli = isCliEngine(draft.engine);
+  const isOAuth = draft.auth.type === 'oauth';
   const isEditing = draft.id !== '';
   const [cli, setCli] = useState<CliDetection | null>(null);
   const [headersText, setHeadersText] = useState(formatHeaders(draft.extraHeaders));
+  // OAuth state
+  const [oauthStatus, setOauthStatus] = useState<'idle' | 'pending' | 'paste' | 'done' | 'error'>('idle');
+  const [oauthEmail, setOauthEmail] = useState<string | undefined>();
+  const [oauthError, setOauthError] = useState<string | undefined>();
+  const [anthropicVerifier, setAnthropicVerifier] = useState('');
+  const [pastedCode, setPastedCode] = useState('');
 
   const check = useCallback(() => {
     llmDetectCli(draft.engine)
@@ -74,6 +82,19 @@ export function Credentials({ preset, draft, secret, onChange, onSecret, onBack,
     if (isCli) check();
   }, [isCli, check]);
 
+  // On mount: check if already logged in for OAuth presets
+  useEffect(() => {
+    if (!isOAuth || draft.auth.type !== 'oauth') return;
+    llmOAuthStatus(draft.auth.provider)
+      .then((s) => {
+        if (s.loggedIn) {
+          setOauthEmail(s.email);
+          setOauthStatus('done');
+        }
+      })
+      .catch(() => {});
+  }, [isOAuth, draft.auth]);
+
   const patch = (p: Partial<Connection>) => onChange({ ...draft, ...p });
   const choice = authChoice(draft);
   const showSecret = !isCli && choice === 'token';
@@ -82,7 +103,52 @@ export function Credentials({ preset, draft, secret, onChange, onSecret, onBack,
   const urlOk = /^https?:\/\/[^\s<>]+$/.test(draft.baseUrl ?? '');
   const modelOk = model.trim() !== '';
   const secretOk = !showSecret || secret.trim() !== '' || isEditing;
-  const canContinue = isCli ? Boolean(cli?.installed) && modelOk : urlOk && modelOk && secretOk;
+  const oauthOk = isOAuth ? oauthStatus === 'done' : true;
+  const canContinue = isCli
+    ? Boolean(cli?.installed) && modelOk
+    : isOAuth
+    ? oauthOk && modelOk
+    : urlOk && modelOk && secretOk;
+
+  const connectGoogle = async () => {
+    setOauthStatus('pending');
+    setOauthError(undefined);
+    try {
+      const tokens: OAuthTokens = await llmOAuthLoginGoogle();
+      setOauthEmail(tokens.email);
+      setOauthStatus('done');
+    } catch (e) {
+      setOauthError(e instanceof Error ? e.message : String(e));
+      setOauthStatus('error');
+    }
+  };
+
+  const startAnthropic = async () => {
+    setOauthStatus('pending');
+    setOauthError(undefined);
+    try {
+      const [url, verifier] = await llmOAuthStartAnthropic();
+      setAnthropicVerifier(verifier);
+      await openExternal(url);
+      setOauthStatus('paste');
+    } catch (e) {
+      setOauthError(e instanceof Error ? e.message : String(e));
+      setOauthStatus('error');
+    }
+  };
+
+  const finishAnthropic = async () => {
+    setOauthStatus('pending');
+    setOauthError(undefined);
+    try {
+      const tokens: OAuthTokens = await llmOAuthFinishAnthropic(pastedCode, anthropicVerifier);
+      setOauthEmail(tokens.email);
+      setOauthStatus('done');
+    } catch (e) {
+      setOauthError(e instanceof Error ? e.message : String(e));
+      setOauthStatus('error');
+    }
+  };
 
   const setAuth = (c: AuthChoice) => {
     if (c === 'az') patch({ auth: { type: 'azureCli', scope: DEFAULT_AZURE_SCOPE } });
@@ -103,7 +169,101 @@ export function Credentials({ preset, draft, secret, onChange, onSecret, onBack,
       <h2 style={title}>{preset?.name ?? draft.name}</h2>
       {preset && <p style={muted}>{preset.help}</p>}
 
-      {isCli ? (
+      {/* ── OAuth panel ─────────────────────────────────────────────── */}
+      {isOAuth && draft.auth.type === 'oauth' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          {/* Google — full local callback */}
+          {draft.auth.provider === 'google' && (
+            <>
+              {oauthStatus === 'done' && (
+                <p style={{ ...muted, color: 'var(--daun)' }}>
+                  ✓ Conectado{oauthEmail ? ` como ${oauthEmail}` : ''}
+                </p>
+              )}
+              {oauthStatus === 'pending' && (
+                <p style={muted}>Esperando la autorización en el navegador… (máx. 5 min)</p>
+              )}
+              {oauthStatus !== 'done' && (
+                <button
+                  data-testid="oauth-connect-google"
+                  style={{ ...primaryButton, alignSelf: 'flex-start' }}
+                  disabled={oauthStatus === 'pending'}
+                  onClick={() => void connectGoogle()}
+                >
+                  {oauthStatus === 'pending' ? 'Conectando…' : 'Conectar con Google'}
+                </button>
+              )}
+              {oauthStatus === 'done' && (
+                <button
+                  style={{ ...ghostButton, alignSelf: 'flex-start' }}
+                  onClick={() => { setOauthStatus('idle'); setOauthEmail(undefined); }}
+                >
+                  Cambiar cuenta
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Anthropic — paste code */}
+          {draft.auth.provider === 'anthropic' && (
+            <>
+              {oauthStatus === 'done' && (
+                <p style={{ ...muted, color: 'var(--daun)' }}>
+                  ✓ Conectado{oauthEmail ? ` como ${oauthEmail}` : ''}
+                </p>
+              )}
+              {oauthStatus === 'idle' || oauthStatus === 'error' ? (
+                <button
+                  data-testid="oauth-connect-anthropic"
+                  style={{ ...primaryButton, alignSelf: 'flex-start' }}
+                  onClick={() => void startAnthropic()}
+                >
+                  Conectar con Anthropic
+                </button>
+              ) : null}
+              {(oauthStatus === 'paste') && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                  <p style={muted}>
+                    El navegador se ha abierto en claude.ai. Autoriza el acceso y luego copia
+                    el código que aparece en la barra de dirección del navegador.
+                  </p>
+                  <input
+                    data-testid="oauth-paste-code"
+                    style={input}
+                    placeholder="Pega aquí el código de autorización"
+                    value={pastedCode}
+                    onChange={(e) => setPastedCode(e.target.value)}
+                  />
+                  <button
+                    data-testid="oauth-finish-anthropic"
+                    style={{ ...primaryButton, alignSelf: 'flex-start' }}
+                    disabled={!pastedCode.trim()}
+                    onClick={() => void finishAnthropic()}
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              )}
+              {oauthStatus === 'pending' && <p style={muted}>Intercambiando token…</p>}
+              {oauthStatus === 'done' && (
+                <button
+                  style={{ ...ghostButton, alignSelf: 'flex-start' }}
+                  onClick={() => { setOauthStatus('idle'); setOauthEmail(undefined); setPastedCode(''); }}
+                >
+                  Cambiar cuenta
+                </button>
+              )}
+            </>
+          )}
+
+          {oauthError && <p style={errorText}>{oauthError}</p>}
+        </div>
+      )}
+
+      {/* ── Model selector (always shown, also for OAuth) ────────────── */}
+
+      {/* ── CLI / API-key panels (skip for OAuth) ─────────────── */}
+      {!isOAuth && isCli ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <p data-testid="cli-status" style={{ ...muted, color: cli?.installed ? 'var(--daun)' : 'var(--ink-muted)' }}>
             {cli === null ? 'Comprobando…' : cli.installed ? `Instalado (${cli.path})` : 'No encontrado'}
@@ -117,7 +277,7 @@ export function Credentials({ preset, draft, secret, onChange, onSecret, onBack,
             Comprobar de nuevo
           </button>
         </div>
-      ) : (
+      ) : !isOAuth ? (
         <>
           <div style={field}>
             <label style={label} htmlFor="base-url">URL del endpoint</label>
@@ -173,7 +333,7 @@ export function Credentials({ preset, draft, secret, onChange, onSecret, onBack,
             </div>
           )}
         </>
-      )}
+      ) : null}
 
       <div style={field}>
         <label style={label} htmlFor="test-model">
@@ -194,7 +354,7 @@ export function Credentials({ preset, draft, secret, onChange, onSecret, onBack,
         </datalist>
       </div>
 
-      {!isCli && (
+      {!isCli && !isOAuth && (
         <details data-testid="advanced">
           <summary style={{ ...label, cursor: 'pointer' }}>Avanzado</summary>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', marginTop: 'var(--space-3)' }}>

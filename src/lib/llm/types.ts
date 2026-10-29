@@ -2,10 +2,27 @@
 
 export type Engine = 'openAiCompat' | 'anthropicMessages' | 'cliClaude' | 'cliGemini';
 
+export type OAuthProvider = 'google' | 'anthropic';
+
 export type AuthSource =
   | { type: 'none' }
   | { type: 'apiKey' }
-  | { type: 'azureCli'; scope: string };
+  | { type: 'azureCli'; scope: string }
+  | { type: 'oauth'; provider: OAuthProvider };
+
+export interface OAuthTokens {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+  projectId?: string;
+  email?: string;
+}
+
+export interface OAuthStatus {
+  loggedIn: boolean;
+  email?: string;
+  projectId?: string;
+}
 
 export type AuthHeader = 'bearer' | 'apiKey' | 'xApiKey';
 
