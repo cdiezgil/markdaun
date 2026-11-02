@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Check, CircleAlert, Loader, RefreshCw } from 'lucide-react';
 import { useSyncStore, indicatorFor, syncErrorText, type SyncIndicator } from '../../store/syncStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -37,6 +38,7 @@ function SyncItem(): JSX.Element | null {
   const localPending = useSyncStore((s) => s.localPending);
   const syncNow = useSyncStore((s) => s.syncNow);
   const openDeletionPrompt = useSyncStore((s) => s.openDeletionPrompt);
+  const navigate = useNavigate();
   if (!isConnected) return null;
 
   const buttonStyle: React.CSSProperties = {
@@ -73,8 +75,11 @@ function SyncItem(): JSX.Element | null {
     indicator === 'needsReview' && state?.error
       ? syncErrorText(state.error)
       : lastSuccessText(state?.lastSuccess ?? null);
+  // A rejected token is fixed in the GitHub settings, not by syncing again.
+  const unauthorized = indicator === 'needsReview' && state?.error?.kind === 'unauthorized';
   const onClick = () => {
     if (state?.pausedReason === 'deletion') openDeletionPrompt();
+    else if (unauthorized) navigate('/settings#github');
     else void syncNow();
   };
   return (

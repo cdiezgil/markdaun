@@ -153,8 +153,13 @@ function union(a: string[], b: string[]): string[] {
   return [...a, ...b.filter((p) => !a.includes(p))];
 }
 
+/** Spanish text for the plain-string errors of the connect commands. */
+const COMMAND_ERRORS: Record<string, string> = {
+  sync_busy: 'Sincronizando, inténtalo en unos segundos',
+};
+
 function errorText(e: unknown): string {
-  if (typeof e === 'string') return e;
+  if (typeof e === 'string') return COMMAND_ERRORS[e] ?? e;
   if (typeof e === 'object' && e !== null && 'kind' in e) {
     const kind = (e as { kind: unknown }).kind;
     if (typeof kind === 'string' && SYNC_ERROR_KINDS.includes(kind)) {

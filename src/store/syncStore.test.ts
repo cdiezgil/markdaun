@@ -271,6 +271,13 @@ describe('useSyncStore', () => {
     expect(indicatorFor(makeState(), false, ['a (conflicto x).md'])).toBe('needsReview');
   });
 
+  it('a connect refused because a cycle runs reads as a retry hint', async () => {
+    mockPreview.mockResolvedValue({ case: 'remote_empty', remoteCount: 0, localCount: 1 });
+    mockApply.mockRejectedValue('sync_busy');
+    await useSyncStore.getState().connect('https://github.com/u/r', 'p', '/v');
+    expect(useSyncStore.getState().error).toBe('Sincronizando, inténtalo en unos segundos');
+  });
+
   it('maps sync errors to Spanish text', async () => {
     mockTrigger.mockRejectedValue({ kind: 'unauthorized', detail: 'x' });
     await useSyncStore.getState().syncNow();

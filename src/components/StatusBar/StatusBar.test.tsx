@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import React from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { StatusBar } from './StatusBar';
@@ -252,6 +252,29 @@ describe('StatusBar', () => {
       renderBar();
       fireEvent.click(screen.getByTestId('sync-status'));
       expect(syncNow).toHaveBeenCalledTimes(1);
+    });
+
+    it('click opens the GitHub settings when the token was rejected', () => {
+      const syncNow = vi.fn().mockResolvedValue(undefined);
+      useSyncStore.setState({
+        config: { repoUrl: 'u', isConnected: true },
+        state: syncState({ error: { kind: 'unauthorized', detail: 'x' } }, { halted: true }),
+        syncNow,
+      });
+      let path = '';
+      function Probe(): null {
+        path = useLocation().pathname + useLocation().hash;
+        return null;
+      }
+      render(
+        <MemoryRouter initialEntries={['/']}>
+          <StatusBar />
+          <Probe />
+        </MemoryRouter>,
+      );
+      fireEvent.click(screen.getByTestId('sync-status'));
+      expect(path).toBe('/settings#github');
+      expect(syncNow).not.toHaveBeenCalled();
     });
 
     it('click opens deletion dialog when paused', () => {
