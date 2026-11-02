@@ -95,6 +95,9 @@ pub enum GitError {
     StateChanged,
     #[error("push_rejected: {0}")]
     PushRejected(String),
+    /// Writing the merged tree into the vault failed; `main` was not moved.
+    #[error("checkout: {0}")]
+    Checkout(String),
 }
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
@@ -349,7 +352,7 @@ fn merge_remote(repo: &Repository, stamp: &str) -> Result<Vec<String>, GitError>
 }
 
 /// Commits local writes that landed after the cycle's first commit (an editor
-/// save after the ack timeout or the hold safety net), so the forced checkout
+/// save after the ack timeout or the hold safety net), so the checkout
 /// below merges them instead of reverting them. Their paths go to `own`: they
 /// are this device's edits, not remote changes.
 fn commit_late_changes(repo: &Repository, own: &mut LateEdits) -> Result<(), GitError> {
@@ -361,6 +364,27 @@ fn commit_late_changes(repo: &Repository, own: &mut LateEdits) -> Result<(), Git
             own.insert(path, blob);
         }
     }
+    Ok(())
+}
+
+/// Moves `main` to `target` only after its tree is in the working directory.
+/// A safe checkout (baseline: the current HEAD) never overwrites a file that
+/// differs from HEAD, so a write that lands after `commit_late_changes` makes
+/// the checkout fail instead of being lost. On failure `main` stays where it
+/// was: the next cycle commits whatever was written and merges again, so the
+/// remote changes are never silently reverted.
+fn checkout_then_move(repo: &Repository, target: Oid, msg: &str, force: bool) -> Result<(), GitError> {
+    let commit = repo.find_commit(target)?;
+    let mut cb = CheckoutBuilder::new();
+    if force {
+        cb.force();
+    } else {
+        cb.safe();
+    }
+    repo.checkout_tree(commit.as_object(), Some(&mut cb))
+        .map_err(|e| GitError::Checkout(e.message().to_string()))?;
+    repo.reference("refs/heads/main", target, true, msg)?;
+    repo.set_head("refs/heads/main")?;
     Ok(())
 }
 
@@ -377,10 +401,9 @@ pub(crate) fn merge_remote_noting(
         commit_late_changes(repo, own)?;
     }
     let Some(ours) = head_oid(repo) else {
-        // Unborn local branch: just adopt the remote history.
-        repo.reference("refs/heads/main", theirs, true, "adopt remote")?;
-        repo.set_head("refs/heads/main")?;
-        repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
+        // Unborn local branch (nothing local was ever committed): adopt the
+        // remote history. Forced, as there is no HEAD to compare against.
+        checkout_then_move(repo, theirs, "adopt remote", true)?;
         return Ok(vec![]);
     };
     if ours == theirs || repo.graph_descendant_of(ours, theirs)? {
@@ -389,9 +412,7 @@ pub(crate) fn merge_remote_noting(
     if repo.graph_descendant_of(theirs, ours)? {
         // Fast-forward. Everything local was just committed (and an ahead HEAD
         // never fast-forwards), so this loses nothing.
-        repo.reference("refs/heads/main", theirs, true, "fast-forward")?;
-        repo.set_head("refs/heads/main")?;
-        repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
+        checkout_then_move(repo, theirs, "fast-forward", false)?;
         return Ok(vec![]);
     }
 
@@ -449,16 +470,10 @@ pub(crate) fn merge_remote_noting(
     let tree = repo.find_tree(tree_oid)?;
     let sig = signature()?;
     let msg = format!("MarkDaun merge — {}", Utc::now().to_rfc3339());
-    repo.commit(
-        Some("refs/heads/main"),
-        &sig,
-        &sig,
-        &msg,
-        &tree,
-        &[&our_commit, &their_commit],
-    )?;
-    // Everything local was committed before merging, so forcing is lossless.
-    repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
+    // The merge commit is created detached; `main` moves only once its tree
+    // is in the working directory.
+    let merged = repo.commit(None, &sig, &sig, &msg, &tree, &[&our_commit, &their_commit])?;
+    checkout_then_move(repo, merged, "merge", false)?;
     Ok(copies)
 }
 

@@ -1165,3 +1165,80 @@ fn late_write_untouched_by_merge_is_not_reported() {
     assert!(changed.contains(&"note-1.md".to_string()));
     assert!(!changed.contains(&"note-0.md".to_string()), "{changed:?}");
 }
+
+// ─── Checkout before the branch moves ─────────────────────────────────────────
+
+#[cfg(unix)]
+mod checkout_order {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn local_main(dir: &Path) -> git2::Oid {
+        git2::Repository::open(dir)
+            .unwrap()
+            .find_reference("refs/heads/main")
+            .unwrap()
+            .target()
+            .unwrap()
+    }
+
+    fn set_mode(dir: &Path, mode: u32) {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// The remote adds `sub/b.md`; this device's `sub/` cannot be written.
+    fn setup() -> (TempDir, String, TempDir) {
+        let bare_dir = TempDir::new().unwrap();
+        let (_bare, url) = bare_repo(&bare_dir);
+        seed_remote(&url, 2);
+        let peer = clone_device(&url);
+        peer_commit_and_push(peer.path(), &[("sub/a.md", "a")]);
+        let dev = clone_device(&url);
+        peer_commit_and_push(peer.path(), &[("sub/b.md", "b")]);
+        (bare_dir, url, dev)
+    }
+
+    #[test]
+    fn failed_fast_forward_checkout_leaves_the_branch_unmoved() {
+        let (_bare, url, dev) = setup();
+        let before = local_main(dev.path());
+        set_mode(&dev.path().join("sub"), 0o555);
+        let res = git_sync_inner(dev.path(), &url, "", GO);
+        set_mode(&dev.path().join("sub"), 0o755);
+
+        assert!(
+            matches!(res, Err(crate::git::error::SyncError::Git(_))),
+            "{res:?}"
+        );
+        assert_eq!(local_main(dev.path()), before, "main must not move");
+
+        // Once writable, the next cycle fast-forwards normally.
+        git_sync_inner(dev.path(), &url, "", GO).unwrap();
+        assert_ne!(local_main(dev.path()), before);
+        assert_eq!(std::fs::read_to_string(dev.path().join("sub/b.md")).unwrap(), "b");
+    }
+
+    #[test]
+    fn failed_merge_checkout_leaves_the_branch_on_the_local_commit() {
+        let (_bare, url, dev) = setup();
+        std::fs::write(dev.path().join("mine.md"), "m").unwrap();
+        set_mode(&dev.path().join("sub"), 0o555);
+        let res = git_sync_inner(dev.path(), &url, "", GO);
+        set_mode(&dev.path().join("sub"), 0o755);
+
+        assert!(
+            matches!(res, Err(crate::git::error::SyncError::Git(_))),
+            "{res:?}"
+        );
+        let repo = git2::Repository::open(dev.path()).unwrap();
+        let head = repo.find_commit(local_main(dev.path())).unwrap();
+        assert_eq!(head.parent_count(), 1, "no merge commit on main yet");
+        assert!(head.tree().unwrap().get_path(Path::new("mine.md")).is_ok());
+
+        git_sync_inner(dev.path(), &url, "", GO).unwrap();
+        let head = repo.find_commit(local_main(dev.path())).unwrap();
+        assert_eq!(head.parent_count(), 2);
+        assert_eq!(std::fs::read_to_string(dev.path().join("mine.md")).unwrap(), "m");
+        assert_eq!(std::fs::read_to_string(dev.path().join("sub/b.md")).unwrap(), "b");
+    }
+}
