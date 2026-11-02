@@ -1,0 +1,42 @@
+{
+  "name": "markdaun-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "dompurify": "^3",
+    "idb": "^8",
+    "lucide-react": "^0.400.0",
+    "markdown-it": "^14",
+    "mermaid": "^11",
+    "minisearch": "^7",
+    "react": "^18",
+    "react-dom": "^18",
+    "zustand": "^4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1",
+    "@testing-library/jest-dom": "^6",
+    "@testing-library/react": "^15",
+    "@testing-library/user-event": "^14",
+    "@types/markdown-it": "^14",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^4",
+    "@vitest/coverage-v8": "^1",
+    "fake-indexeddb": "^6",
+    "jsdom": "^24",
+    "msw": "^2",
+    "typescript": "^5",
+    "vite": "^5",
+    "vite-plugin-pwa": "^0.20",
+    "vitest": "^1"
+  }
+}

@@ -13,6 +13,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    exclude: ['mobile/**', 'node_modules/**', 'dist/**', 'e2e/**'],
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
     coverage: {

@@ -1,0 +1,16 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;700&family=Geist+Mono:wght@400;500&family=Instrument+Serif&display=swap');
+@import '../../design/tokens.css';
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Geist', system-ui, sans-serif;
+  font-weight: 400;
+}
+
+.app {
+  padding: var(--space-4);
+}
