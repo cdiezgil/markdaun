@@ -929,3 +929,52 @@ fn sanitize_device_name_cases() {
     assert_eq!(sanitize_device_name(""), "Mac");
     assert_eq!(sanitize_device_name("日本語"), "Mac");
 }
+
+mod persisted_state {
+    use crate::db::config::ConfigDb;
+    use crate::git::state::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn paused_reason_survives_reopen() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.db");
+        {
+            let db = ConfigDb::open(&path).unwrap();
+            assert_eq!(paused_reason(db.connection()), None);
+            set_paused_reason(db.connection(), Some("deletion"));
+        }
+        let db = ConfigDb::open(&path).unwrap();
+        assert_eq!(paused_reason(db.connection()), Some("deletion".to_string()));
+        set_paused_reason(db.connection(), None);
+        assert_eq!(paused_reason(db.connection()), None);
+    }
+
+    #[test]
+    fn conflicts_accumulate_and_dedupe() {
+        let dir = TempDir::new().unwrap();
+        let db = ConfigDb::open(&dir.path().join("config.db")).unwrap();
+        let c = db.connection();
+        assert!(pending_conflicts(c).is_empty());
+        add_conflicts(c, &["a".to_string()]);
+        add_conflicts(c, &["a".to_string(), "b".to_string()]);
+        assert_eq!(pending_conflicts(c), vec!["a".to_string(), "b".to_string()]);
+        clear_conflicts(c);
+        assert!(pending_conflicts(c).is_empty());
+    }
+
+    #[test]
+    fn last_success_roundtrip_and_missing_table_is_absent() {
+        let dir = TempDir::new().unwrap();
+        let db = ConfigDb::open(&dir.path().join("config.db")).unwrap();
+        assert_eq!(last_success(db.connection()), None);
+        set_last_success(db.connection(), "2026-11-02T10:00:00+00:00");
+        assert_eq!(
+            last_success(db.connection()),
+            Some("2026-11-02T10:00:00+00:00".to_string())
+        );
+        let bare = rusqlite::Connection::open_in_memory().unwrap();
+        assert_eq!(last_success(&bare), None);
+        set_last_success(&bare, "x");
+    }
+}
