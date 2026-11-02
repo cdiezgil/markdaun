@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AppError } from '../github/errors';
-import { errorMessage, relativeTime } from './appStore';
+import { errorMessage, relativeTime, useApp } from './appStore';
+import { resetPersistenceRequest } from '../capture/queue';
 import { parseHash, noteHref, folderHref } from '../router';
 import { listFolder } from '../views/Folders';
 
@@ -61,5 +62,26 @@ describe('listFolder', () => {
     const paths = ['b.md', 'Á.md', 'z/n.md', 'a/n.md', '.git/x.md', 'a/.h/y.md', 'img.png', 'a/sub/q.md'];
     expect(listFolder(paths, '')).toEqual({ folders: ['a', 'z'], notes: ['Á.md', 'b.md'] });
     expect(listFolder(paths, 'a')).toEqual({ folders: ['sub'], notes: ['n.md'] });
+  });
+});
+
+describe('init', () => {
+  it('requests persistent storage', async () => {
+    resetPersistenceRequest();
+    const persist = vi.fn(async () => true);
+    Object.defineProperty(navigator, 'storage', {
+      value: { persist, persisted: async () => false },
+      configurable: true,
+    });
+    await useApp.getState().init();
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(useApp.getState().ready).toBe(true);
+  });
+
+  it('still initialises without the Storage API', async () => {
+    resetPersistenceRequest();
+    Object.defineProperty(navigator, 'storage', { value: undefined, configurable: true });
+    await useApp.getState().init();
+    expect(useApp.getState().ready).toBe(true);
   });
 });

@@ -3,7 +3,15 @@ import { deleteDB } from 'idb';
 import type { GitHubClient } from '../github/client';
 import { AppError } from '../github/errors';
 import { openDb, type Db } from '../store/db';
-import { deviceName, drainQueue, enqueue, pendingCount, recordingName } from './queue';
+import {
+  deviceName,
+  drainQueue,
+  enqueue,
+  pendingCount,
+  recordingName,
+  requestPersistence,
+  resetPersistenceRequest,
+} from './queue';
 
 const DB = 'markdaun-queue-test';
 
@@ -195,5 +203,42 @@ describe('drainQueue after the database was replaced', () => {
     release('created');
     await dead;
     db = db2; // afterEach closes and deletes it
+  });
+});
+
+describe('persistent storage', () => {
+  const setStorage = (v: unknown) =>
+    Object.defineProperty(navigator, 'storage', { value: v, configurable: true });
+  afterEach(() => {
+    resetPersistenceRequest();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- restore a test-patched property
+    delete (navigator as any).storage;
+  });
+
+  it('asks for persistence before the first enqueue, once', async () => {
+    const persist = vi.fn(async () => true);
+    setStorage({ persist, persisted: async () => false });
+    await enqueue(db, new Blob(['a']), 'audio/webm', at('2026-11-02T09:05'));
+    await enqueue(db, new Blob(['b']), 'audio/webm', at('2026-11-02T09:06'));
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the request when already persisted', async () => {
+    const persist = vi.fn(async () => true);
+    setStorage({ persist, persisted: async () => true });
+    await requestPersistence();
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('works without the Storage API', async () => {
+    setStorage(undefined);
+    await expect(requestPersistence()).resolves.toBeUndefined();
+    await enqueue(db, new Blob(['a']), 'audio/webm', at('2026-11-02T09:05'));
+    expect(await pendingCount(db)).toBe(1);
+  });
+
+  it('swallows a rejecting persist()', async () => {
+    setStorage({ persist: async () => { throw new Error('denied'); } });
+    await expect(requestPersistence()).resolves.toBeUndefined();
   });
 });

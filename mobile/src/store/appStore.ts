@@ -4,7 +4,7 @@ import { createClient, type GitHubClient, type RepoRef } from '../github/client'
 import { AppError } from '../github/errors';
 import { buildIndex, type SearchIndex } from '../notes/search';
 import { isHidden } from '../notes/resolve';
-import { deviceName, drainQueue, pendingCount } from '../capture/queue';
+import { deviceName, drainQueue, pendingCount, requestPersistence } from '../capture/queue';
 import { refresh } from '../sync/refresh';
 import { openDb, TREE_KEY, type Db } from './db';
 
@@ -152,6 +152,7 @@ export const useApp = create<AppState>((set, get) => {
 
     async init() {
       applyTheme(get().theme);
+      void requestPersistence();
       const db = await getDb();
       const config = ((await db.get('meta', CONFIG_KEY)) as Config | undefined) ?? null;
       set({ db, config, pending: await pendingCount(db) });

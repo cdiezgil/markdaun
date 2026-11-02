@@ -65,8 +65,30 @@ function readBytes(blob: Blob): Promise<ArrayBuffer> {
   });
 }
 
+let persistAsked = false;
+
+/** Ask the browser not to evict our storage; best effort, never throws. */
+export async function requestPersistence(): Promise<void> {
+  if (persistAsked) return;
+  try {
+    const storage = typeof navigator !== 'undefined' ? navigator.storage : undefined;
+    if (!storage || typeof storage.persist !== 'function') return;
+    persistAsked = true;
+    if (typeof storage.persisted === 'function' && (await storage.persisted())) return;
+    await storage.persist();
+  } catch {
+    // unsupported or denied: recordings stay in best-effort storage
+  }
+}
+
+/** Test hook: forget that persistence was already requested. */
+export function resetPersistenceRequest(): void {
+  persistAsked = false;
+}
+
 export async function enqueue(db: Db, blob: Blob, mime: string, at: Date): Promise<void> {
   extFor(mime); // refuse types the desktop could never ingest
+  await requestPersistence();
   const data = await readBytes(blob);
   await db.add('queue', { data, mime, at: at.getTime(), n: 1 });
 }
