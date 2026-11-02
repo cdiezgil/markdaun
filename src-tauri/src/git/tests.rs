@@ -978,3 +978,65 @@ mod persisted_state {
         set_last_success(&bare, "x");
     }
 }
+
+mod watcher_tests {
+    use crate::git::watcher::{is_ignored, VaultWatcher};
+    use std::path::{Path, PathBuf};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+    use tempfile::TempDir;
+
+    #[test]
+    fn ignores_git_and_markdaun() {
+        let cases = [
+            (".git/index", true),
+            (".git", true),
+            (".markdaun/config.db", true),
+            ("notes/.DS_Store", true),
+            (".DS_Store", true),
+            ("a.md~", true),
+            ("a.md.swp", true),
+            ("a.tmp", true),
+            (".#a.md", true),
+            ("sub/.#a.md", true),
+            ("a.md", false),
+            ("sub/a.md", false),
+            (".gitignore", false),
+            (".github/x.md", false),
+        ];
+        for (p, expected) in cases {
+            assert_eq!(is_ignored(Path::new(p)), expected, "{p}");
+        }
+    }
+
+    #[test]
+    fn watcher_reports_note_write() {
+        let dir = TempDir::new().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
+        let _w = VaultWatcher::start(dir.path().to_path_buf(), move |paths| {
+            let _ = tx.send(paths);
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        std::fs::write(dir.path().join(".git").join("x"), "x").unwrap();
+        std::fs::write(dir.path().join("n.md"), "hi").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen: Vec<PathBuf> = Vec::new();
+        while Instant::now() < deadline {
+            if let Ok(batch) = rx.recv_timeout(Duration::from_millis(500)) {
+                seen.extend(batch.into_iter().filter(|p| p != Path::new("")));
+                if seen.iter().any(|p| p == Path::new("n.md")) {
+                    break;
+                }
+            }
+        }
+        assert!(seen.iter().any(|p| p == Path::new("n.md")), "got {seen:?}");
+        assert!(
+            seen.iter().all(|p| !p.starts_with(".git")),
+            "ignored path leaked: {seen:?}"
+        );
+        assert!(seen.iter().all(|p| p.is_relative()), "{seen:?}");
+    }
+}

@@ -30,6 +30,8 @@ sqlite-vec = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls-native-roots"] }
 tokio = { version = "1", features = ["process", "time", "rt", "io-util", "macros"] }
 tempfile = "3"
+notify = "8"
+notify-debouncer-full = "0.6"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
