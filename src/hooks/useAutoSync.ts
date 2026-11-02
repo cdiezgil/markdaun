@@ -12,6 +12,8 @@ import { useSyncStore } from '../store/syncStore';
 
 export const TOAST_RELOADED = 'Nota actualizada desde GitHub';
 export const TOAST_DELETED = 'La nota se borró en GitHub';
+export const TOAST_COPY_FAILED =
+  'No se pudo guardar la versión de GitHub; tu texto sigue en el editor';
 
 /** Subscribe to a Tauri event for the component's lifetime. */
 function useTauriEvent(subscribe: () => Promise<() => void>): void {
@@ -86,7 +88,8 @@ async function handleFinished(payload: SyncState, toast: (m: string) => void): P
   const changed = payload.report?.changedPaths ?? [];
   let result: RemoteChangeResult = 'none';
   try {
-    if (changed.length > 0 && editor.vaultPath) {
+    // Always ask: a note blocked by a failed conflict copy retries now.
+    if (editor.vaultPath) {
       result = await editor.applyRemoteChanges(changed, editor.vaultPath);
     }
   } catch (e) {
@@ -102,6 +105,7 @@ async function handleFinished(payload: SyncState, toast: (m: string) => void): P
 
   if (result === 'reloaded') toast(TOAST_RELOADED);
   else if (result === 'deleted') toast(TOAST_DELETED);
+  else if (result === 'error') toast(TOAST_COPY_FAILED);
 
   if (changed.length > 0) {
     // The vault tree reloads via `vaultChangeCount`; the editor's wikilink tree here.

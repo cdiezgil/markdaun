@@ -16,7 +16,7 @@ import {
 export type SaveStatus = 'idle' | 'saving' | 'saved';
 
 /** What a sync cycle did to the open note (see `applyRemoteChanges`). */
-export type RemoteChangeResult = 'none' | 'reloaded' | 'conflict' | 'deleted';
+export type RemoteChangeResult = 'none' | 'reloaded' | 'conflict' | 'deleted' | 'error';
 
 export interface EditorState {
   activeNotePath: string | null;
@@ -43,6 +43,12 @@ export interface EditorState {
   saveHolds: number;
   /** Vault-relative conflict copy written by the last `applyRemoteChanges`, or null. */
   lastConflictCopy: string | null;
+  /**
+   * Note whose saves are blocked because the remote version on disk could not
+   * be kept as a conflict copy (writing the buffer would overwrite it). The
+   * next `applyRemoteChanges` retries; opening another note lifts it.
+   */
+  saveBlockedPath: string | null;
 
   // Actions
   openNote(absolutePath: string): Promise<void>;
@@ -71,6 +77,8 @@ export interface EditorState {
    * A sync cycle changed `changedPaths` (vault-relative). Reloads, closes or
    * keeps the open note; unsaved edits always win and the remote version is
    * kept as a conflict copy. Writes the buffer even while saves are held.
+   * `'error'`: the remote version could not be kept, saves to the note are
+   * blocked and the buffer stays dirty until a later call succeeds.
    */
   applyRemoteChanges(changedPaths: string[], vaultPath: string): Promise<RemoteChangeResult>;
 }
@@ -226,8 +234,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
   /** Writes the buffer to its path, ignoring holds. Throws on a failed write. */
   async function writeBuffer(): Promise<void> {
-    const { activeNotePath, activeNoteContent, vaultPath } = get();
+    const { activeNotePath, activeNoteContent, vaultPath, saveBlockedPath } = get();
     if (!activeNotePath || activeNoteContent === null || !vaultPath) return;
+    if (saveBlockedPath === activeNotePath) return; // would overwrite the remote version
     const noteDir = activeNotePath.substring(0, activeNotePath.lastIndexOf('/'));
     await writeNote(activeNotePath, processImagesOnSave(activeNoteContent, noteDir), vaultPath);
     markSaved(activeNotePath, activeNoteContent);
@@ -251,6 +260,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
   relocation: null,
   saveHolds: 0,
   lastConflictCopy: null,
+  saveBlockedPath: null,
 
   async openNote(absolutePath: string) {
     // Cancel any pending debounced save for the previous note
@@ -267,6 +277,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     set({
       activeNotePath: absolutePath,
       activeNoteContent: processedMarkdown,
+      saveBlockedPath: null,
       saveStatus: 'idle',
       lastSavedAt: null,
       isDirty: false,
@@ -357,24 +368,35 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
   async applyRemoteChanges(changedPaths: string[], vaultPath: string) {
     set({ lastConflictCopy: null });
-    const { activeNotePath } = get();
-    if (!activeNotePath) return 'none';
-    const rel = vaultRelative(activeNotePath, vaultPath);
-    if (rel === null || !changedPaths.includes(rel)) return 'none';
+    const path = get().activeNotePath;
+    if (!path) return 'none';
+    const rel = vaultRelative(path, vaultPath);
+    if (rel === null) return 'none';
+    const retrying = get().saveBlockedPath === path;
+    if (!retrying && !changedPaths.includes(rel)) return 'none';
 
-    let deleted = false;
+    const block = (): RemoteChangeResult => {
+      if (get().activeNotePath === path) set({ saveBlockedPath: path });
+      return 'error';
+    };
+    let remote: string | null;
     try {
-      await readNote(activeNotePath, vaultPath);
+      remote = await readNote(path, vaultPath);
     } catch (e) {
-      if (!isNotFound(e)) throw e;
-      deleted = true;
+      if (!isNotFound(e)) {
+        console.error('reading the synced note failed:', e);
+        return block();
+      }
+      remote = null;
     }
-    // Read after the await: the user may have typed meanwhile.
-    const { isDirty, activeNoteContent } = get();
-    const buffer = isDirty ? activeNoteContent : null;
+    // Everything below re-reads the store after each await: the user may
+    // have typed or switched notes meanwhile.
+    if (get().activeNotePath !== path) return 'none';
+    const noteDir = path.substring(0, path.lastIndexOf('/'));
 
-    if (deleted) {
-      if (buffer === null) {
+    if (remote === null) {
+      const { isDirty, activeNoteContent } = get();
+      if (!isDirty || activeNoteContent === null) {
         clearDebounce();
         set({
           activeNotePath: null,
@@ -382,22 +404,45 @@ export const useEditorStore = create<EditorState>((set, get) => {
           isDirty: false,
           saveStatus: 'idle',
           selectionText: '',
+          saveBlockedPath: null,
         });
         return 'deleted';
       }
       // Edit wins over delete: recreate the note from the buffer.
-      const noteDir = activeNotePath.substring(0, activeNotePath.lastIndexOf('/'));
-      await chatWriteNote(rel, processImagesOnSave(buffer, noteDir), 'create', vaultPath);
-      markSaved(activeNotePath, buffer);
+      set({ saveBlockedPath: null });
+      await chatWriteNote(rel, processImagesOnSave(activeNoteContent, noteDir), 'create', vaultPath);
+      markSaved(path, activeNoteContent);
       return 'conflict';
     }
-    if (buffer === null) {
-      await get().openNote(activeNotePath);
+
+    if (!get().isDirty) {
+      // Reload in place from what was just read (no second read, no await):
+      // the editor keeps its instance and scroll position.
+      set({
+        activeNoteContent: processImagesOnLoad(remote, noteDir),
+        isDirty: false,
+        saveStatus: 'idle',
+        saveBlockedPath: null,
+        loadVersion: get().loadVersion + 1,
+      });
       return 'reloaded';
     }
-    // Local keeps the path; the remote version on disk becomes a conflict copy.
-    const copy = await writeConflictCopy(activeNotePath, vaultPath);
-    set({ lastConflictCopy: copy });
+
+    // Local keeps the path; the remote version on disk becomes a conflict
+    // copy first. Without the copy, the buffer must never overwrite it.
+    let copy: string;
+    try {
+      copy = await writeConflictCopy(path, vaultPath);
+    } catch {
+      try {
+        copy = await writeConflictCopy(path, vaultPath);
+      } catch (e) {
+        console.error('conflict copy failed twice:', e);
+        return block();
+      }
+    }
+    if (get().activeNotePath !== path) return 'none';
+    set({ lastConflictCopy: copy, saveBlockedPath: null });
     await writeBuffer();
     return 'conflict';
   },

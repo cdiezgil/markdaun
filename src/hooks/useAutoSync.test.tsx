@@ -80,6 +80,7 @@ beforeEach(() => {
     relocation: null,
     saveHolds: 0,
     lastConflictCopy: null,
+    saveBlockedPath: null,
   });
   useSyncStore.setState({ state: null, conflicts: [], vaultChangeCount: 0 });
 });
@@ -171,6 +172,29 @@ describe('useAutoSync', () => {
     await emit('sync-finished', finished(['proj/Idea.md']));
     await emit('sync-finished', makeState({ pendingConflicts: ['b (conflicto x).md'] }));
     expect(useSyncStore.getState().conflicts).toEqual(['b (conflicto x).md', COPY]);
+  });
+
+  it('shows the error toast when the GitHub version could not be kept', async () => {
+    routeInvoke({
+      sync_get_state: () => makeState(),
+      read_note: () => '# Remota',
+      write_conflict_copy: () => {
+        throw 'io_error: disk full';
+      },
+    });
+    const { showToast } = await mount();
+    useEditorStore.setState({ activeNoteContent: '# Idea\n\ntecleado', isDirty: true });
+    await emit('sync-finished', finished(['proj/Idea.md']));
+    expect(showToast).toHaveBeenCalledWith(
+      'No se pudo guardar la versión de GitHub; tu texto sigue en el editor',
+    );
+    expect(commands()).not.toContain('write_note');
+
+    // The next cycle retries even though it changed nothing.
+    routeInvoke({ read_note: () => '# Remota', write_conflict_copy: () => COPY });
+    await emit('sync-finished', finished([]));
+    expect(commands()).toContain('write_note');
+    expect(useSyncStore.getState().conflicts).toContain(COPY);
   });
 
   it('does nothing to the note when the cycle did not touch it', async () => {

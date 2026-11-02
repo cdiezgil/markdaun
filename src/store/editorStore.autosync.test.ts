@@ -32,6 +32,7 @@ beforeEach(() => {
     relocation: null,
     saveHolds: 0,
     lastConflictCopy: null,
+    saveBlockedPath: null,
   });
 });
 
@@ -52,6 +53,108 @@ describe('applyRemoteChanges', () => {
     expect(s.isDirty).toBe(false);
     expect(s.loadVersion).toBe(4);
     expect(calledCommands()).not.toContain('write_note');
+    expect(calledCommands().filter((c) => c === 'read_note')).toHaveLength(1);
+  });
+
+  it('keystroke during reload is kept (goes to conflict branch)', async () => {
+    routeInvoke({
+      read_note: () => {
+        // The user types while the remote version is being read.
+        useEditorStore.getState().setContent('# Idea\n\ntecla');
+        return '# Remota';
+      },
+      write_conflict_copy: () => COPY,
+    });
+
+    const result = await useEditorStore.getState().applyRemoteChanges(['proj/Idea.md'], '/vault');
+
+    expect(result).toBe('conflict');
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\ntecla',
+      vaultPath: '/vault',
+    });
+    expect(useEditorStore.getState().activeNoteContent).toBe('# Idea\n\ntecla');
+    expect(useEditorStore.getState().loadVersion).toBe(3);
+  });
+
+  it('retries a failed conflict copy once', async () => {
+    useEditorStore.setState({ activeNoteContent: '# Idea\n\ntecleado', isDirty: true });
+    let attempts = 0;
+    routeInvoke({
+      read_note: () => '# Remota',
+      write_conflict_copy: () => {
+        attempts += 1;
+        if (attempts === 1) throw 'io_error: busy';
+        return COPY;
+      },
+    });
+    const result = await useEditorStore.getState().applyRemoteChanges(['proj/Idea.md'], '/vault');
+    expect(result).toBe('conflict');
+    expect(attempts).toBe(2);
+    expect(calledCommands()).toContain('write_note');
+  });
+
+  it('never writes the buffer over the merged remote when the copy keeps failing', async () => {
+    useEditorStore.setState({ activeNoteContent: '# Idea\n\ntecleado', isDirty: true });
+    routeInvoke({
+      read_note: () => '# Remota',
+      write_conflict_copy: () => {
+        throw 'io_error: disk full';
+      },
+    });
+
+    const result = await useEditorStore.getState().applyRemoteChanges(['proj/Idea.md'], '/vault');
+
+    expect(result).toBe('error');
+    expect(useEditorStore.getState().saveBlockedPath).toBe(NOTE);
+    // Neither a release, a later keystroke nor an explicit save may write it.
+    useEditorStore.getState().setContent('# Idea\n\ntecleado más');
+    await vi.advanceTimersByTimeAsync(5000);
+    await useEditorStore.getState().saveNow();
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().releaseSaves();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calledCommands()).not.toContain('write_note');
+    expect(useEditorStore.getState().isDirty).toBe(true);
+    expect(useEditorStore.getState().activeNoteContent).toBe('# Idea\n\ntecleado más');
+  });
+
+  it('retries copy-then-save on the next cycle even if the note did not change again', async () => {
+    useEditorStore.setState({ activeNoteContent: '# Idea\n\ntecleado', isDirty: true, saveBlockedPath: NOTE });
+    routeInvoke({ read_note: () => '# Remota', write_conflict_copy: () => COPY });
+
+    const result = await useEditorStore.getState().applyRemoteChanges([], '/vault');
+
+    expect(result).toBe('conflict');
+    const cmds = calledCommands();
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.indexOf('write_note'));
+    expect(useEditorStore.getState().saveBlockedPath).toBeNull();
+    expect(useEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it('blocks saves when reading the note fails for another reason', async () => {
+    useEditorStore.setState({ activeNoteContent: '# Idea\n\ntecleado', isDirty: true });
+    routeInvoke({
+      read_note: () => {
+        throw 'io_error: permission denied';
+      },
+    });
+
+    const result = await useEditorStore.getState().applyRemoteChanges(['proj/Idea.md'], '/vault');
+
+    expect(result).toBe('error');
+    expect(useEditorStore.getState().saveBlockedPath).toBe(NOTE);
+    await useEditorStore.getState().saveNow();
+    expect(calledCommands()).not.toContain('write_note');
+    expect(calledCommands()).not.toContain('write_conflict_copy');
+  });
+
+  it('opening another note lifts the block', async () => {
+    useEditorStore.setState({ saveBlockedPath: NOTE });
+    routeInvoke({ read_note: () => '# Otra' });
+    await useEditorStore.getState().openNote('/vault/otra.md');
+    expect(useEditorStore.getState().saveBlockedPath).toBeNull();
   });
 
   it('returns none when the open note is not among the changed paths', async () => {
