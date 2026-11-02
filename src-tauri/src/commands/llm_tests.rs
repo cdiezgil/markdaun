@@ -173,7 +173,7 @@ async fn verify_model_extends_the_token_so_unlisted_models_can_be_saved() {
 #[tokio::test]
 async fn verify_model_failure_does_not_extend_the_token() {
     let s = spawn(|r| {
-        if r.path.ends_with("/models") { MockResponse::json(404, "{}") } else if r.body.contains("bad-model") { MockResponse::json(404, "{}") } else { MockResponse::json(200, CHAT_OK) }
+        if r.path.ends_with("/models") || r.body.contains("bad-model") { MockResponse::json(404, "{}") } else { MockResponse::json(200, CHAT_OK) }
     });
     let (db, env, vs) = setup();
     let mut d = draft(&s.url);

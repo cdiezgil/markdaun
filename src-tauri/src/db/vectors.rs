@@ -384,14 +384,10 @@ impl VectorsDb {
     }
 
     fn from_blob(blob: &[u8]) -> Option<Vec<f32>> {
-        if blob.len() % 4 != 0 {
+        if !blob.len().is_multiple_of(4) {
             return None;
         }
-        Some(
-            blob.chunks_exact(4)
-                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                .collect(),
-        )
+        Some(blob.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect())
     }
 }
 
