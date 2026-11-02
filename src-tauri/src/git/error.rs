@@ -1,8 +1,5 @@
 //! Typed sync errors for the UI, serialized as `{kind, detail}` like `LlmError`.
 
-// Consumed by later automatic-sync tasks; unused in production code until then.
-#![allow(dead_code)]
-
 use super::sync::GitError;
 use git2::{ErrorClass, ErrorCode};
 use serde::Serialize;
@@ -15,6 +12,9 @@ pub enum SyncError {
     Unauthorized(String),
     NotConfigured,
     PushRejected(String),
+    // Part of the serialized `{kind, detail}` contract; cycles report the
+    // guard through `CycleReport::needs_confirmation`, so nothing builds it yet.
+    #[allow(dead_code)]
     NeedsDeletionConfirmation { deleted: usize, total: usize },
     Git(String),
 }

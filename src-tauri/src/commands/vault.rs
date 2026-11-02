@@ -45,6 +45,7 @@ pub async fn open_vault_dialog(app: tauri::AppHandle) -> Result<Option<String>, 
             let db_path = app_db_path(&app)?;
             set_active_vault_inner(&db_path, &path_str)?;
             spawn_vault_sync(&app, path_str.clone());
+            crate::git::runner::restart(&app);
             Ok(Some(path_str))
         }
         None => Ok(None),
@@ -65,6 +66,7 @@ pub async fn set_active_vault(
     let db_path = app_db_path(&app)?;
     set_active_vault_inner(&db_path, &path)?;
     spawn_vault_sync(&app, path);
+    crate::git::runner::restart(&app);
     Ok(())
 }
 

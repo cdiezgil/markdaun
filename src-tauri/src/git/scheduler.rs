@@ -5,7 +5,6 @@
 //!
 //! `Trigger::Quit` is handled outside the scheduler (the runner flushes a
 //! final cycle itself), so here it always yields `Action::None`.
-#![allow(dead_code)]
 
 use serde::Serialize;
 use std::time::{Duration, Instant, SystemTime};
@@ -23,8 +22,12 @@ pub enum Trigger {
     Startup,
     Focus,
     Changed,
+    // The runner calls `on_tick` directly (wake detection); tests use it.
+    #[allow(dead_code)]
     Tick,
     Manual,
+    // Quit is handled by `runner::before_quit`; kept for the tests' contract.
+    #[allow(dead_code)]
     Quit,
 }
 

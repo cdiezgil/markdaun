@@ -201,3 +201,184 @@ fn tc_65b_configure_inner_download_clones_remote_into_empty_vault() {
         "TC-65b: remote downloaded into empty vault"
     );
 }
+
+// ─── Automatic sync runner: one cycle against a bare remote ────────────────────
+
+mod runner_cycle {
+    use super::{bare_remote, mem_db, vault_with_file};
+    use crate::commands::sync_cmd::{configure_inner, configure_locked};
+    use crate::db::ConfigDb;
+    use crate::git::runner::{run_cycle_inner, CycleMode, SyncLocks};
+    use crate::git::scheduler::Outcome;
+    use crate::git::state;
+    use crate::git::ConnectChoice;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    /// A connected vault with `n` notes already pushed to `url`.
+    fn connected_vault(url: &str, db_path: &Path, n: usize) -> TempDir {
+        let dir = TempDir::new().unwrap();
+        for i in 0..n {
+            std::fs::write(dir.path().join(format!("note{i}.md")), format!("# {i}")).unwrap();
+        }
+        configure_inner(db_path, url, "pat", dir.path().to_str().unwrap(), ConnectChoice::Sync)
+            .unwrap();
+        dir
+    }
+
+    /// Number of `.md` notes on the remote's `main`.
+    fn remote_notes(url: &str) -> usize {
+        let repo = git2::Repository::open_bare(url.trim_start_matches("file://")).unwrap();
+        let tree = repo
+            .find_reference("refs/heads/main")
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .tree()
+            .unwrap();
+        tree.iter()
+            .filter(|e| e.name().is_some_and(|n| n.ends_with(".md")))
+            .count()
+    }
+
+    fn delete_notes(vault: &Path, n: usize) {
+        for i in 0..n {
+            std::fs::remove_file(vault.join(format!("note{i}.md"))).unwrap();
+        }
+    }
+
+    #[test]
+    fn deletion_guard_sets_paused_reason() {
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+        let vault = connected_vault(&url, &db_path, 12);
+        delete_notes(vault.path(), 11);
+        let db = ConfigDb::open(&db_path).unwrap();
+        let c = db.connection();
+
+        let run = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::Auto);
+        assert_eq!(run.outcome, Outcome::Paused);
+        assert!(run.error.is_none(), "{:?}", run.error);
+        assert!(run.report.unwrap().needs_confirmation.is_some());
+        assert_eq!(state::paused_reason(c).as_deref(), Some("deletion"));
+        assert_eq!(remote_notes(&url), 12, "guard must block the push");
+
+        // While paused, automatic cycles keep committing but never push.
+        std::fs::write(vault.path().join("new.md"), "# new").unwrap();
+        let again = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::Auto);
+        assert_eq!(again.outcome, Outcome::Paused);
+        let report = again.report.unwrap();
+        assert!(!report.pushed);
+        assert!(report.needs_confirmation.is_none());
+        assert_eq!(remote_notes(&url), 12);
+        assert_eq!(state::paused_reason(c).as_deref(), Some("deletion"));
+        assert_eq!(state::last_success(c), None);
+    }
+
+    #[test]
+    fn confirm_clears_pause_and_pushes() {
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+        let vault = connected_vault(&url, &db_path, 12);
+        delete_notes(vault.path(), 11);
+        let db = ConfigDb::open(&db_path).unwrap();
+        let c = db.connection();
+        run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::Auto);
+
+        // "Sincronizar ahora" re-checks the guard: the dialog comes back.
+        let manual = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::Manual);
+        assert_eq!(manual.outcome, Outcome::Paused);
+        assert!(manual.report.unwrap().needs_confirmation.is_some());
+        assert_eq!(remote_notes(&url), 12);
+
+        let run = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::ConfirmDeletions);
+        assert_eq!(run.outcome, Outcome::Ok);
+        assert!(run.report.unwrap().pushed);
+        assert_eq!(state::paused_reason(c), None);
+        assert!(state::last_success(c).is_some());
+        assert_eq!(remote_notes(&url), 1);
+    }
+
+    #[test]
+    fn manual_cycle_lifts_pause_once_files_are_restored() {
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+        let vault = connected_vault(&url, &db_path, 12);
+        let db = ConfigDb::open(&db_path).unwrap();
+        let c = db.connection();
+        state::set_paused_reason(c, Some("deletion")).unwrap();
+
+        let run = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::Manual);
+        assert_eq!(run.outcome, Outcome::Ok);
+        assert_eq!(state::paused_reason(c), None);
+    }
+
+    #[test]
+    fn conflicts_persist_across_cycles() {
+        let (_r, url) = bare_remote();
+        let (_da, db_a) = mem_db();
+        let (_db, db_b) = mem_db();
+        let a = vault_with_file();
+        configure_inner(&db_a, &url, "pat", a.path().to_str().unwrap(), ConnectChoice::Sync)
+            .unwrap();
+        let b = TempDir::new().unwrap();
+        configure_inner(&db_b, &url, "pat", b.path().to_str().unwrap(), ConnectChoice::Download)
+            .unwrap();
+
+        std::fs::write(a.path().join("note.md"), "# from A").unwrap();
+        std::fs::write(b.path().join("note.md"), "# from B").unwrap();
+        let ca = ConfigDb::open(&db_a).unwrap();
+        let cb = ConfigDb::open(&db_b).unwrap();
+        assert_eq!(
+            run_cycle_inner(ca.connection(), a.path(), &url, "pat", CycleMode::Auto).outcome,
+            Outcome::Ok
+        );
+
+        let first = run_cycle_inner(cb.connection(), b.path(), &url, "pat", CycleMode::Auto);
+        assert_eq!(first.outcome, Outcome::Ok);
+        let conflicts = first.report.unwrap().conflicts;
+        assert_eq!(conflicts.len(), 1, "{conflicts:?}");
+        assert_eq!(state::pending_conflicts(cb.connection()), conflicts);
+
+        let second = run_cycle_inner(cb.connection(), b.path(), &url, "pat", CycleMode::Auto);
+        assert!(second.report.unwrap().conflicts.is_empty());
+        assert_eq!(state::pending_conflicts(cb.connection()), conflicts);
+    }
+
+    #[test]
+    fn offline_maps_to_offline_outcome() {
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+        let vault = connected_vault(&url, &db_path, 1);
+        let db = ConfigDb::open(&db_path).unwrap();
+        let run = run_cycle_inner(
+            db.connection(),
+            vault.path(),
+            "https://127.0.0.1:1/none.git",
+            "pat",
+            CycleMode::Auto,
+        );
+        assert_eq!(run.outcome, Outcome::Offline, "{:?}", run.error);
+        assert!(run.report.is_none());
+    }
+
+    #[test]
+    fn connect_apply_and_cycle_share_lock() {
+        let locks = SyncLocks::default();
+        let vault = vault_with_file();
+        let vault_str = vault.path().to_str().unwrap();
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+
+        let lock = locks.for_vault(vault_str);
+        let guard = lock.try_lock().unwrap();
+        let err = configure_locked(&locks, &db_path, &url, "pat", vault_str, ConnectChoice::Sync)
+            .unwrap_err();
+        assert_eq!(err, "sync_busy");
+        assert!(!vault.path().join(".git").exists(), "vault must stay untouched");
+
+        drop(guard);
+        assert!(configure_locked(&locks, &db_path, &url, "pat", vault_str, ConnectChoice::Sync)
+            .is_ok());
+    }
+}

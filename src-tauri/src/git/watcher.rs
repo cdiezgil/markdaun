@@ -1,5 +1,4 @@
 //! Watches the vault for file changes made outside the editor.
-#![allow(dead_code)] // consumed by the sync wiring (task 6)
 
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, RecommendedCache};

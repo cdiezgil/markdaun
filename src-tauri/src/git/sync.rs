@@ -74,6 +74,8 @@ pub struct DeletionWarning {
     pub total: usize,
 }
 
+/// Result of the legacy push/pull wrappers, kept for the sync tests.
+#[cfg(test)]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncResult {
@@ -574,7 +576,7 @@ pub struct CycleReport {
     pub pushed: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
     pub uncommitted: bool,
@@ -661,8 +663,6 @@ fn diff_since(repo: &Repository, before: Option<Oid>) -> Result<Vec<String>, git
 /// One full sync cycle: commit local changes, fetch, merge, deletion guard,
 /// push (never forced). The push is skipped when `push_paused` or when the
 /// guard fires without `confirm_deletions`.
-// Consumed by the automatic-sync runner in a later task.
-#[allow(dead_code)]
 pub fn git_sync_inner(
     vault: &Path,
     url: &str,
@@ -672,9 +672,19 @@ pub fn git_sync_inner(
     sync_cycle(vault, url, pat, opts).map_err(|e| super::error::classify(&e))
 }
 
+/// Commit pending local changes without touching the network (quit path).
+/// Returns false when there was nothing to commit or the vault is not a repo.
+pub fn commit_local_inner(vault: &Path) -> Result<bool, super::error::SyncError> {
+    if !vault.join(".git").exists() {
+        return Ok(false);
+    }
+    Repository::open(vault)
+        .map_err(GitError::from)
+        .and_then(|repo| commit_local_changes(&repo))
+        .map_err(|e| super::error::classify(&e))
+}
+
 /// Uncommitted changes and the number of local commits not yet on `origin/main`.
-// Consumed by the automatic-sync runner in a later task.
-#[allow(dead_code)]
 pub fn sync_status_inner(vault: &Path) -> Result<SyncStatus, super::error::SyncError> {
     let to_err = |e: git2::Error| super::error::classify(&GitError::Git(e));
     if !vault.join(".git").exists() {
@@ -697,6 +707,7 @@ pub fn sync_status_inner(vault: &Path) -> Result<SyncStatus, super::error::SyncE
 /// Commit local changes on top of HEAD, merge anything new from the remote and
 /// push (never forced). When the push would delete most of the remote notes it
 /// is NOT performed unless `confirm_deletions` is true.
+#[cfg(test)]
 pub fn git_push_inner(
     vault_path: &Path,
     remote_url: &str,
@@ -721,6 +732,7 @@ pub fn git_push_inner(
 /// Commit local changes, fetch `origin/main` and merge it. Never discards
 /// local work: divergence becomes a merge commit, same-note edits keep both
 /// versions.
+#[cfg(test)]
 pub fn git_pull_inner(
     vault_path: &Path,
     remote_url: &str,
