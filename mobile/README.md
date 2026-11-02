@@ -35,3 +35,7 @@ npm run build          # tsc + build de producción
 ```
 
 El despliegue lo hace `.github/workflows/mobile-pages.yml` (tests unitarios y e2e antes de publicar).
+
+## Transcripción en el escritorio
+
+Las grabaciones llegan a `Entrada/` como audio; el escritorio las transcribe al sincronizar o al arrancar. Si el modelo de Whisper no está descargado, se descarga automáticamente la primera vez (~800 MB para `large-v3-turbo`). Si tienes dos escritorios conectados al mismo repositorio, ambos pueden transcribir la misma grabación: el segundo genera una copia `(conflicto …)` y se conservan las dos.

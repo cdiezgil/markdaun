@@ -151,7 +151,7 @@ describe('github client', () => {
       const body = (await req.json()) as { query: string; variables?: Record<string, string> };
       calls.push(body);
       const data: Record<string, unknown> = {};
-      for (const m of body.query.matchAll(/(a\d+): object/g))
+      for (const m of body.query.matchAll(/(e\d+): object\(oid/g))
         data[m[1]] = { text: `t-${m[1]}`, isTruncated: false };
       return json({ data });
     };
@@ -160,20 +160,22 @@ describe('github client', () => {
     expect(calls).toHaveLength(3);
     expect(seen.every((r) => r.url === `${API}/graphql`)).toBe(true);
     expect(out.size).toBe(120);
-    expect(out.get('n0.md')).toBe('t-a0');
-    expect(out.get('n119.md')).toBe('t-a19');
-    expect(Object.values(calls[0].variables ?? {})).toContain('main:n0.md');
+    expect(out.get('n0.md')).toBe('t-e0');
+    expect(out.get('n119.md')).toBe('t-e19');
+    expect(Object.values(calls[0].variables ?? {})).toContain('s0');
+    expect(calls[0].query).toContain('$o0: GitObjectID!');
+    expect(calls[0].query).not.toContain('expression');
   });
 
   it('passes quotes and backslashes in paths safely', async () => {
     let body: { query: string; variables: Record<string, string> } | undefined;
     handler = async (req) => {
       body = (await req.json()) as typeof body;
-      return json({ data: { a0: { text: 'x', isTruncated: false } } });
+      return json({ data: { e0: { text: 'x', isTruncated: false } } });
     };
-    await createClient('tok', ref).fetchTexts([{ path: 'we"ird\\.md', sha: 's' }]);
+    await createClient('tok', ref).fetchTexts([{ path: 'we"ird\\.md', sha: 'abc123' }]);
     expect(body?.query).not.toContain('we"ird');
-    expect(Object.values(body?.variables ?? {})).toEqual(['main:we"ird\\.md']);
+    expect(Object.values(body?.variables ?? {})).toEqual(['abc123']);
   });
 
   it('falls back to REST raw for null or truncated text', async () => {
@@ -182,9 +184,9 @@ describe('github client', () => {
       if (u.pathname === '/graphql')
         return json({
           data: {
-            a0: { text: 'ok', isTruncated: false },
-            a1: { text: null, isTruncated: false },
-            a2: { text: 'cut', isTruncated: true },
+            e0: { text: 'ok', isTruncated: false },
+            e1: { text: null, isTruncated: false },
+            e2: { text: 'cut', isTruncated: true },
           },
         });
       expect(req.headers.get('accept')).toBe('application/vnd.github.raw');
@@ -268,7 +270,7 @@ describe('github client', () => {
   it('never calls a host other than api.github.com', async () => {
     handler = (req) => {
       const u = new URL(req.url);
-      if (u.pathname === '/graphql') return json({ data: { a0: { text: null } } });
+      if (u.pathname === '/graphql') return json({ data: { e0: { text: null } } });
       if (u.searchParams.get('recursive')) return json({ sha: 'r', truncated: false, tree: [] });
       return json({}, { status: 201 });
     };

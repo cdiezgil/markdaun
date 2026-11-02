@@ -44,9 +44,9 @@ async function mockGitHub(page: Page): Promise<Mock> {
     if (p === '/graphql') {
       const { variables } = req.postDataJSON() as { variables: Record<string, string> };
       const repository: Record<string, unknown> = {};
-      Object.entries(variables).forEach(([k, expr]) => {
-        const f = byPath.get(expr.slice(expr.indexOf(':') + 1));
-        repository[`a${k.slice(1)}`] = f ? { text: f.data.toString('utf8'), isTruncated: false } : null;
+      Object.entries(variables).forEach(([k, oid]) => {
+        const f = files.find((x) => x.sha === oid);
+        repository[`e${k.slice(1)}`] = f ? { text: f.data.toString('utf8'), isTruncated: false } : null;
       });
       return reply({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { repository } }) });
     }

@@ -150,16 +150,16 @@ export function createClient(
       const out = new Map<string, string>();
       for (let i = 0; i < items.length; i += BATCH) {
         const batch = items.slice(i, i + BATCH);
-        const decl = batch.map((_, j) => `$e${j}: String!`).join(', ');
+        const decl = batch.map((_, j) => `$o${j}: GitObjectID!`).join(', ');
         const fields = batch
           .map(
             (_, j) =>
-              `a${j}: object(expression: $e${j}) { ... on Blob { text isTruncated } }`,
+              `e${j}: object(oid: $o${j}) { ... on Blob { text isTruncated } }`,
           )
           .join(' ');
         const variables: Record<string, string> = {};
         batch.forEach((it, j) => {
-          variables[`e${j}`] = `${ref.branch}:${it.path}`;
+          variables[`o${j}`] = it.sha;
         });
         const query = `query(${decl}) { repository(owner: ${JSON.stringify(ref.owner)}, name: ${JSON.stringify(ref.repo)}) { ${fields} } }`;
         const res = await ok(`${API}/graphql`, {
@@ -171,13 +171,13 @@ export function createClient(
           data?: { repository?: Record<string, { text?: string | null; isTruncated?: boolean } | null> } & Record<string, unknown>;
           errors?: unknown;
         };
-        // Tolerate both `data.repository.aN` and a flat `data.aN` shape.
+        // Tolerate both `data.repository.eN` and a flat `data.eN` shape.
         const data = (body.data?.repository ?? body.data ?? {}) as Record<
           string,
           { text?: string | null; isTruncated?: boolean } | null
         >;
         for (let j = 0; j < batch.length; j++) {
-          const node = data[`a${j}`];
+          const node = data[`e${j}`];
           if (node && node.text != null && !node.isTruncated) out.set(batch[j].path, node.text);
           else out.set(batch[j].path, await blobRaw(batch[j].sha));
         }
