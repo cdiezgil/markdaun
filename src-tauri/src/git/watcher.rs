@@ -3,6 +3,7 @@
 
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, RecommendedCache};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -43,6 +44,7 @@ impl VaultWatcher {
             move |result: DebounceEventResult| {
                 let Ok(events) = result else { return };
                 let mut out: Vec<PathBuf> = Vec::new();
+                let mut seen: HashSet<PathBuf> = HashSet::new();
                 for event in events {
                     for path in &event.event.paths {
                         let rel = path
@@ -51,7 +53,7 @@ impl VaultWatcher {
                             .ok()
                             .map(Path::to_path_buf);
                         let Some(rel) = rel else { continue };
-                        if rel.as_os_str().is_empty() || is_ignored(&rel) || out.contains(&rel) {
+                        if rel.as_os_str().is_empty() || is_ignored(&rel) || !seen.insert(rel.clone()) {
                             continue;
                         }
                         out.push(rel);

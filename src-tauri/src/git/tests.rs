@@ -1026,17 +1026,20 @@ mod watcher_tests {
         let mut seen: Vec<PathBuf> = Vec::new();
         while Instant::now() < deadline {
             if let Ok(batch) = rx.recv_timeout(Duration::from_millis(500)) {
-                seen.extend(batch.into_iter().filter(|p| p != Path::new("")));
+                seen.extend(batch);
                 if seen.iter().any(|p| p == Path::new("n.md")) {
                     break;
                 }
             }
         }
-        assert!(seen.iter().any(|p| p == Path::new("n.md")), "got {seen:?}");
-        assert!(
-            seen.iter().all(|p| !p.starts_with(".git")),
-            "ignored path leaked: {seen:?}"
-        );
+        // Drain anything else, for longer than the 1 s debounce.
+        while let Ok(batch) = rx.recv_timeout(Duration::from_millis(1500)) {
+            seen.extend(batch);
+        }
+        let set: std::collections::HashSet<PathBuf> = seen.iter().cloned().collect();
+        let expected: std::collections::HashSet<PathBuf> =
+            [PathBuf::from("n.md")].into_iter().collect();
+        assert_eq!(set, expected, "got {seen:?}");
         assert!(seen.iter().all(|p| p.is_relative()), "{seen:?}");
     }
 }
