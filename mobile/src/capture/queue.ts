@@ -122,7 +122,8 @@ async function drain(
   return { uploaded, lastError: undefined };
 }
 
-let inflight: Promise<{ uploaded: number; lastError?: AppError }> | null = null;
+type DrainResult = { uploaded: number; lastError?: AppError };
+let inflight: { db: Db; run: Promise<DrainResult> } | null = null;
 
 export function drainQueue(
   db: Db,
@@ -130,10 +131,11 @@ export function drainQueue(
   device: string,
 ): Promise<{ uploaded: number; lastError?: AppError }> {
   // A concurrent call joins the running drain instead of starting a parallel loop.
-  if (inflight) return inflight;
-  const run = drain(db, client, device).finally(() => {
-    inflight = null;
+  // Only a run on the same (still open) database can be joined; a run on a closed one is dead.
+  if (inflight && inflight.db === db) return inflight.run;
+  const run: Promise<DrainResult> = drain(db, client, device).finally(() => {
+    if (inflight?.run === run) inflight = null;
   });
-  inflight = run;
+  inflight = { db, run };
   return run;
 }

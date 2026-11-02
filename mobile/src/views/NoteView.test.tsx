@@ -79,8 +79,9 @@ describe('NoteView', () => {
     await setup('![[missing.png]] y ![a](pic.png)', false);
     useApp.setState({ allPaths: ['n.md', 'pic.png'] }); // resolvable path but absent from the tree
     const { container } = render(<NoteView path="n.md" q="" />);
-    await waitFor(() => expect(container.querySelector('img')).toBeNull());
-    expect(container.querySelectorAll('.broken').length).toBeGreaterThan(0);
+    await waitFor(() => expect(container.querySelector('article')).not.toBeNull());
+    await waitFor(() => expect(container.querySelectorAll('.broken').length).toBe(2));
+    expect(container.querySelector('img')).toBeNull();
   });
 
   it('renders mermaid blocks lazily with the dark theme', async () => {

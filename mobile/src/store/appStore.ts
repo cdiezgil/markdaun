@@ -32,7 +32,8 @@ interface AppState {
   mdPaths: string[];
   allPaths: string[];
   init(): Promise<void>;
-  connect(ref: RepoRef, token: string): Promise<AppError | null>;
+  /** Resolves to a user-facing error message, or null on success. */
+  connect(ref: RepoRef, token: string): Promise<string | null>;
   refreshNow(): Promise<void>;
   drain(): Promise<void>;
   signOut(): Promise<void>;
@@ -104,6 +105,13 @@ function pathsOf(entries: { path: string; type: string }[]) {
 const clientFor = (c: Config): GitHubClient =>
   createClient(c.token, { owner: c.owner, repo: c.repo, branch: c.branch });
 
+// Bumped whenever the connected repository changes or the user signs out; results of
+// work started under an older generation are discarded.
+let generation = 0;
+let refreshing: { gen: number; run: Promise<void> } | null = null;
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+const NOTICE_MS = 4000;
+
 let dbPromise: Promise<Db> | null = null;
 function getDb(): Promise<Db> {
   if (!dbPromise) dbPromise = openDb(DB_NAME);
@@ -157,19 +165,31 @@ export const useApp = create<AppState>((set, get) => {
 
     async connect(ref, token) {
       const db = get().db ?? (await getDb());
+      const prev = get().config;
+      const changed = !prev || prev.owner !== ref.owner || prev.repo !== ref.repo || prev.branch !== ref.branch;
+      if (prev && changed) {
+        // Queued recordings carry no repository: switching now would upload them to the wrong one.
+        const n = await pendingCount(db);
+        if (n > 0) {
+          return `Hay ${n} ${n === 1 ? 'nota de voz pendiente' : 'notas de voz pendientes'} de subir al repositorio actual. Espera a que se suban antes de cambiar.`;
+        }
+      }
       try {
         await createClient(token, ref).checkAccess();
       } catch (e) {
-        return asAppError(e);
+        return errorMessage(asAppError(e));
       }
-      const prev = get().config;
-      const changed = !prev || prev.owner !== ref.owner || prev.repo !== ref.repo || prev.branch !== ref.branch;
       if (changed) {
+        // Let an in-flight refresh of the old repository land (or fail) before wiping.
+        // Its results are discarded (generation bump) but its db writes must finish first.
+        generation++;
+        await refreshing?.run.catch(() => undefined);
         // Notes of another repository must not linger next to the new one.
         for (const s of ['notes', 'tree', 'images'] as const) await db.clear(s);
         await db.delete('meta', 'lastRefresh');
         set({ index: buildIndex([]), mdPaths: [], allPaths: [], lastRefresh: null });
       }
+      generation++;
       const config: Config = { ...ref, token };
       await db.put('meta', config, CONFIG_KEY);
       set({ db, config, ready: true, error: undefined, status: 'idle' });
@@ -181,28 +201,46 @@ export const useApp = create<AppState>((set, get) => {
 
     async refreshNow() {
       const { config, db } = get();
-      if (!config || !db || get().status === 'refreshing') return;
+      if (!config || !db || refreshing?.gen === generation) return;
+      const gen = generation;
       set({ status: 'refreshing', error: undefined });
+      const run = (async () => {
+        try {
+          const result = await refresh(clientFor(config), db);
+          if (gen !== generation) return;
+          if (!result.skipped) await loadLocal(db);
+          else set({ lastRefresh: Date.now() });
+          if (gen === generation) set({ status: 'idle' });
+        } catch (e) {
+          // Local notes stay untouched on any failure.
+          if (gen !== generation) return;
+          const err = asAppError(e);
+          set({ status: err.kind === 'Offline' ? 'offline' : 'error', error: err.kind === 'Offline' ? undefined : err });
+        }
+      })();
+      refreshing = { gen, run };
       try {
-        const result = await refresh(clientFor(config), db);
-        if (!result.skipped) await loadLocal(db);
-        else set({ lastRefresh: Date.now() });
-        set({ status: 'idle' });
-      } catch (e) {
-        // Local notes stay untouched on any failure.
-        const err = asAppError(e);
-        set({ status: err.kind === 'Offline' ? 'offline' : 'error', error: err.kind === 'Offline' ? undefined : err });
+        await run;
+      } finally {
+        if (refreshing?.run === run) refreshing = null;
       }
     },
 
     async drain() {
       const { config, db } = get();
       if (!config || !db) return;
-      const { lastError } = await drainQueue(db, clientFor(config), deviceName(navigator.userAgent));
-      set({ pending: await pendingCount(db) });
-      if (!lastError) return;
-      if (lastError.kind === 'Offline') set({ status: 'offline' });
-      else set({ status: 'error', error: lastError });
+      const gen = generation;
+      try {
+        const { lastError } = await drainQueue(db, clientFor(config), deviceName(navigator.userAgent));
+        if (gen !== generation) return;
+        set({ pending: await pendingCount(db) });
+        if (!lastError) return;
+        if (lastError.kind === 'Offline') set({ status: 'offline' });
+        else set({ status: 'error', error: lastError });
+      } catch (e) {
+        // A closed database (sign-out) or any other failure must never surface as unhandled.
+        if (gen === generation) set({ status: 'error', error: asAppError(e) });
+      }
     },
 
     async recount() {
@@ -212,6 +250,7 @@ export const useApp = create<AppState>((set, get) => {
 
     async signOut() {
       const db = get().db;
+      generation++;
       db?.close();
       dbPromise = null;
       await deleteDB(DB_NAME);
@@ -229,7 +268,9 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     setNotice(notice) {
+      clearTimeout(noticeTimer);
       set({ notice });
+      if (notice) noticeTimer = setTimeout(() => set({ notice: undefined }), NOTICE_MS);
     },
   };
 });
@@ -237,5 +278,7 @@ export const useApp = create<AppState>((set, get) => {
 /** Test hook: forget the cached database handle. */
 export function resetAppForTests(): void {
   dbPromise = null;
+  refreshing = null;
+  clearTimeout(noticeTimer);
   useApp.setState({ ...initial(), theme: readTheme() });
 }

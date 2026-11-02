@@ -9,10 +9,11 @@ const THEMES: [Theme, string][] = [
 ];
 
 export function Settings() {
-  const { config, theme, setTheme, signOut } = useApp();
+  const { config, theme, setTheme, signOut, pending } = useApp();
 
   const out = async () => {
-    if (!window.confirm('¿Cerrar sesión? Se borrarán las notas guardadas en este móvil.')) return;
+    const extra = pending > 0 ? ` y ${pending} ${pending === 1 ? 'nota de voz sin subir' : 'notas de voz sin subir'}` : '';
+    if (!window.confirm(`¿Cerrar sesión? Se borrarán las notas guardadas en este móvil${extra}.`)) return;
     await signOut();
     navigate('#/');
   };

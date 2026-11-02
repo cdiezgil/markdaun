@@ -112,7 +112,9 @@ describe('Recorder', () => {
       await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 10);
     });
     expect(FakeRecorder.instances[0].state).toBe('inactive');
-    await vi.waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await vi.waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    });
     expect(await queue.pendingCount(db)).toBe(1);
   });
 

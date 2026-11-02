@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { errorMessage, useApp } from '../store/appStore';
+import { useApp } from '../store/appStore';
 import { navigate } from '../router';
-import { inputStyle, Page, primaryBtn } from '../components/ui';
+import { inputStyle, Page, primaryBtn, secondaryBtn } from '../components/ui';
 
 export function Setup() {
   const connect = useApp((s) => s.connect);
@@ -27,7 +27,7 @@ export function Setup() {
     setError('');
     const err = await connect({ owner: m[1], repo: m[2], branch: branch.trim() || 'main' }, token.trim());
     setBusy(false);
-    if (err) setError(errorMessage(err));
+    if (err) setError(err);
     else navigate('#/');
   };
 
@@ -59,6 +59,11 @@ export function Setup() {
         <button type="submit" style={primaryBtn} disabled={busy}>
           Conectar
         </button>
+        {config && (
+          <button type="button" style={secondaryBtn} onClick={() => navigate('#/settings')}>
+            Cancelar
+          </button>
+        )}
       </form>
     </Page>
   );

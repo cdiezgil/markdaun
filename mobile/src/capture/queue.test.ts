@@ -177,3 +177,23 @@ describe('queue', () => {
     );
   });
 });
+
+describe('drainQueue after the database was replaced', () => {
+  it('does not join a run on a closed database', async () => {
+    await enqueue(db, new Blob([new Uint8Array([1])]), 'audio/webm', new Date());
+    let release!: (v: 'created') => void;
+    const stuck = fakeClient(() => new Promise((r) => (release = r)));
+    const dead = drainQueue(db, stuck.client, 'T');
+    await new Promise((r) => setTimeout(r, 10));
+    db.close();
+    const db2 = await openDb(DB);
+    await enqueue(db2, new Blob([new Uint8Array([2])]), 'audio/webm', new Date());
+    const ok = fakeClient(async () => 'created');
+    const res = await drainQueue(db2, ok.client, 'T');
+    expect(res.uploaded).toBe(2); // the record from before the swap is still in the same store
+    expect(ok.putNewFile).toHaveBeenCalledTimes(2);
+    release('created');
+    await dead;
+    db = db2; // afterEach closes and deletes it
+  });
+});

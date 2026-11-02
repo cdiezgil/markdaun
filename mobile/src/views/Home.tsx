@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Mic, RefreshCw, Settings as Cog } from 'lucide-react';
 import { errorMessage, relativeTime, useApp } from '../store/appStore';
 import { navigate, noteHref } from '../router';
@@ -6,8 +6,13 @@ import { Page, primaryBtn } from '../components/ui';
 import { inputStyle } from '../components/ui';
 import { FolderList } from './Folders';
 
+const PULL_PX = 72;
+
 export function Home() {
-  const { index, status, lastRefresh, error, pending, notice, refreshNow } = useApp();
+  const { index, status, lastRefresh, error, pending, notice, refreshNow, setNotice } = useApp();
+  const pullFrom = useRef<number | null>(null);
+  // The saved-recording notice does not outlive the Home screen.
+  useEffect(() => () => setNotice(undefined), [setNotice]);
   const [q, setQ] = useState('');
   const hits = useMemo(() => index.search(q), [index, q]);
 
@@ -22,6 +27,16 @@ export function Home() {
 
   return (
     <Page>
+      <div
+        onTouchStart={(e) => {
+          pullFrom.current = window.scrollY <= 0 ? e.touches[0].clientY : null;
+        }}
+        onTouchEnd={(e) => {
+          const from = pullFrom.current;
+          pullFrom.current = null;
+          if (from !== null && e.changedTouches[0].clientY - from >= PULL_PX) void refreshNow();
+        }}
+      >
       <header className="bar">
         <strong style={{ flex: 1 }}>MarkDaun</strong>
         <button type="button" className="icon-btn" aria-label="Actualizar" onClick={() => void refreshNow()}>
@@ -74,6 +89,7 @@ export function Home() {
       ) : (
         <FolderList path="" />
       )}
+      </div>
     </Page>
   );
 }
