@@ -328,3 +328,62 @@ describe('save hold', () => {
     expect(useEditorStore.getState().saveHolds).toBe(1);
   });
 });
+
+describe('save block follows the note', () => {
+  it('moves the block with a rename of the blocked note', async () => {
+    useEditorStore.setState({ saveBlockedPath: NOTE });
+    routeInvoke({ list_vault_tree: () => [] });
+    await useEditorStore.getState().applyRelocation(NOTE, '/vault/proj/Nueva.md', []);
+    expect(useEditorStore.getState().saveBlockedPath).toBe('/vault/proj/Nueva.md');
+  });
+
+  it('moves the block when the folder of the blocked note moves', async () => {
+    useEditorStore.setState({ saveBlockedPath: NOTE });
+    routeInvoke({ list_vault_tree: () => [] });
+    await useEditorStore.getState().applyRelocation('/vault/proj', '/vault/arch/proj', []);
+    expect(useEditorStore.getState().saveBlockedPath).toBe('/vault/arch/proj/Idea.md');
+  });
+
+  it('a switch to another vault clears the block', async () => {
+    useEditorStore.setState({ saveBlockedPath: NOTE });
+    routeInvoke({ get_active_vault: () => '/otra', list_vault_tree: () => [] });
+    await useEditorStore.getState().initVault();
+    expect(useEditorStore.getState().saveBlockedPath).toBeNull();
+  });
+
+  it('re-reading the same vault keeps the block', async () => {
+    useEditorStore.setState({ saveBlockedPath: NOTE });
+    routeInvoke({ get_active_vault: () => '/vault', list_vault_tree: () => [] });
+    await useEditorStore.getState().initVault();
+    expect(useEditorStore.getState().saveBlockedPath).toBe(NOTE);
+  });
+});
+
+describe('note switching', () => {
+  it('switching notes flushes the pending save of the previous note', async () => {
+    routeInvoke({ read_note: () => '# Otra' });
+    useEditorStore.getState().setContent('# Idea\n\núltimas teclas');
+
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\núltimas teclas',
+      vaultPath: '/vault',
+    });
+    const cmds = calledCommands();
+    expect(cmds.indexOf('write_note')).toBeLessThan(cmds.indexOf('read_note'));
+    expect(useEditorStore.getState().activeNotePath).toBe('/vault/otra.md');
+    // The debounced save must not fire later against the new note.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(calledCommands().filter((c) => c === 'write_note')).toHaveLength(1);
+  });
+
+  it('does not flush a save-blocked note when switching', async () => {
+    routeInvoke({ read_note: () => '# Otra' });
+    useEditorStore.setState({ saveBlockedPath: NOTE });
+    useEditorStore.getState().setContent('# Idea\n\nbloqueada');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+    expect(calledCommands()).not.toContain('write_note');
+  });
+});

@@ -263,8 +263,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
   saveBlockedPath: null,
 
   async openNote(absolutePath: string) {
-    // Cancel any pending debounced save for the previous note
+    // Flush the previous note's pending save instead of dropping it
+    // (`writeBuffer` skips a save-blocked note).
     clearDebounce();
+    if (get().isDirty && get().activeNotePath !== null) await get().saveNow();
 
     const { vaultPath } = get();
     if (!vaultPath) return;
@@ -309,7 +311,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
     const vault = await getActiveVault();
     if (vault !== null) {
       const tree = await listVaultTree(vault);
-      set({ vaultPath: vault, vaultTree: tree });
+      // A block belongs to a note of the previous vault.
+      const switched = vault !== get().vaultPath;
+      set({ vaultPath: vault, vaultTree: tree, ...(switched ? { saveBlockedPath: null } : {}) });
     }
   },
 
@@ -448,10 +452,15 @@ export const useEditorStore = create<EditorState>((set, get) => {
   },
 
   async applyRelocation(from: string, to: string, rewritten: string[]) {
-    const { activeNotePath } = get();
-    let mapped = activeNotePath;
-    if (activeNotePath === from) mapped = to;
-    else if (activeNotePath?.startsWith(from + '/')) mapped = to + activeNotePath.slice(from.length);
+    const { activeNotePath, saveBlockedPath } = get();
+    const relocate = (p: string | null): string | null => {
+      if (p === from) return to;
+      if (p?.startsWith(from + '/')) return to + p.slice(from.length);
+      return p;
+    };
+    const mapped = relocate(activeNotePath);
+    // A save block follows its note.
+    if (saveBlockedPath !== null) set({ saveBlockedPath: relocate(saveBlockedPath) });
     if (mapped !== activeNotePath) {
       set({ activeNotePath: mapped, relocation: { from: activeNotePath as string, to: mapped as string } });
     }

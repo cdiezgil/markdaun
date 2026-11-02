@@ -122,7 +122,7 @@ describe('TC-03: saveStatus transitions', () => {
 
 // ── TC-21: openNote cancels pending debounce ──────────────────────────────────
 describe('TC-21: openNote cancels debounce', () => {
-  it('TC-21: opening a second note cancels debounce from first note', async () => {
+  it('TC-21: opening a second note flushes the first note once and cancels its debounce', async () => {
     useEditorStore.setState({
       activeNotePath: '/vault/nota-a.md',
       activeNoteContent: '# A',
@@ -135,20 +135,21 @@ describe('TC-21: openNote cancels debounce', () => {
     expect(useEditorStore.getState().saveStatus).toBe('saving');
 
     // Open nota-b before the debounce fires
-    mockInvoke.mockResolvedValueOnce('# B contenido');
+    mockInvoke.mockImplementation(async (cmd: string) =>
+      cmd === 'read_note' ? '# B contenido' : undefined,
+    );
     await useEditorStore.getState().openNote('/vault/nota-b.md');
 
-    // Advance timers — the previous debounce should be cancelled
-    mockInvoke.mockResolvedValue(undefined);
+    // Advance timers — the previous debounce must not fire again
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(useEditorStore.getState().activeNotePath).toBe('/vault/nota-b.md');
+    expect(useEditorStore.getState().activeNoteContent).toBe('# B contenido');
 
-    // write_note should NOT have been called for nota-a
-    const writeCalls = mockInvoke.mock.calls.filter(
-      (c) => c[0] === 'write_note' && (c[1] as Record<string, unknown>)?.path === '/vault/nota-a.md',
-    );
-    expect(writeCalls).toHaveLength(0);
+    const writes = mockInvoke.mock.calls.filter((c) => c[0] === 'write_note');
+    // nota-a's pending edit is flushed exactly once; nota-b is never written.
+    expect(writes).toHaveLength(1);
+    expect(writes[0][1]).toEqual({ path: '/vault/nota-a.md', content: '# A modificada', vaultPath: '/vault' });
   });
 });
 
