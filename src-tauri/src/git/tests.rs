@@ -698,3 +698,57 @@ fn libgit2_is_built_with_https_support() {
     );
 }
 
+
+// ─── Typed errors ─────────────────────────────────────────────────────────────
+
+mod typed_errors {
+    use super::*;
+    use crate::git::error::{classify, SyncError};
+
+    #[test]
+    fn unreachable_remote_is_offline() {
+        let dir = TempDir::new().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        repo.remote("origin", "https://127.0.0.1:9/x.git").unwrap();
+        let mut remote = repo.find_remote("origin").unwrap();
+        crate::git::error::apply_network_timeouts();
+        let err = remote
+            .fetch(&["+refs/heads/main:refs/remotes/origin/main"], None, None)
+            .unwrap_err();
+        eprintln!(
+            "class={:?} code={:?} msg={}",
+            err.class(),
+            err.code(),
+            err.message()
+        );
+        assert!(matches!(
+            classify(&GitError::Git(err)),
+            SyncError::Offline(_)
+        ));
+    }
+
+    #[test]
+    fn auth_failure_is_unauthorized() {
+        let e = git2::Error::new(git2::ErrorCode::Auth, git2::ErrorClass::Http, "bad creds");
+        assert!(matches!(
+            classify(&GitError::Git(e)),
+            SyncError::Unauthorized(_)
+        ));
+    }
+
+    #[test]
+    fn push_rejected_maps() {
+        assert_eq!(
+            classify(&GitError::PushRejected("x".into())),
+            SyncError::PushRejected("x".into())
+        );
+    }
+
+    #[test]
+    fn serializes_as_kind_detail() {
+        assert_eq!(
+            serde_json::to_value(SyncError::Offline("d".into())).unwrap(),
+            serde_json::json!({"kind":"offline","detail":"d"})
+        );
+    }
+}

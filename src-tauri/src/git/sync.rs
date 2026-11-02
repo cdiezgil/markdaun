@@ -137,6 +137,7 @@ fn set_origin(repo: &Repository, remote_url: &str) -> Result<(), GitError> {
 /// has no `main` branch (empty repository). Network/auth errors propagate.
 fn fetch_main(repo: &Repository, pat: &str) -> Result<bool, GitError> {
     let mut remote = repo.find_remote("origin")?;
+    super::error::apply_network_timeouts();
     let mut opts = FetchOptions::new();
     opts.remote_callbacks(callbacks(pat));
     // NOTE: `Remote::list()` is avoided on purpose: git2 0.19 builds a slice from a
@@ -450,6 +451,7 @@ pub(crate) fn push_branch(repo: &Repository, pat: &str) -> Result<PushStatus, Gi
         }
         Ok(())
     });
+    super::error::apply_network_timeouts();
     let mut opts = PushOptions::new();
     opts.remote_callbacks(cb);
     let mut remote = repo.find_remote("origin")?;
