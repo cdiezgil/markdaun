@@ -704,6 +704,7 @@ fn libgit2_is_built_with_https_support() {
 mod typed_errors {
     use super::*;
     use crate::git::error::{classify, SyncError};
+    use git2::{ErrorClass, ErrorCode};
 
     #[test]
     fn unreachable_remote_is_offline() {
@@ -715,12 +716,6 @@ mod typed_errors {
         let err = remote
             .fetch(&["+refs/heads/main:refs/remotes/origin/main"], None, None)
             .unwrap_err();
-        eprintln!(
-            "class={:?} code={:?} msg={}",
-            err.class(),
-            err.code(),
-            err.message()
-        );
         assert!(matches!(
             classify(&GitError::Git(err)),
             SyncError::Offline(_)
@@ -730,6 +725,25 @@ mod typed_errors {
     #[test]
     fn auth_failure_is_unauthorized() {
         let e = git2::Error::new(git2::ErrorCode::Auth, git2::ErrorClass::Http, "bad creds");
+        assert!(matches!(
+            classify(&GitError::Git(e)),
+            SyncError::Unauthorized(_)
+        ));
+    }
+
+    #[test]
+    fn ssl_error_is_git_not_offline() {
+        let e = git2::Error::new(ErrorCode::GenericError, ErrorClass::Ssl, "bad cert");
+        assert!(matches!(classify(&GitError::Git(e)), SyncError::Git(_)));
+    }
+
+    #[test]
+    fn http_401_is_unauthorized() {
+        let e = git2::Error::new(
+            ErrorCode::GenericError,
+            ErrorClass::Http,
+            "unexpected http status code: 401",
+        );
         assert!(matches!(
             classify(&GitError::Git(e)),
             SyncError::Unauthorized(_)

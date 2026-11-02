@@ -35,10 +35,8 @@ fn classify_git2(e: &git2::Error) -> SyncError {
     {
         return SyncError::Unauthorized(detail);
     }
-    let offline_class = matches!(
-        e.class(),
-        ErrorClass::Net | ErrorClass::Os | ErrorClass::Ssl
-    );
+    // Ssl is deliberately excluded: certificate failures never fix themselves.
+    let offline_class = matches!(e.class(), ErrorClass::Net | ErrorClass::Os);
     if offline_class {
         return SyncError::Offline(detail);
     }
