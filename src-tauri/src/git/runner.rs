@@ -395,10 +395,9 @@ fn open_db(app: &AppHandle) -> Option<ConfigDb> {
 }
 
 /// `(vault, url)` when GitHub sync is configured for the active vault.
+/// Inert (None) when the active vault is not the one it was connected for.
 fn configured(app: &AppHandle) -> Option<(String, String)> {
-    let db = open_db(app)?;
-    let read = |key: &str| db.get(key).ok().flatten().filter(|s| !s.is_empty());
-    Some((read("active_vault")?, read("github_repo_url")?))
+    crate::commands::sync_cmd::configured_in(&open_db(app)?)
 }
 
 fn read_pat() -> Result<String, SyncError> {

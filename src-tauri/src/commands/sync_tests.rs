@@ -523,3 +523,72 @@ mod conflict_copy {
             })
     }
 }
+
+// ─── Sync is bound to the vault it was connected for ──────────────────────────
+
+mod vault_binding {
+    use super::{bare_remote, mem_db, vault_with_file};
+    use crate::commands::sync_cmd::{
+        configure_inner, configured_in, disconnect_inner, get_config_inner, GITHUB_VAULT_KEY,
+    };
+    use crate::db::ConfigDb;
+    use crate::git::ConnectChoice;
+    use tempfile::TempDir;
+
+    #[test]
+    fn sync_only_runs_for_the_connected_vault() {
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+        let vault = vault_with_file();
+        let vault_str = vault.path().to_str().unwrap();
+        configure_inner(&db_path, &url, "pat", vault_str, ConnectChoice::Sync).unwrap();
+        let db = ConfigDb::open(&db_path).unwrap();
+        db.set("active_vault", vault_str).unwrap();
+        assert_eq!(
+            configured_in(&db),
+            Some((vault_str.to_string(), url.clone()))
+        );
+        assert_eq!(get_config_inner(&db_path).unwrap(), Some(url.clone()));
+
+        // Another vault becomes active: sync is inert there.
+        let other = TempDir::new().unwrap();
+        db.set("active_vault", other.path().to_str().unwrap()).unwrap();
+        assert_eq!(configured_in(&db), None);
+        assert_eq!(get_config_inner(&db_path).unwrap(), None);
+
+        // Back to the connected vault (through another spelling of its path).
+        db.set("active_vault", &format!("{vault_str}/.")).unwrap();
+        assert!(configured_in(&db).is_some());
+    }
+
+    #[test]
+    fn existing_connection_binds_to_the_active_vault_once() {
+        let (_d, db_path) = mem_db();
+        let db = ConfigDb::open(&db_path).unwrap();
+        let vault = TempDir::new().unwrap();
+        let vault_str = vault.path().to_str().unwrap();
+        db.set("github_repo_url", "https://github.com/u/r").unwrap();
+        db.set("active_vault", vault_str).unwrap();
+        assert_eq!(db.get(GITHUB_VAULT_KEY).unwrap(), None);
+
+        assert!(configured_in(&db).is_some());
+        assert_eq!(db.get(GITHUB_VAULT_KEY).unwrap().as_deref(), Some(vault_str));
+
+        let other = TempDir::new().unwrap();
+        db.set("active_vault", other.path().to_str().unwrap()).unwrap();
+        assert_eq!(configured_in(&db), None, "the binding is not moved later");
+    }
+
+    #[test]
+    fn disconnect_forgets_the_binding() {
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+        let vault = vault_with_file();
+        configure_inner(&db_path, &url, "pat", vault.path().to_str().unwrap(), ConnectChoice::Sync)
+            .unwrap();
+        disconnect_inner(&db_path).unwrap();
+        let db = ConfigDb::open(&db_path).unwrap();
+        assert!(db.get(GITHUB_VAULT_KEY).unwrap().unwrap_or_default().is_empty());
+        assert_eq!(configured_in(&db), None);
+    }
+}

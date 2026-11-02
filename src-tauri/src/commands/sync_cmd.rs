@@ -13,6 +13,8 @@ use tauri::Manager;
 
 pub(crate) const KEYRING_SERVICE: &str = "markdaun";
 pub(crate) const KEYRING_USER: &str = "github-pat";
+/// The vault GitHub sync was connected for: sync stays inert in any other.
+pub(crate) const GITHUB_VAULT_KEY: &str = "github_vault_path";
 
 fn app_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let data_dir = app
@@ -33,6 +35,41 @@ fn validate_https_url(url: &str) -> Result<(), String> {
 }
 
 // ─── Inner helpers (DB + git only, no keyring — fully testable) ───────────────
+
+fn read_key(db: &ConfigDb, key: &str) -> Option<String> {
+    db.get(key).ok().flatten().filter(|s| !s.is_empty())
+}
+
+/// `/a/b` and `/a/b/.` (or a symlinked spelling) are the same vault.
+fn same_vault(a: &str, b: &str) -> bool {
+    let canon = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p));
+    a == b || canon(a) == canon(b)
+}
+
+/// The repo URL when it may sync the vault `active`. A connection made
+/// before the binding existed is bound to the active vault on first read.
+fn repo_for_vault(db: &ConfigDb, active: Option<&str>) -> Option<String> {
+    let url = read_key(db, "github_repo_url")?;
+    let Some(active) = active else {
+        return Some(url);
+    };
+    match read_key(db, GITHUB_VAULT_KEY) {
+        Some(bound) => same_vault(&bound, active).then_some(url),
+        None => {
+            if let Err(e) = db.set(GITHUB_VAULT_KEY, active) {
+                eprintln!("[sync] cannot bind the connection to {active}: {e}");
+            }
+            Some(url)
+        }
+    }
+}
+
+/// `(vault, url)` when GitHub sync is configured for the active vault.
+pub fn configured_in(db: &ConfigDb) -> Option<(String, String)> {
+    let active = read_key(db, "active_vault")?;
+    let url = repo_for_vault(db, Some(&active))?;
+    Some((active, url))
+}
 
 /// Look at the remote without touching the vault (nothing is persisted).
 pub fn connect_preview_inner(
@@ -59,6 +96,8 @@ pub fn configure_inner(
     let db = ConfigDb::open(db_path).map_err(|e| e.to_string())?;
     db.set("github_repo_url", repo_url)
         .map_err(|e| e.to_string())?;
+    db.set(GITHUB_VAULT_KEY, vault_path)
+        .map_err(|e| e.to_string())?;
     clear_sync_state(&db)?;
     Ok(result)
 }
@@ -78,12 +117,12 @@ pub fn configure_locked(
     configure_inner(db_path, repo_url, pat, vault_path, choice)
 }
 
-/// Return the stored `repo_url`, or `None` if not configured.
-/// The PAT is NEVER returned (it is not stored in DB).
+/// Return the stored `repo_url`, or `None` if not configured for the active
+/// vault. The PAT is NEVER returned (it is not stored in DB).
 pub fn get_config_inner(db_path: &Path) -> Result<Option<String>, String> {
     let db = ConfigDb::open(db_path).map_err(|e| e.to_string())?;
-    let url = db.get("github_repo_url").map_err(|e| e.to_string())?;
-    Ok(url.filter(|s| !s.is_empty()))
+    let active = read_key(&db, "active_vault");
+    Ok(repo_for_vault(&db, active.as_deref()))
 }
 
 /// Clear the repo URL from DB.
@@ -91,6 +130,7 @@ pub fn get_config_inner(db_path: &Path) -> Result<Option<String>, String> {
 pub fn disconnect_inner(db_path: &Path) -> Result<(), String> {
     let db = ConfigDb::open(db_path).map_err(|e| e.to_string())?;
     db.set("github_repo_url", "").map_err(|e| e.to_string())?;
+    db.set(GITHUB_VAULT_KEY, "").map_err(|e| e.to_string())?;
     clear_sync_state(&db)
 }
 

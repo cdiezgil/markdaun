@@ -55,6 +55,19 @@ describe('TC-03: App', () => {
     );
   });
 
+  it('reloads the GitHub sync config when the active vault changes', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('github_get_config'));
+    const before = mockInvoke.mock.calls.filter((c) => c[0] === 'github_get_config').length;
+    act(() => {
+      useVaultStore.setState({ vaultPath: '/other-vault' });
+    });
+    await waitFor(() =>
+      expect(mockInvoke.mock.calls.filter((c) => c[0] === 'github_get_config').length).toBeGreaterThan(before),
+    );
+  });
+
   it('TC-03: VaultTree está en el DOM', () => {
     mockInvoke.mockResolvedValueOnce(null);
     render(<App />);

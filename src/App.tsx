@@ -47,13 +47,16 @@ function AppLayout() {
     useVaultStore.getState().loadVault();
     useEditorStore.getState().initVault().catch(console.error);
     useIdeStore.getState().loadProjects().catch(console.error);
-    // The GitHub connection (repo URL in config.db, PAT in the keyring) persists
-    // across restarts; without loading it the sync UI thinks we're disconnected.
-    useSyncStore.getState().loadConfig().catch(console.error);
   }, []);
 
   const syncConnected = useSyncStore((s) => s.config.isConnected);
   const syncVaultPath = useVaultStore((s) => s.vaultPath);
+  // The GitHub connection (repo URL in config.db, PAT in the keyring) persists
+  // across restarts and belongs to the vault it was made for: reload it on
+  // startup and whenever the active vault changes.
+  useEffect(() => {
+    useSyncStore.getState().loadConfig().catch(console.error);
+  }, [syncVaultPath]);
   useEffect(() => {
     if (syncConnected && syncVaultPath) {
       useSyncStore.getState().loadState().catch(console.error);
