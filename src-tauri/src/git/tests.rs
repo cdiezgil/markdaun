@@ -2,7 +2,7 @@
 
 use crate::git::sync::{
     git_connect_apply_inner, git_connect_preview_inner, git_pull_inner, git_push_inner,
-    git_status_inner, git_sync_inner, push_branch, sanitize_device_name, sync_status_inner, CycleOptions, ConnectAction, ConnectCase, ConnectChoice, GitError,
+    git_status_inner, git_sync_inner, merge_remote_noting, push_branch, sanitize_device_name, sync_status_inner, CycleOptions, ConnectAction, ConnectCase, ConnectChoice, GitError,
     PushStatus,
 };
 use std::path::Path;
@@ -1042,4 +1042,68 @@ mod watcher_tests {
         assert_eq!(set, expected, "got {seen:?}");
         assert!(seen.iter().all(|p| p.is_relative()), "{seen:?}");
     }
+}
+
+
+// ─── Late editor writes vs the merge checkout ─────────────────────────────────
+
+/// A write that lands after the cycle's first local commit (ack timeout,
+/// safety net) must be committed before a fast-forward checkout, not reverted.
+#[test]
+fn late_write_survives_fast_forward_and_is_pushed() {
+    let bare_dir = TempDir::new().unwrap();
+    let (bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("note-1.md", "peer")]);
+
+    // Fetch as the cycle does, then the editor writes before the merge.
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    repo.find_remote("origin")
+        .unwrap()
+        .fetch(&["refs/heads/main:refs/remotes/origin/main"], None, None)
+        .unwrap();
+    std::fs::write(dev.path().join("note-0.md"), "tecleado tarde").unwrap();
+
+    let mut own = std::collections::BTreeSet::new();
+    let copies = merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
+
+    assert!(copies.is_empty());
+    assert_eq!(std::fs::read_to_string(dev.path().join("note-0.md")).unwrap(), "tecleado tarde");
+    assert_eq!(std::fs::read_to_string(dev.path().join("note-1.md")).unwrap(), "peer");
+    assert!(own.contains("note-0.md"), "own late edit is not a remote change: {own:?}");
+    assert!(!own.contains("note-1.md"));
+
+    let report = git_sync_inner(dev.path(), &url, "", GO).unwrap();
+    assert!(report.pushed);
+    assert_eq!(blob_at(&bare, remote_oid(&bare), "note-0.md"), "tecleado tarde");
+}
+
+/// Same for a real merge: the late write on the note the peer also edited
+/// keeps the path and the remote version becomes a conflict copy.
+#[test]
+fn late_write_on_diverged_note_becomes_conflict_not_revert() {
+    let bare_dir = TempDir::new().unwrap();
+    let (_bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("note-0.md", "peer")]);
+    // A committed local change elsewhere forces a real merge.
+    std::fs::write(dev.path().join("note-2.md"), "mine").unwrap();
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    commit_all(&repo, "local");
+    repo.find_remote("origin")
+        .unwrap()
+        .fetch(&["refs/heads/main:refs/remotes/origin/main"], None, None)
+        .unwrap();
+    std::fs::write(dev.path().join("note-0.md"), "tecleado tarde").unwrap();
+
+    let mut own = std::collections::BTreeSet::new();
+    let copies = merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
+
+    assert_eq!(copies.len(), 1);
+    assert_eq!(std::fs::read_to_string(dev.path().join("note-0.md")).unwrap(), "tecleado tarde");
+    assert_eq!(std::fs::read_to_string(dev.path().join(&copies[0])).unwrap(), "peer");
 }

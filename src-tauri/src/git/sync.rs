@@ -12,7 +12,7 @@ use git2::{
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 use thiserror::Error;
@@ -339,12 +339,35 @@ fn union_lines(a: &[u8], b: &[u8]) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// Merge `origin/main` into the (fully committed) local `main`.
-/// Returns the conflict copies that were created.
+/// Merge `origin/main` into the local `main`. Returns the conflict copies.
 fn merge_remote(repo: &Repository, stamp: &str) -> Result<Vec<String>, GitError> {
+    merge_remote_noting(repo, stamp, &mut BTreeSet::new())
+}
+
+/// Commits local writes that landed after the cycle's first commit (an editor
+/// save after the ack timeout or the hold safety net), so the forced checkout
+/// below merges them instead of reverting them. Their paths go to `own`: they
+/// are this device's edits, not remote changes.
+fn commit_late_changes(repo: &Repository, own: &mut BTreeSet<String>) -> Result<(), GitError> {
+    let before = head_tree(repo).map(|t| t.id());
+    if commit_local_changes(repo)? {
+        own.extend(diff_since(repo, before)?);
+    }
+    Ok(())
+}
+
+/// [`merge_remote`], recording late local edits it had to commit in `own`.
+pub(crate) fn merge_remote_noting(
+    repo: &Repository,
+    stamp: &str,
+    own: &mut BTreeSet<String>,
+) -> Result<Vec<String>, GitError> {
     let Some(theirs) = remote_tip(repo) else {
         return Ok(vec![]);
     };
+    if head_oid(repo).is_some() {
+        commit_late_changes(repo, own)?;
+    }
     let Some(ours) = head_oid(repo) else {
         // Unborn local branch: just adopt the remote history.
         repo.reference("refs/heads/main", theirs, true, "adopt remote")?;
@@ -356,7 +379,8 @@ fn merge_remote(repo: &Repository, stamp: &str) -> Result<Vec<String>, GitError>
         return Ok(vec![]); // up to date (or we are ahead)
     }
     if repo.graph_descendant_of(theirs, ours)? {
-        // Fast-forward. Everything local is committed, so this loses nothing.
+        // Fast-forward. Everything local was just committed (and an ahead HEAD
+        // never fast-forwards), so this loses nothing.
         repo.reference("refs/heads/main", theirs, true, "fast-forward")?;
         repo.set_head("refs/heads/main")?;
         repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
@@ -474,12 +498,13 @@ fn push_with_retry(
     repo: &Repository,
     pat: &str,
     conflicts: &mut Vec<String>,
+    own: &mut BTreeSet<String>,
 ) -> Result<(), GitError> {
     match push_branch(repo, pat)? {
         PushStatus::Pushed => Ok(()),
         PushStatus::Rejected(_) => {
             fetch_main(repo, pat)?;
-            conflicts.extend(merge_remote(repo, &conflict_stamp())?);
+            conflicts.extend(merge_remote_noting(repo, &conflict_stamp(), own)?);
             match push_branch(repo, pat)? {
                 PushStatus::Pushed => Ok(()),
                 PushStatus::Rejected(msg) => Err(GitError::PushRejected(msg)),
@@ -627,12 +652,14 @@ fn sync_cycle(
     let before = head_tree(&repo).map(|t| t.id());
 
     let mut conflicts = Vec::new();
+    // Late local edits committed by the merges: not reported as remote changes.
+    let mut own = BTreeSet::new();
     if fetch_main(&repo, pat)? {
-        conflicts.extend(merge_remote(&repo, &conflict_stamp())?);
+        conflicts.extend(merge_remote_noting(&repo, &conflict_stamp(), &mut own)?);
         if !opts.confirm_deletions && !opts.push_paused {
             if let Some(warning) = deletion_warning(&repo)? {
                 return Ok(CycleReport {
-                    changed_paths: diff_since(&repo, before)?,
+                    changed_paths: remote_changes(&repo, before, &own)?,
                     conflicts,
                     needs_confirmation: Some(warning),
                     pushed: false,
@@ -643,15 +670,27 @@ fn sync_cycle(
 
     let mut pushed = false;
     if !opts.push_paused && head_oid(&repo).is_some() {
-        push_with_retry(&repo, pat, &mut conflicts)?;
+        push_with_retry(&repo, pat, &mut conflicts, &mut own)?;
         pushed = true;
     }
     Ok(CycleReport {
-        changed_paths: diff_since(&repo, before)?,
+        changed_paths: remote_changes(&repo, before, &own)?,
         conflicts,
         needs_confirmation: None,
         pushed,
     })
+}
+
+/// Paths changed since `before`, minus this device's late edits (`own`).
+/// Conflict copies are never in `own`, so they are still reported.
+fn remote_changes(
+    repo: &Repository,
+    before: Option<Oid>,
+    own: &BTreeSet<String>,
+) -> Result<Vec<String>, git2::Error> {
+    let mut paths = diff_since(repo, before)?;
+    paths.retain(|p| !own.contains(p));
+    Ok(paths)
 }
 
 fn diff_since(repo: &Repository, before: Option<Oid>) -> Result<Vec<String>, git2::Error> {
@@ -808,7 +847,7 @@ pub fn git_connect_apply_inner(
         conflicts.extend(merge_remote(&repo, &conflict_stamp())?);
     }
     if action != ConnectAction::Cloned {
-        push_with_retry(&repo, pat, &mut conflicts)?;
+        push_with_retry(&repo, pat, &mut conflicts, &mut BTreeSet::new())?;
     }
     Ok(ConnectResult { action, conflicts })
 }
