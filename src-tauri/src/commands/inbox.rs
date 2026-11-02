@@ -151,7 +151,7 @@ pub fn inbox_list_with_jobs(vault: &Path, jobs: &VoiceJobs) -> Result<Vec<InboxI
 
 fn voice_info(state: Option<JobState>) -> VoiceInfo {
     match state {
-        Some(JobState::Transcribing) => VoiceInfo { state: VoiceStateKind::Transcribing, detail: None, progress: None },
+        Some(JobState::Transcribing | JobState::Queued) => VoiceInfo { state: VoiceStateKind::Transcribing, detail: None, progress: None },
         Some(JobState::Downloading { done, total }) => VoiceInfo {
             state: VoiceStateKind::Downloading,
             detail: None,

@@ -84,3 +84,12 @@ fn inbox_files_lists_only_top_level_files() {
     assert_eq!(inbox_files(d.path()), s(&["Entrada/a.md", "Entrada/b.webm"]));
     assert!(inbox_files(&d.path().join("nope")).is_empty());
 }
+
+#[test]
+fn skips_queued_jobs() {
+    let d = tempfile::tempdir().unwrap();
+    touch(d.path(), "Entrada/a.webm");
+    let jobs = VoiceJobs::default();
+    jobs.set("Entrada/a.webm", JobState::Queued);
+    assert!(pending_transcriptions(d.path(), &s(&["Entrada/a.webm"]), &jobs).is_empty());
+}

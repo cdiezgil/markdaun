@@ -328,9 +328,12 @@ fn running_and_failed_jobs_decorate_the_audio_item() {
     jobs.set("Entrada/a.m4a", JobState::Transcribing);
     jobs.set("Entrada/b.m4a", JobState::Downloading { done: 50, total: Some(200) });
     jobs.set("Entrada/c.m4a", JobState::Error("boom".into()));
+    fs::write(dir.join("d.m4a"), "x").unwrap();
+    jobs.set("Entrada/d.m4a", JobState::Queued);
     let items = inbox_list_with_jobs(vault.path(), &jobs).unwrap();
     let voice = |n: &str| items.iter().find(|i| i.name == n).unwrap().voice.clone().unwrap();
     assert_eq!(voice("a.m4a").state, VoiceStateKind::Transcribing);
+    assert_eq!(voice("d.m4a").state, VoiceStateKind::Transcribing);
     assert_eq!(voice("b.m4a").state, VoiceStateKind::Downloading);
     assert_eq!(voice("b.m4a").progress, Some(0.25));
     assert_eq!(voice("c.m4a").state, VoiceStateKind::Error);

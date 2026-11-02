@@ -10,7 +10,7 @@ use crate::db::ConfigDb;
 use crate::llm::embeddings::HF_BASE_URL;
 use crate::models_mirror::Mirror;
 use crate::voice::auto::{inbox_files, pending_transcriptions};
-use crate::voice::jobs::{parse_recorded, run_job, VoiceJobs};
+use crate::voice::jobs::{parse_recorded, JobState, run_job, VoiceJobs};
 use crate::voice::model::{download_model, is_downloaded, model_path, spec_for, ModelSpec, DEFAULT_MODEL, MODELS};
 use crate::voice::save::save_recording;
 use crate::voice::transcribe::{EngineState, Transcriber};
@@ -139,6 +139,10 @@ impl Throttle {
 /// on first use, then writes the note next to the audio. Jobs run one at a
 /// time (the model uses the whole machine).
 pub(crate) fn start_job(app: tauri::AppHandle, vault: String, rel: String) {
+    // Claim before spawning: a job waiting for its turn must be visible.
+    if !app.state::<VoiceJobs>().try_claim(&rel) {
+        return;
+    }
     std::thread::spawn(move || {
         let jobs = app.state::<VoiceJobs>();
         let engines = app.state::<EngineState>();
@@ -146,7 +150,10 @@ pub(crate) fn start_job(app: tauri::AppHandle, vault: String, rel: String) {
         let audio = Path::new(&vault).join(&rel);
         let stem = audio.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         let recorded = parse_recorded(&stem).unwrap_or_else(|| chrono::Local::now().naive_local());
-        let (Ok(db), Ok(dir)) = (app_db_path(&app), models_dir(&app)) else { return };
+        let (Ok(db), Ok(dir)) = (app_db_path(&app), models_dir(&app)) else {
+            jobs.set(&rel, JobState::Error("No se pudo preparar la transcripción".to_string()));
+            return;
+        };
         let model_id = model_get(&db);
         let spec: ModelSpec = *spec_for(&model_id).unwrap_or(&MODELS[0]);
         let emitter = app.clone();
@@ -226,7 +233,6 @@ pub(crate) fn transcribe_inbox_at_startup(app: &tauri::AppHandle) {
 #[tauri::command]
 pub async fn voice_retry(
     app: tauri::AppHandle,
-    jobs: tauri::State<'_, VoiceJobs>,
     vault_path: String,
     rel_path: String,
 ) -> Result<(), String> {
@@ -236,9 +242,6 @@ pub async fn voice_retry(
     }
     if !Path::new(&vault_path).join(rel).is_file() {
         return Err("path_not_found".to_string());
-    }
-    if jobs.is_active(&rel_path) {
-        return Ok(());
     }
     start_job(app, vault_path, rel_path);
     Ok(())
