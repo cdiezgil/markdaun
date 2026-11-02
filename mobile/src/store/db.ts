@@ -14,7 +14,7 @@ export interface TreeRecord {
 
 export interface QueueRecord {
   id?: number;
-  blob: Blob;
+  data: ArrayBuffer; // audio bytes (Blobs do not clone reliably through IndexedDB)
   mime: string;
   at: number; // ms since epoch
   n: number;
