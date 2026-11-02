@@ -277,7 +277,7 @@ fn commit_local_changes(repo: &Repository) -> Result<bool, GitError> {
     }
     let tree = repo.find_tree(tree_oid)?;
     let sig = signature()?;
-    let msg = format!("MarkDaun sync — {}", Utc::now().to_rfc3339());
+    let msg = format!("MarkDaun sync ({}) — {}", device_name(), Utc::now().to_rfc3339());
     let parents: Vec<&git2::Commit> = parent.iter().collect();
     repo.commit(Some("refs/heads/main"), &sig, &sig, &msg, &tree, &parents)?;
     Ok(true)
@@ -516,6 +516,171 @@ pub fn git_status_inner(vault_path: &Path) -> Result<bool, GitError> {
     Ok(!statuses.is_empty())
 }
 
+/// Short, filesystem-safe name of this machine, used in commit messages.
+pub fn device_name() -> String {
+    let raw = std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .unwrap_or_default();
+    sanitize_device_name(&raw)
+}
+
+fn sanitize_device_name(raw: &str) -> String {
+    let clean: String = raw
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .collect();
+    let clean = clean.trim_matches('-');
+    if clean.is_empty() {
+        "Mac".to_string()
+    } else {
+        clean.to_string()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CycleOptions {
+    pub confirm_deletions: bool,
+    pub push_paused: bool,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CycleReport {
+    /// Vault-relative paths (`/` separators) that changed in HEAD by merging.
+    pub changed_paths: Vec<String>,
+    /// Vault-relative paths of conflict copies created while merging.
+    pub conflicts: Vec<String>,
+    /// Set when the push was NOT performed and needs the user's confirmation.
+    pub needs_confirmation: Option<DeletionWarning>,
+    pub pushed: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    pub uncommitted: bool,
+    pub ahead: usize,
+}
+
+/// Vault-relative paths whose content differs between two trees. Renames show
+/// up as a deletion plus an addition.
+fn changed_paths(
+    repo: &Repository,
+    before: Option<&Tree>,
+    after: Option<&Tree>,
+) -> Result<Vec<String>, git2::Error> {
+    let diff = repo.diff_tree_to_tree(before, after, None)?;
+    let mut out = std::collections::BTreeSet::new();
+    for delta in diff.deltas() {
+        let file = if delta.status() == git2::Delta::Deleted {
+            delta.old_file()
+        } else {
+            delta.new_file()
+        };
+        if let Some(p) = file.path() {
+            let path = p.to_string_lossy().replace('\\', "/");
+            let name = path.rsplit('/').next().unwrap_or(&path);
+            if path != ".gitignore" && !is_noise(name) {
+                out.insert(path);
+            }
+        }
+    }
+    Ok(out.into_iter().collect())
+}
+
+fn head_tree(repo: &Repository) -> Option<Tree<'_>> {
+    head_oid(repo)
+        .and_then(|oid| repo.find_commit(oid).ok())
+        .and_then(|c| c.tree().ok())
+}
+
+fn sync_cycle(
+    vault_path: &Path,
+    remote_url: &str,
+    pat: &str,
+    opts: CycleOptions,
+) -> Result<CycleReport, GitError> {
+    let repo = Repository::open(vault_path)?;
+    set_origin(&repo, remote_url)?;
+    commit_local_changes(&repo)?;
+    let before = head_tree(&repo).map(|t| t.id());
+
+    let mut conflicts = Vec::new();
+    if fetch_main(&repo, pat)? {
+        conflicts.extend(merge_remote(&repo, &conflict_stamp())?);
+        if !opts.confirm_deletions && !opts.push_paused {
+            if let Some(warning) = deletion_warning(&repo)? {
+                return Ok(CycleReport {
+                    changed_paths: diff_since(&repo, before)?,
+                    conflicts,
+                    needs_confirmation: Some(warning),
+                    pushed: false,
+                });
+            }
+        }
+    }
+
+    let mut pushed = false;
+    if !opts.push_paused && head_oid(&repo).is_some() {
+        push_with_retry(&repo, pat, &mut conflicts)?;
+        pushed = true;
+    }
+    Ok(CycleReport {
+        changed_paths: diff_since(&repo, before)?,
+        conflicts,
+        needs_confirmation: None,
+        pushed,
+    })
+}
+
+fn diff_since(repo: &Repository, before: Option<Oid>) -> Result<Vec<String>, git2::Error> {
+    let before_tree = before.map(|oid| repo.find_tree(oid)).transpose()?;
+    let after = head_tree(repo);
+    changed_paths(repo, before_tree.as_ref(), after.as_ref())
+}
+
+/// One full sync cycle: commit local changes, fetch, merge, deletion guard,
+/// push (never forced). The push is skipped when `push_paused` or when the
+/// guard fires without `confirm_deletions`.
+// Consumed by the automatic-sync runner in a later task.
+#[allow(dead_code)]
+pub fn git_sync_inner(
+    vault: &Path,
+    url: &str,
+    pat: &str,
+    opts: CycleOptions,
+) -> Result<CycleReport, super::error::SyncError> {
+    sync_cycle(vault, url, pat, opts).map_err(|e| super::error::classify(&e))
+}
+
+/// Uncommitted changes and the number of local commits not yet on `origin/main`.
+// Consumed by the automatic-sync runner in a later task.
+#[allow(dead_code)]
+pub fn sync_status_inner(vault: &Path) -> Result<SyncStatus, super::error::SyncError> {
+    let to_err = |e: git2::Error| super::error::classify(&GitError::Git(e));
+    if !vault.join(".git").exists() {
+        return Ok(SyncStatus {
+            uncommitted: false,
+            ahead: 0,
+        });
+    }
+    let repo = Repository::open(vault).map_err(to_err)?;
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true).recurse_untracked_dirs(true);
+    let uncommitted = !repo.statuses(Some(&mut opts)).map_err(to_err)?.is_empty();
+    let ahead = match (head_oid(&repo), remote_tip(&repo)) {
+        (Some(h), Some(r)) => repo.graph_ahead_behind(h, r).map_err(to_err)?.0,
+        _ => 0,
+    };
+    Ok(SyncStatus { uncommitted, ahead })
+}
+
 /// Commit local changes on top of HEAD, merge anything new from the remote and
 /// push (never forced). When the push would delete most of the remote notes it
 /// is NOT performed unless `confirm_deletions` is true.
@@ -525,26 +690,18 @@ pub fn git_push_inner(
     pat: &str,
     confirm_deletions: bool,
 ) -> Result<SyncResult, GitError> {
-    let repo = Repository::open(vault_path)?;
-    set_origin(&repo, remote_url)?;
-    commit_local_changes(&repo)?;
-
-    let mut conflicts = Vec::new();
-    if fetch_main(&repo, pat)? {
-        conflicts.extend(merge_remote(&repo, &conflict_stamp())?);
-        if !confirm_deletions {
-            if let Some(warning) = deletion_warning(&repo)? {
-                return Ok(SyncResult {
-                    conflicts,
-                    needs_confirmation: Some(warning),
-                });
-            }
-        }
-    }
-    push_with_retry(&repo, pat, &mut conflicts)?;
+    let report = sync_cycle(
+        vault_path,
+        remote_url,
+        pat,
+        CycleOptions {
+            confirm_deletions,
+            push_paused: false,
+        },
+    )?;
     Ok(SyncResult {
-        conflicts,
-        needs_confirmation: None,
+        conflicts: report.conflicts,
+        needs_confirmation: report.needs_confirmation,
     })
 }
 
@@ -556,16 +713,17 @@ pub fn git_pull_inner(
     remote_url: &str,
     pat: &str,
 ) -> Result<SyncResult, GitError> {
-    let repo = Repository::open(vault_path)?;
-    set_origin(&repo, remote_url)?;
-    commit_local_changes(&repo)?;
-    let conflicts = if fetch_main(&repo, pat)? {
-        merge_remote(&repo, &conflict_stamp())?
-    } else {
-        vec![]
-    };
+    let report = sync_cycle(
+        vault_path,
+        remote_url,
+        pat,
+        CycleOptions {
+            confirm_deletions: false,
+            push_paused: true,
+        },
+    )?;
     Ok(SyncResult {
-        conflicts,
+        conflicts: report.conflicts,
         needs_confirmation: None,
     })
 }
