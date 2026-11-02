@@ -11,3 +11,5 @@ src-tauri/.ort/
 *.db
 .worktrees
 .worktrees/
+mobile/test-results/
+mobile/playwright-report/
