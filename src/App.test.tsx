@@ -227,6 +227,55 @@ describe('presencia en la barra de menús y guarda de salida', () => {
     ).toBeInTheDocument();
   });
 
+  it('a hung save asks after 15 s instead of hanging on the notice', async () => {
+    await setSync(true);
+    const { useEditorStore } = await import('./store/editorStore');
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+    await waitFor(() => expect(handlers.has('request-quit')).toBe(true));
+    const realSaveNow = useEditorStore.getState().saveNow;
+    useEditorStore.setState({ saveNow: () => new Promise<void>(() => {}) });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await act(async () => handlers.get('request-quit')!({}));
+      expect(screen.getByText('Sincronizando antes de salir…')).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(16_000); });
+      expect(
+        screen.getByText('Hay cambios que no se han podido guardar. ¿Salir igualmente?'),
+      ).toBeInTheDocument();
+      expect(calls()).not.toContain('sync_before_quit');
+      expect(calls()).not.toContain('quit_app');
+    } finally {
+      vi.useRealTimers();
+      useEditorStore.setState({ saveNow: realSaveNow });
+    }
+  });
+
+  it('a failing quit_app after confirming does not leave the app stuck', async () => {
+    await setSync(true);
+    const { useEditorStore } = await import('./store/editorStore');
+    useEditorStore.setState({
+      deferredWrites: { '/v/b.md': { content: 'x', vault: '/v', base: null, blocked: true } },
+    });
+    mockInvoke.mockImplementation((async (cmd: string) => {
+      if (cmd === 'quit_app') throw new Error('nope');
+      return null;
+    }) as never);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<App />);
+    await requestQuit();
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Salir' }));
+    await waitFor(() => expect(screen.queryByTestId('quit-notice')).toBeNull());
+    expect(errors).toHaveBeenCalledWith('quit failed:', expect.any(Error));
+    // A new quit request is accepted again.
+    await requestQuit();
+    expect(
+      await screen.findByText('Hay cambios que no se han podido guardar. ¿Salir igualmente?'),
+    ).toBeInTheDocument();
+    errors.mockRestore();
+  });
+
   it('confirming "Salir" syncs and quits despite unwritten edits', async () => {
     await setSync(true);
     const { useEditorStore } = await import('./store/editorStore');

@@ -77,8 +77,9 @@ function AppLayout() {
           setQuitPhase('confirm');
         })
         .catch((e) => {
-          console.error(e);
-          setQuitPhase('confirm');
+          console.error('quit failed:', e);
+          quitting.current = false;
+          setQuitPhase(null);
         });
     })
       .then((fn) => (cancelled ? fn() : (unlisten = fn)))
@@ -207,7 +208,11 @@ function AppLayout() {
         confirmLabel="Salir"
         onConfirm={() => {
           setQuitPhase('syncing');
-          void finishQuit(useSyncStore.getState().config.isConnected);
+          finishQuit(useSyncStore.getState().config.isConnected).catch((e) => {
+            console.error('quit failed:', e);
+            quitting.current = false;
+            setQuitPhase(null);
+          });
         }}
         onCancel={() => {
           quitting.current = false;
