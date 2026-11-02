@@ -1,5 +1,5 @@
 import { useEditorStore } from '../store/editorStore';
-import { quitApp, syncBeforeQuit } from './tauri';
+import { quitApp, syncBeforeQuit, syncCancelQuit } from './tauri';
 
 /** After this long we quit even if the final sync has not answered. */
 export const QUIT_SYNC_TIMEOUT_MS = 40_000;
@@ -50,8 +50,9 @@ export async function flushEditsForQuit(): Promise<boolean> {
 }
 
 /**
- * The quit is final: run the bounded last sync, then quit regardless of how
- * it went (`sync_before_quit` is a one-way door, sync stays off afterwards).
+ * Run the bounded last sync, then quit regardless of how it went. If the app
+ * does not exit after all, `sync_before_quit` is undone (lock released, sync
+ * resumed) and the error is rethrown so the caller can let the user retry.
  */
 export async function finishQuit(syncFirst: boolean): Promise<void> {
   if (syncFirst) {
@@ -67,5 +68,10 @@ export async function finishQuit(syncFirst: boolean): Promise<void> {
       if (timer !== undefined) clearTimeout(timer);
     }
   }
-  await quitApp();
+  try {
+    await quitApp();
+  } catch (e) {
+    if (syncFirst) await syncCancelQuit().catch(console.error);
+    throw e;
+  }
 }

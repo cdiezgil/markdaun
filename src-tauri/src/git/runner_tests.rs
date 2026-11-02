@@ -122,6 +122,19 @@ fn quitting_runner_refuses_git_work() {
 }
 
 #[test]
+fn cancelled_quit_releases_the_lock_and_allows_git_work() {
+    let runner = SyncRunner::default();
+    let lock = runner.locks.for_vault("/v");
+    runner.begin_quit();
+    runner.keep_quit_guard(lock.clone().try_lock_owned().unwrap());
+    assert!(lock.try_lock().is_err(), "held until the process exits");
+
+    runner.cancel_quit();
+    assert!(runner.may_run());
+    assert!(lock.try_lock().is_ok(), "a failed quit must not leave sync dead");
+}
+
+#[test]
 fn restart_clears_pending_confirm() {
     let runner = SyncRunner::default();
     runner.request_mode(CycleMode::ConfirmDeletions { deleted: 1 });

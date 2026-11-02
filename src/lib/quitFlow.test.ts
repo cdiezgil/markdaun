@@ -4,12 +4,13 @@ vi.mock('./tauri', async (orig) => ({
   ...(await orig<typeof import('./tauri')>()),
   writeNote: vi.fn().mockResolvedValue(undefined),
   syncBeforeQuit: vi.fn(),
+  syncCancelQuit: vi.fn(),
   quitApp: vi.fn(),
 }));
 
-import { writeNote } from './tauri';
+import { writeNote, syncBeforeQuit, syncCancelQuit, quitApp } from './tauri';
 import { useEditorStore } from '../store/editorStore';
-import { flushEditsForQuit, QUIT_FLUSH_TIMEOUT_MS, MAX_QUIT_RELEASES } from './quitFlow';
+import { finishQuit, flushEditsForQuit, QUIT_FLUSH_TIMEOUT_MS, MAX_QUIT_RELEASES } from './quitFlow';
 
 const base = {
   saveHolds: 0,
@@ -69,5 +70,22 @@ describe('flushEditsForQuit', () => {
     useEditorStore.setState({ saveHolds: 1, releaseSaves: release });
     expect(await flushEditsForQuit()).toBe(false);
     expect(release).toHaveBeenCalledTimes(MAX_QUIT_RELEASES);
+  });
+});
+
+describe('finishQuit', () => {
+  it('a failed quit_app after the final sync resumes automatic sync', async () => {
+    vi.mocked(syncBeforeQuit).mockResolvedValue(undefined);
+    vi.mocked(syncCancelQuit).mockResolvedValue(undefined);
+    vi.mocked(quitApp).mockRejectedValue(new Error('nope'));
+    await expect(finishQuit(true)).rejects.toThrow('nope');
+    expect(syncCancelQuit).toHaveBeenCalledTimes(1);
+  });
+
+  it('a successful quit never cancels', async () => {
+    vi.mocked(syncBeforeQuit).mockResolvedValue(undefined);
+    vi.mocked(quitApp).mockResolvedValue(undefined);
+    await finishQuit(true);
+    expect(syncCancelQuit).not.toHaveBeenCalled();
   });
 });

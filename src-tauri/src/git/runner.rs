@@ -378,6 +378,18 @@ impl SyncRunner {
     pub(crate) fn may_run(&self) -> bool {
         !self.quitting.load(Ordering::SeqCst)
     }
+
+    /// Keeps the cycle lock until the process exits (or the quit is cancelled).
+    pub(crate) fn keep_quit_guard(&self, guard: OwnedMutexGuard<()>) {
+        *lock(&self.quit_guard) = Some(guard);
+    }
+
+    /// The app did not exit after `before_quit`: release the held lock and
+    /// allow git work again. The caller restarts the session.
+    pub(crate) fn cancel_quit(&self) {
+        lock(&self.quit_guard).take();
+        self.quitting.store(false, Ordering::SeqCst);
+    }
 }
 
 fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -688,6 +700,13 @@ async fn run_cycle(app: AppHandle, ctx: Ctx) {
     drive_cycle(&host, &ctx.engine, work).await;
 }
 
+/// Undo `before_quit` when the app could not exit: drop the held lock and
+/// start a fresh session (the old one was dismantled by the quit path).
+pub fn cancel_quit(app: &AppHandle) {
+    app.state::<SyncRunner>().cancel_quit();
+    restart(app);
+}
+
 /// Current state in the `sync-finished` shape (no report).
 pub fn current_state(app: &AppHandle) -> SyncFinishedPayload {
     let runner = app.state::<SyncRunner>();
@@ -753,7 +772,7 @@ pub async fn before_quit(app: &AppHandle) {
     })
     .await;
     // Held until the process exits: no other cycle may start.
-    *lock(&runner.quit_guard) = Some(guard);
+    runner.keep_quit_guard(guard);
     match joined {
         Ok(Some((run, snap))) => {
             let payload = SyncFinishedPayload {

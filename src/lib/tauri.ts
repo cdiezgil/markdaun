@@ -204,6 +204,11 @@ export async function syncBeforeQuit(): Promise<void> {
   return invoke<void>('sync_before_quit');
 }
 
+/** The app did not exit after `syncBeforeQuit`: automatic sync resumes. */
+export async function syncCancelQuit(): Promise<void> {
+  return invoke<void>('sync_cancel_quit');
+}
+
 /**
  * Copy the current on-disk content of `path` (the remote version a cycle just
  * merged) to `<stem> (conflicto YYYY-MM-DD HH-mm).<ext>`. Returns the copy's

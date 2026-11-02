@@ -106,6 +106,7 @@ fn main() {
             commands::sync_dismiss_conflicts,
             commands::sync_get_state,
             commands::sync_before_quit,
+            commands::sync_cancel_quit,
             commands::write_conflict_copy,
             commands::brain_query,
             commands::brain_get_conversations,

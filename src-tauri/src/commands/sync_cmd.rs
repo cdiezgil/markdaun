@@ -298,6 +298,14 @@ pub async fn sync_before_quit(app: tauri::AppHandle) -> Result<(), SyncError> {
     Ok(())
 }
 
+/// The app did not exit after `sync_before_quit` (e.g. `quit_app` failed):
+/// automatic sync resumes instead of staying off until the next launch.
+#[tauri::command]
+pub async fn sync_cancel_quit(app: tauri::AppHandle) -> Result<(), SyncError> {
+    runner::cancel_quit(&app);
+    Ok(())
+}
+
 // ─── Open-note conflict copy ──────────────────────────────────────────────────
 
 /// Copies the current on-disk content of `path` (the remote version a cycle
