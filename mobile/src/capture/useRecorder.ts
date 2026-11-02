@@ -36,6 +36,8 @@ export function useRecorder(onAutoStop?: (result: RecordingResult | null) => voi
   const chunksRef = useRef<Blob[]>([]);
   const startedRef = useRef<Date>(new Date());
   const mountedRef = useRef(true);
+  const startingRef = useRef(false);
+  const genRef = useRef(0);
   const autoStopRef = useRef(onAutoStop);
   autoStopRef.current = onAutoStop;
 
@@ -54,32 +56,49 @@ export function useRecorder(onAutoStop?: (result: RecordingResult | null) => voi
     if (!recorder) return null;
     recorderRef.current = null;
     if (mountedRef.current) setState('saving');
-    const done = new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
-    });
-    if (recorder.state !== 'inactive') recorder.stop();
-    await done;
+    if (recorder.state !== 'inactive') {
+      const done = new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve();
+        recorder.onerror = () => resolve();
+      });
+      try {
+        recorder.stop();
+      } catch {
+        // Already stopped: fall through with the chunks collected so far.
+        recorder.onstop?.(new Event('stop'));
+      }
+      await done;
+    }
     cleanup();
     const mime = recorder.mimeType || 'audio/webm';
     const blob = new Blob(chunksRef.current, { type: mime });
     chunksRef.current = [];
-    if (mountedRef.current) setState('idle');
     return { blob, mime, at: startedRef.current };
   }, [cleanup]);
 
   const start = useCallback(async () => {
+    if (startingRef.current || recorderRef.current) return;
+    startingRef.current = true;
+    const gen = genRef.current;
     setError(undefined);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      setError(new AppError('MicDenied'));
+    } catch (e) {
+      if (gen !== genRef.current) return;
+      startingRef.current = false;
+      const name = e instanceof DOMException || e instanceof Error ? e.name : '';
+      if (name === 'NotAllowedError' || name === 'SecurityError') setError(new AppError('MicDenied'));
+      else if (name === 'NotFoundError') setError(new AppError('Unknown', 'No se encontró un micrófono'));
+      else setError(new AppError('Unknown', 'No se pudo acceder al micrófono'));
       return;
     }
-    if (!mountedRef.current) {
+    if (gen !== genRef.current) {
+      // Superseded (unmounted or restarted while waiting): never keep this mic open.
       stream.getTracks().forEach((t) => t.stop());
       return;
     }
+    startingRef.current = false;
     streamRef.current = stream;
     const mimeType = pickMime();
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
@@ -120,6 +139,8 @@ export function useRecorder(onAutoStop?: (result: RecordingResult | null) => voi
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      genRef.current += 1;
+      startingRef.current = false;
       const recorder = recorderRef.current;
       recorderRef.current = null;
       if (recorder && recorder.state !== 'inactive') {
@@ -130,5 +151,7 @@ export function useRecorder(onAutoStop?: (result: RecordingResult | null) => voi
     };
   }, [cleanup]);
 
-  return { state, elapsedMs, error, start, stop };
+  const reset = useCallback(() => setState('idle'), []);
+
+  return { state, elapsedMs, error, start, stop, reset };
 }

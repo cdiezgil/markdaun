@@ -11,8 +11,22 @@ export function formatElapsed(ms: number): string {
   return `${mm}:${ss}`;
 }
 
-export function Recorder({ db, onSaved }: { db: Db; onSaved: () => void }) {
-  const [saveError, setSaveError] = useState(false);
+const secondary = {
+  minHeight: 48,
+  padding: '0 var(--space-4)',
+  border: '1px solid var(--line-strong)',
+  borderRadius: 'var(--radius-lg)',
+  background: 'transparent',
+  color: 'var(--ink)',
+  fontFamily: 'inherit',
+  fontSize: 15,
+  fontWeight: 500,
+} as const;
+
+export function Recorder({ db, onSaved, onClose }: { db: Db; onSaved: () => void; onClose: () => void }) {
+  // A recording whose save failed stays here so it can be retried, never lost.
+  const [held, setHeld] = useState<RecordingResult | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   const save = useCallback(
     async (result: RecordingResult | null) => {
@@ -20,26 +34,39 @@ export function Recorder({ db, onSaved }: { db: Db; onSaved: () => void }) {
       try {
         await enqueue(db, result.blob, result.mime, result.at);
       } catch {
-        setSaveError(true);
+        setHeld(result);
+        reset();
         return;
       }
+      setHeld(null);
       onSaved();
     },
     [db, onSaved],
   );
 
-  const { state, elapsedMs, error, start, stop } = useRecorder(save);
+  const { state, elapsedMs, error, start, stop, reset } = useRecorder(save);
 
   useEffect(() => {
     void start();
   }, [start]);
 
   const onStop = async () => {
-    setSaveError(false);
     await save(await stop());
   };
 
+  const onRetry = async () => {
+    if (!held) return;
+    setRetrying(true);
+    await save(held);
+    setRetrying(false);
+  };
+
+  const onDiscard = () => {
+    if (window.confirm('¿Descartar la grabación?')) onClose();
+  };
+
   const denied = error?.kind === 'MicDenied';
+  const recording = state !== 'idle';
 
   return (
     <main
@@ -58,14 +85,20 @@ export function Recorder({ db, onSaved }: { db: Db; onSaved: () => void }) {
       }}
     >
       <Mic size={32} strokeWidth={1.5} color="var(--daun)" aria-hidden />
-      {denied ? (
+      {held ? (
+        <p role="alert" style={{ color: 'var(--danger)', margin: 0 }}>
+          No se pudo guardar la grabación
+        </p>
+      ) : error ? (
         <p role="alert" style={{ color: 'var(--danger)', maxWidth: '32ch', margin: 0 }}>
-          Permite el micrófono en los ajustes del navegador para grabar notas de voz.
+          {denied
+            ? 'Permite el micrófono en los ajustes del navegador para grabar notas de voz.'
+            : error.message}
         </p>
       ) : (
         <>
           <p style={{ margin: 0, color: 'var(--ink-muted)', fontWeight: 500 }}>
-            {state === 'saving' ? 'Guardando…' : 'Grabando…'}
+            {state === 'saving' ? 'Guardando…' : state === 'recording' ? 'Grabando…' : 'Preparando…'}
           </p>
           <p
             style={{
@@ -80,36 +113,62 @@ export function Recorder({ db, onSaved }: { db: Db; onSaved: () => void }) {
           </p>
         </>
       )}
-      {saveError && (
-        <p role="alert" style={{ color: 'var(--danger)', margin: 0 }}>
-          No se pudo guardar la grabación
-        </p>
+      {recording && !held && !error && (
+        <button
+          type="button"
+          onClick={onStop}
+          disabled={state !== 'recording'}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 'var(--space-2)',
+            minWidth: 160,
+            minHeight: 72,
+            padding: '0 var(--space-6)',
+            border: 'none',
+            borderRadius: 'var(--radius-lg)',
+            background: 'var(--gold)',
+            color: 'var(--on-gold)',
+            fontFamily: 'inherit',
+            fontSize: 17,
+            fontWeight: 700,
+            opacity: state === 'recording' ? 1 : 0.5,
+          }}
+        >
+          <Square size={20} strokeWidth={1.5} aria-hidden />
+          Detener
+        </button>
       )}
-      <button
-        type="button"
-        onClick={onStop}
-        disabled={state !== 'recording'}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 'var(--space-2)',
-          minWidth: 160,
-          minHeight: 72,
-          padding: '0 var(--space-6)',
-          border: 'none',
-          borderRadius: 'var(--radius-lg)',
-          background: 'var(--gold)',
-          color: 'var(--on-gold)',
-          fontFamily: 'inherit',
-          fontSize: 17,
-          fontWeight: 700,
-          opacity: state === 'recording' ? 1 : 0.5,
-        }}
-      >
-        <Square size={20} strokeWidth={1.5} aria-hidden />
-        Detener
-      </button>
+      {held && (
+        <>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retrying}
+            style={{
+              ...secondary,
+              minHeight: 72,
+              minWidth: 160,
+              border: 'none',
+              background: 'var(--gold)',
+              color: 'var(--on-gold)',
+              fontWeight: 700,
+              fontSize: 17,
+            }}
+          >
+            Reintentar
+          </button>
+          <button type="button" onClick={onDiscard} style={secondary}>
+            Descartar
+          </button>
+        </>
+      )}
+      {!held && error && (
+        <button type="button" onClick={onClose} style={secondary}>
+          Cerrar
+        </button>
+      )}
     </main>
   );
 }

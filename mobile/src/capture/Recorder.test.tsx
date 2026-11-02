@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { StrictMode } from 'react';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { deleteDB } from 'idb';
@@ -67,7 +68,7 @@ afterEach(async () => {
 describe('Recorder', () => {
   it('records and enqueues', async () => {
     const onSaved = vi.fn();
-    render(<Recorder db={db} onSaved={onSaved} />);
+    render(<Recorder db={db} onSaved={onSaved} onClose={() => {}} />);
     expect(await screen.findByText('Grabando…')).toBeInTheDocument();
     expect(screen.getByText('00:00')).toBeInTheDocument();
     const rec = FakeRecorder.instances[0];
@@ -86,14 +87,14 @@ describe('Recorder', () => {
 
   it('falls back to audio/mp4 when webm is unsupported', async () => {
     FakeRecorder.supported = ['audio/mp4'];
-    render(<Recorder db={db} onSaved={() => {}} />);
+    render(<Recorder db={db} onSaved={() => {}} onClose={() => {}} />);
     await screen.findByText('Grabando…');
     expect(FakeRecorder.instances[0].mimeType).toBe('audio/mp4');
   });
 
   it('mic denied shows explanation', async () => {
     getUserMedia.mockRejectedValue(new DOMException('no', 'NotAllowedError'));
-    render(<Recorder db={db} onSaved={() => {}} />);
+    render(<Recorder db={db} onSaved={() => {}} onClose={() => {}} />);
     expect(await screen.findByText(/Permite el micrófono en los ajustes del navegador/)).toBeInTheDocument();
     expect(FakeRecorder.instances).toHaveLength(0);
   });
@@ -102,7 +103,7 @@ describe('Recorder', () => {
     // Only the clock: fake-indexeddb needs the real scheduler.
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
     const onSaved = vi.fn();
-    render(<Recorder db={db} onSaved={onSaved} />);
+    render(<Recorder db={db} onSaved={onSaved} onClose={() => {}} />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -116,7 +117,7 @@ describe('Recorder', () => {
   });
 
   it('releases tracks on unmount', async () => {
-    const { unmount } = render(<Recorder db={db} onSaved={() => {}} />);
+    const { unmount } = render(<Recorder db={db} onSaved={() => {}} onClose={() => {}} />);
     await screen.findByText('Grabando…');
     unmount();
     expect(track.stop).toHaveBeenCalled();
@@ -124,13 +125,68 @@ describe('Recorder', () => {
     expect(FakeRecorder.instances[0].state).toBe('inactive');
   });
 
-  it('keeps the view and shows an error when enqueue fails', async () => {
-    vi.spyOn(queue, 'enqueue').mockRejectedValue(new Error('quota'));
+  it('keeps the recording and retries after a failed enqueue', async () => {
+    const real = queue.enqueue;
+    const spy = vi.spyOn(queue, 'enqueue').mockRejectedValueOnce(new Error('quota'));
     const onSaved = vi.fn();
-    render(<Recorder db={db} onSaved={onSaved} />);
+    render(<Recorder db={db} onSaved={onSaved} onClose={() => {}} />);
     await screen.findByText('Grabando…');
     await userEvent.click(screen.getByRole('button', { name: 'Detener' }));
     expect(await screen.findByText('No se pudo guardar la grabación')).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
+    spy.mockImplementation(real);
+    await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    const [item] = await db.getAll('queue');
+    expect(item.data.byteLength).toBe(3);
+  });
+
+  it('Descartar asks for confirmation before closing', async () => {
+    vi.spyOn(queue, 'enqueue').mockRejectedValue(new Error('quota'));
+    const onClose = vi.fn();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<Recorder db={db} onSaved={() => {}} onClose={onClose} />);
+    await screen.findByText('Grabando…');
+    await userEvent.click(screen.getByRole('button', { name: 'Detener' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Descartar' }));
+    expect(confirm).toHaveBeenCalledWith('¿Descartar la grabación?');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+    confirm.mockReturnValue(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Descartar' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('mic denied offers Cerrar', async () => {
+    getUserMedia.mockRejectedValue(new DOMException('no', 'NotAllowedError'));
+    const onClose = vi.fn();
+    render(<Recorder db={db} onSaved={() => {}} onClose={onClose} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Cerrar' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('missing microphone shows its own message', async () => {
+    getUserMedia.mockRejectedValue(new DOMException('none', 'NotFoundError'));
+    render(<Recorder db={db} onSaved={() => {}} onClose={() => {}} />);
+    expect(await screen.findByText('No se encontró un micrófono')).toBeInTheDocument();
+  });
+
+  it('StrictMode double start leaves only one live stream', async () => {
+    const streams: { stop: ReturnType<typeof vi.fn> }[] = [];
+    getUserMedia.mockImplementation(async () => {
+      const tr = { stop: vi.fn() };
+      streams.push(tr);
+      return { getTracks: () => [tr] };
+    });
+    render(
+      <StrictMode>
+        <Recorder db={db} onSaved={() => {}} onClose={() => {}} />
+      </StrictMode>,
+    );
+    await screen.findByText('Grabando…');
+    await act(async () => {});
+    const live = streams.filter((s) => s.stop.mock.calls.length === 0);
+    expect(live).toHaveLength(1);
+    expect(FakeRecorder.instances.filter((r) => r.state === 'recording')).toHaveLength(1);
   });
 });
