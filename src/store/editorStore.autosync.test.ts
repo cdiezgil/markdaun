@@ -379,6 +379,64 @@ describe('note switching', () => {
     expect(calledCommands().filter((c) => c === 'write_note')).toHaveLength(1);
   });
 
+  it('switch during sync hold still writes the previous note', async () => {
+    routeInvoke({ read_note: () => '# Otra' });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\ndurante el ciclo');
+
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\ndurante el ciclo',
+      vaultPath: '/vault',
+    });
+    // The hold still defers normal autosaves.
+    useEditorStore.getState().setContent('# Otra\n\nmás');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calledCommands().filter((c) => c === 'write_note')).toHaveLength(1);
+  });
+
+  it('switch during relocation flushes to the new path after it completes', async () => {
+    const NEW = '/vault/proj/Nueva.md';
+    routeInvoke({ read_note: () => '# Otra', list_vault_tree: () => [] });
+    let finishRename!: () => void;
+    const renamed = new Promise<void>((r) => (finishRename = r));
+    const store = useEditorStore.getState();
+
+    const relocation = store.runRelocation(
+      () => renamed,
+      () => useEditorStore.getState().applyRelocation(NOTE, NEW, []),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    useEditorStore.getState().setContent('# Idea\n\nrenombrando');
+    const switching = useEditorStore.getState().openNote('/vault/otra.md');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calledCommands()).not.toContain('write_note');
+
+    finishRename();
+    await relocation;
+    await switching;
+
+    const writes = mockInvoke.mock.calls.filter((c) => c[0] === 'write_note');
+    expect(writes).toHaveLength(1);
+    expect(writes[0][1]).toEqual({ path: NEW, content: '# Idea\n\nrenombrando', vaultPath: '/vault' });
+    const cmds = calledCommands();
+    expect(cmds.indexOf('write_note')).toBeLessThan(cmds.lastIndexOf('read_note'));
+    expect(useEditorStore.getState().activeNotePath).toBe('/vault/otra.md');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(calledCommands().filter((c) => c === 'write_note')).toHaveLength(1);
+  });
+
+  it('a blocked note is never written on switch, even during a sync hold', async () => {
+    routeInvoke({ read_note: () => '# Otra' });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.setState({ saveBlockedPath: NOTE });
+    useEditorStore.getState().setContent('# Idea\n\nbloqueada');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+    expect(calledCommands()).not.toContain('write_note');
+  });
+
   it('does not flush a save-blocked note when switching', async () => {
     routeInvoke({ read_note: () => '# Otra' });
     useEditorStore.setState({ saveBlockedPath: NOTE });

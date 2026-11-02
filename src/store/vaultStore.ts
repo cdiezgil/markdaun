@@ -166,12 +166,16 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { vaultPath } = get();
     set({ error: null });
     try {
-      const out = await useEditorStore.getState().runRelocation(() =>
-        invoke<MoveOutcome>('rename_entry', { path, newName: newName, vaultPath: vaultPath }),
+      // `finish` runs inside the relocation so a note switch meanwhile waits
+      // for the new path before flushing its pending edit.
+      await useEditorStore.getState().runRelocation(
+        () => invoke<MoveOutcome>('rename_entry', { path, newName: newName, vaultPath: vaultPath }),
+        async (out) => {
+          clearSelectionUnder(path, set, get);
+          await get().refreshTree();
+          if (out) await useEditorStore.getState().applyRelocation(path, out.path, out.rewritten ?? []);
+        },
       );
-      clearSelectionUnder(path, set, get);
-      await get().refreshTree();
-      if (out) await useEditorStore.getState().applyRelocation(path, out.path, out.rewritten ?? []);
     } catch (e) {
       set({ error: typeof e === 'string' ? e : String(e) });
       throw e;
@@ -197,16 +201,19 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { vaultPath } = get();
     set({ error: null });
     try {
-      const out = await useEditorStore.getState().runRelocation(() =>
-        invoke<MoveOutcome>('move_entry', {
-          sourcePath: sourcePath,
-          destFolderPath: destFolderPath,
-          vaultPath: vaultPath,
-        }),
+      await useEditorStore.getState().runRelocation(
+        () =>
+          invoke<MoveOutcome>('move_entry', {
+            sourcePath: sourcePath,
+            destFolderPath: destFolderPath,
+            vaultPath: vaultPath,
+          }),
+        async (out) => {
+          clearSelectionUnder(sourcePath, set, get);
+          await get().refreshTree();
+          if (out) await useEditorStore.getState().applyRelocation(sourcePath, out.path, out.rewritten ?? []);
+        },
       );
-      clearSelectionUnder(sourcePath, set, get);
-      await get().refreshTree();
-      if (out) await useEditorStore.getState().applyRelocation(sourcePath, out.path, out.rewritten ?? []);
     } catch (e) {
       set({ error: typeof e === 'string' ? e : String(e) });
       throw e;

@@ -61,8 +61,10 @@ export interface EditorState {
   /**
    * Runs a rename/move: pending edits are flushed first and saves are held
    * back while it runs, so nothing is written to a path that is going away.
+   * `finish` (typically `applyRelocation`) runs after the hold ends; a note
+   * switch meanwhile waits for both before flushing to the new path.
    */
-  runRelocation<T>(run: () => Promise<T>): Promise<T>;
+  runRelocation<T>(run: () => Promise<T>, finish?: (result: T) => Promise<void>): Promise<T>;
   /**
    * `from` (a note or folder) now lives at `to`. Keeps the active note's
    * unsaved content and cursor, refreshes the tree, and reloads the active
@@ -86,6 +88,8 @@ export interface EditorState {
 // ── Internal debounce ref (module-level, not in store state) ───────────────────
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+/** Settles when the running rename/move (including its `finish`) is done. */
+let relocationInFlight: Promise<void> | null = null;
 /** Forces a stuck hold off: a lost release event must never keep typing unsaved. */
 let holdSafetyTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -263,10 +267,20 @@ export const useEditorStore = create<EditorState>((set, get) => {
   saveBlockedPath: null,
 
   async openNote(absolutePath: string) {
-    // Flush the previous note's pending save instead of dropping it
-    // (`writeBuffer` skips a save-blocked note).
+    // Flush the previous note's pending edit instead of dropping it. A sync
+    // hold does not stop this flush (Rust commits late writes before any
+    // checkout); a rename/move is awaited so the edit lands on the new path.
+    // `writeBuffer` never writes a save-blocked note.
     clearDebounce();
-    if (get().isDirty && get().activeNotePath !== null) await get().saveNow();
+    while (relocationInFlight !== null && get().isDirty) await relocationInFlight;
+    clearDebounce();
+    if (get().isDirty && get().activeNotePath !== null) {
+      try {
+        await writeBuffer();
+      } catch (e) {
+        console.error('flush before switching notes failed:', e);
+      }
+    }
 
     const { vaultPath } = get();
     if (!vaultPath) return;
@@ -323,13 +337,24 @@ export const useEditorStore = create<EditorState>((set, get) => {
     set({ vaultTree: await listVaultTree(vaultPath) });
   },
 
-  async runRelocation<T>(run: () => Promise<T>): Promise<T> {
-    // Hold saves so nothing is written to a path that is going away.
-    await get().holdSaves();
+  async runRelocation<T>(run: () => Promise<T>, finish?: (result: T) => Promise<void>): Promise<T> {
+    let settle: () => void = () => {};
+    const tracker = new Promise<void>((resolve) => (settle = resolve));
+    relocationInFlight = tracker;
     try {
-      return await run();
+      // Hold saves so nothing is written to a path that is going away.
+      await get().holdSaves();
+      let result: T;
+      try {
+        result = await run();
+      } finally {
+        get().releaseSaves();
+      }
+      if (finish) await finish(result);
+      return result;
     } finally {
-      get().releaseSaves();
+      if (relocationInFlight === tracker) relocationInFlight = null;
+      settle();
     }
   },
 
