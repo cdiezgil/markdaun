@@ -110,6 +110,18 @@ Todo lo capturado aterriza en `Entrada/` (ver `docs/superpowers/specs/2026-10-18
 - **Menú de barra:** icono de bandeja (`tray-icon`); cerrar la ventana la oculta y *Salir* pasa por la guarda de cambios sin sincronizar.
 - **Digestión por áreas:** el usuario elige el área (carpeta de primer nivel, sin `Entrada/` ni ocultas; `''` = raíz) antes de digerir; el prompt solo ofrece el árbol de esa área y las rutas fuera de ella se reescriben (`adjusted="true"` en el bloque). Última área por bóveda en `config.db` (`last_digest_area:<vault>`). Ver `docs/superpowers/specs/2026-10-18-area-digest-and-voice-notes-design.md`.
 - **Notas de voz:** el 🎙 de la captura rápida graba con `MediaRecorder` (mp4/AAC en WKWebView, webm/Opus en WebView2) y guarda `Entrada/Nota de voz <fecha>.<ext>`. `voice/`: decodificación con `symphonia` (+ `symphonia-adapter-libopus` para Opus) y remuestreo propio a 16 kHz mono; transcripción local con `whisper-rs` (whisper.cpp, Metal en macOS; `cmake` necesario para compilar); modelos `large-v3-turbo` q5_0 (por defecto) y `small` q5_1 descargados de Hugging Face `ggerganov/whisper.cpp` al directorio de datos (`whisper/`) con descargador propio (`.part` + rename, redirecciones manuales; sha256 del `X-Linked-Etag` del primer salto, no del `ETag` del CDN). La transcripción corre en segundo plano (un trabajo a la vez), estados en `VoiceJobs`, evento `voice-changed`; el `.md` resultante convive con el audio, que se archiva/descarta junto a la nota. Permiso de micrófono: `src-tauri/Info.plist` (`NSMicrophoneUsageDescription`), `Entitlements.plist` y política de webview (`capture/permissions.rs`: solo `quick-capture`). Ajustes → *Notas de voz* elige modelo.
+- **Transcripción automática:** el audio que llega a `Entrada/` por sync (o que ya está al arrancar) sin `<stem>.md` se transcribe solo, tras el ciclo de sync y al inicio (`voice/auto.rs`). Reclamo atómico con `VoiceJobs::try_claim`: no se encola audio con un trabajo ya en cola o en marcha. Así las notas dictadas desde la PWA (§2.8) acaban como `.md`.
+
+### 2.8 App móvil (PWA)
+
+Lectura y dictado desde el móvil, en `mobile/` (ver `mobile/README.md` y `docs/superpowers/specs/2026-11-02-mobile-pwa-design.md`).
+
+- **Stack:** Vite + React 18 + TypeScript + Zustand, PWA con `vite-plugin-pwa`. Alojada en `https://cdiezgil.github.io/markdaun/` (Vite `base` = `/markdaun/`) mediante `.github/workflows/mobile-pages.yml`, que ejecuta tests unitarios y e2e antes de desplegar.
+- **Lectura:** la bóveda se lee desde el navegador con la API de GitHub: REST (árbol) y GraphQL (texto en lotes; los blobs truncados o sin texto, por REST raw). Notas en IndexedDB, búsqueda local con MiniSearch, imágenes descargadas por nota y cacheadas por sha del blob, Mermaid cargado bajo demanda, HTML saneado con DOMPurify.
+- **Token:** PAT *fine-grained* de un solo repositorio (Contents: lectura y escritura), guardado en IndexedDB (`meta`) y enviado solo a `api.github.com`; la CSP restringe `connect-src` a `'self'` y ese host.
+- **Dictado:** `MediaRecorder` → cola de subida en IndexedDB → `PUT` de un fichero nuevo `Entrada/Nota de voz YYYY-MM-DD HH-mm[ n].<ext>`. Nunca sobrescribe ni borra nada en remoto; subidas estrictamente secuenciales; la grabación local se borra solo cuando GitHub confirma. Cambiar de repositorio queda bloqueado mientras haya grabaciones pendientes. El escritorio las transcribe al llegar por sync (§2.7).
+- **Escrituras:** la app solo crea ficheros nuevos en `Entrada/`.
+- **Advertencia de origen:** el almacenamiento del navegador (y con él el PAT) es por origen, `cdiezgil.github.io`, compartido por todos los sitios de Pages de la cuenta. **No se debe publicar ningún otro sitio de GitHub Pages bajo `cdiezgil` sin mover antes la app a su propio dominio.**
 
 ---
 
@@ -158,6 +170,7 @@ markdaun/
 │   ├── components/         ← Button, Editor, Wikilink, Loader, Seal (referencia)
 │   ├── icons/              ← Símbolo, logotipos y sello de marca (no modificar)
 │   └── AGENTS.md           ← Instrucciones de diseño para agentes
+├── mobile/                 ← PWA móvil (lectura + dictado)
 ├── e2e/                    ← Playwright E2E tests
 ├── public/
 ├── vite.config.ts
@@ -173,7 +186,7 @@ markdaun/
 - Sistema de plugins o extensiones.
 - Colaboración en tiempo real (multiplayer).
 - Almacenamiento propio en cloud (solo GitHub como backend de sync).
-- Mobile (iOS/Android).
+- Apps móviles nativas (la PWA de §2.8 sí está en alcance).
 - Exportación a PDF/Word u otros formatos (solo `.md`).
 
 ---
