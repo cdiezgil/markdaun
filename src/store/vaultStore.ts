@@ -175,6 +175,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
           await get().refreshTree();
           if (out) await useEditorStore.getState().applyRelocation(path, out.path, out.rewritten ?? []);
         },
+        (out) => (out ? { from: path, to: out.path } : null),
       );
     } catch (e) {
       set({ error: typeof e === 'string' ? e : String(e) });
@@ -213,6 +214,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
           await get().refreshTree();
           if (out) await useEditorStore.getState().applyRelocation(sourcePath, out.path, out.rewritten ?? []);
         },
+        (out) => (out ? { from: sourcePath, to: out.path } : null),
       );
     } catch (e) {
       set({ error: typeof e === 'string' ? e : String(e) });

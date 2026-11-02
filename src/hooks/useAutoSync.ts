@@ -9,6 +9,7 @@ import {
 } from '../lib/tauri';
 import {
   useEditorStore,
+  onDeferredFlush,
   type DeferredFlushResult,
   type RemoteChangeResult,
 } from '../store/editorStore';
@@ -18,6 +19,7 @@ export const TOAST_RELOADED = 'Nota actualizada desde GitHub';
 export const TOAST_DELETED = 'La nota se borró en GitHub';
 export const TOAST_COPY_FAILED =
   'No se pudo guardar la versión de GitHub; tu texto sigue en el editor';
+export const TOAST_WRITE_FAILED = 'No se pudo guardar la nota; tu texto sigue en el editor';
 
 /** Subscribe to a Tauri event for the component's lifetime. */
 function useTauriEvent(subscribe: () => Promise<() => void>): void {
@@ -40,7 +42,8 @@ function useTauriEvent(subscribe: () => Promise<() => void>): void {
  * - `sync-will-start`: flush and hold saves, then ack;
  * - `sync-finished`: apply remote changes to the open note, release the hold,
  *   store the state and toast; `sync-hold-release` only releases;
- * - both releases write the notes switched away from during the cycle;
+ * - releases write the notes switched away from during the cycle; every
+ *   such flush (sync, rename/move, safety timer) is reported in one place;
  * - every successful save asks for a cycle (`changed`).
  */
 export function useAutoSync(showToast: (message: string) => void): void {
@@ -65,13 +68,12 @@ export function useAutoSync(showToast: (message: string) => void): void {
   useTauriEvent(() =>
     onSyncHoldRelease(() => {
       // No report: the deferred notes are checked against their disk content.
-      void useEditorStore
-        .getState()
-        .releaseSaves('unknown')
-        .then((deferred) => reportDeferred(deferred, false, (m) => toastRef.current(m)))
-        .catch(console.error);
+      // The flush result is reported through `onDeferredFlush`.
+      useEditorStore.getState().releaseSaves('unknown').catch(console.error);
     }),
   );
+
+  useEffect(() => onDeferredFlush((deferred) => reportDeferred(deferred, (m) => toastRef.current(m))), []);
 
   useTauriEvent(() =>
     onSyncFinished((payload) => {
@@ -111,7 +113,7 @@ async function handleFinished(payload: SyncState, toast: (m: string) => void): P
   const copy = useEditorStore.getState().lastConflictCopy;
   const deferred = await release.catch((e: unknown): DeferredFlushResult => {
     console.error('deferred writes failed:', e);
-    return { copies: [], written: 0, failed: false };
+    return { copies: [], written: 0, failed: false, writeFailed: false };
   });
 
   const sync = useSyncStore.getState();
@@ -120,8 +122,8 @@ async function handleFinished(payload: SyncState, toast: (m: string) => void): P
 
   if (result === 'reloaded') toast(TOAST_RELOADED);
   else if (result === 'deleted') toast(TOAST_DELETED);
-  else if (result === 'error') toast(TOAST_COPY_FAILED);
-  reportDeferred(deferred, result === 'error', toast);
+  // A deferred note's copy failure is already toasted by `reportDeferred`.
+  else if (result === 'error' && !deferred.failed) toast(TOAST_COPY_FAILED);
 
   if (changed.length > 0) {
     // The vault tree reloads via `vaultChangeCount`; the editor's wikilink tree here.
@@ -129,14 +131,11 @@ async function handleFinished(payload: SyncState, toast: (m: string) => void): P
   }
 }
 
-/** Shows what the release did with notes switched away from during the cycle. */
-function reportDeferred(
-  deferred: DeferredFlushResult,
-  copyFailureShown: boolean,
-  toast: (m: string) => void,
-): void {
+/** Shows what a flush did with the notes whose writes waited for a hold. */
+function reportDeferred(deferred: DeferredFlushResult, toast: (m: string) => void): void {
   if (deferred.copies.length > 0) useSyncStore.getState().addConflicts(deferred.copies);
-  if (deferred.failed && !copyFailureShown) toast(TOAST_COPY_FAILED);
+  if (deferred.failed) toast(TOAST_COPY_FAILED);
+  if (deferred.writeFailed) toast(TOAST_WRITE_FAILED);
   // Like a save: let the scheduler debounce a cycle for what was written.
   if (deferred.written > 0) syncTrigger('changed').catch(() => {});
 }

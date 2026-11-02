@@ -3,9 +3,9 @@ import { renderHook, act } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { SyncState } from '../lib/tauri';
-import { useEditorStore } from '../store/editorStore';
+import { useEditorStore, SAVE_HOLD_MAX_MS } from '../store/editorStore';
 import { useSyncStore } from '../store/syncStore';
-import { useAutoSync } from './useAutoSync';
+import { useAutoSync, TOAST_COPY_FAILED, TOAST_WRITE_FAILED } from './useAutoSync';
 
 const mockInvoke = vi.mocked(invoke);
 const mockListen = vi.mocked(listen);
@@ -277,5 +277,74 @@ describe('useAutoSync', () => {
     const cmds = commands();
     expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.indexOf('write_note'));
     expect(useSyncStore.getState().conflicts).toEqual([COPY]);
+  });
+  it('reports a deferred flush forced by the 60 s safety timer', async () => {
+    useEditorStore.setState({ diskContent: null });
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    // The release event is lost: the safety timer ends the hold.
+    routeInvoke({ read_note: () => '# Idea', write_conflict_copy: () => COPY });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SAVE_HOLD_MAX_MS);
+    });
+
+    expect(useSyncStore.getState().conflicts).toEqual([COPY]);
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\nlocal',
+      vaultPath: '/vault',
+    });
+    expect(mockInvoke).toHaveBeenCalledWith('sync_trigger', { reason: 'changed' });
+  });
+
+  it('toasts a distinct message when a deferred note cannot be written after its copy', async () => {
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    const { showToast } = await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    routeInvoke({
+      read_note: () => '# Idea\n\nfusionada',
+      write_conflict_copy: () => COPY,
+      write_note: () => {
+        throw 'io_error: disk full';
+      },
+    });
+    await emit('sync-finished', finished(['proj/Idea.md']));
+
+    expect(showToast).toHaveBeenCalledWith(TOAST_WRITE_FAILED);
+    expect(TOAST_WRITE_FAILED).toBe('No se pudo guardar la nota; tu texto sigue en el editor');
+    expect(showToast).not.toHaveBeenCalledWith(TOAST_COPY_FAILED);
+    expect(useSyncStore.getState().conflicts).toEqual([COPY]);
+    expect(useEditorStore.getState().deferredWrites[NOTE]).toBeDefined();
+  });
+
+  it('toasts the write-failure message when a deferred note cannot be read', async () => {
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    const { showToast } = await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    routeInvoke({
+      read_note: () => {
+        throw 'io_error: permission denied';
+      },
+    });
+    await emit('sync-hold-release');
+
+    expect(showToast).toHaveBeenCalledWith(TOAST_WRITE_FAILED);
+    expect(showToast).not.toHaveBeenCalledWith(TOAST_COPY_FAILED);
   });
 });
