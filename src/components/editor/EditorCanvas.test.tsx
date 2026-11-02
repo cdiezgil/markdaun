@@ -106,6 +106,13 @@ describe('TC-04 to TC-20: EditorCanvas renders', () => {
     expect(wrapper).not.toBeNull();
     expect((wrapper as HTMLElement).style.background).toBe('var(--bg)');
   });
+
+  it('note column follows the window width instead of a fixed measure', async () => {
+    const { default: EditorCanvas } = await import('./EditorCanvas');
+    render(<EditorCanvas />);
+    const column = screen.getByTestId('editor-column');
+    expect(column.style.maxWidth).toBe('calc(100% - 2 * var(--space-8))');
+  });
 });
 
 // ── TC-15: drag-and-drop ──────────────────────────────────────────────────────

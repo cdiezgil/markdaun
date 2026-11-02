@@ -75,6 +75,13 @@ describe('IdeEditorCanvas', () => {
     expect(screen.getByTestId('ide-editor-canvas-container')).toBeInTheDocument();
   });
 
+  it('note column follows the window width instead of a fixed measure', () => {
+    render(<IdeEditorCanvas />);
+    expect(screen.getByTestId('ide-editor-column').style.maxWidth).toBe(
+      'calc(100% - 2 * var(--space-8))',
+    );
+  });
+
   // TC-05: no caption when no active file
   it('TC-05: does not render caption when no active file', () => {
     render(<IdeEditorCanvas />);
