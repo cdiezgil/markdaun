@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { FilePlus, FolderPlus, RefreshCw, Settings } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { SyncPanel } from '../Sync/SyncPanel';
 import { useVaultStore } from '../../store/vaultStore';
 import { VaultEmpty } from './VaultEmpty';
 import { TreeNode, ENTRY_MIME } from './TreeNode';
@@ -204,7 +203,6 @@ export function VaultTree() {
         onSubmit={submitDialog}
         onCancel={() => setDialog(null)}
       />
-      <SyncPanel />
       <div
         data-testid="vault-footer"
         style={{

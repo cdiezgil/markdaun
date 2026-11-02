@@ -13,8 +13,12 @@ import {
 githubConnectApply,
   githubGetConfig,
   githubDisconnect,
-  githubPush,
-  githubPull,
+  syncHoldAck,
+  syncTrigger,
+  syncConfirmDeletions,
+  syncDismissConflicts,
+  syncGetState,
+  syncBeforeQuit,
   githubStatus,
   ideOpenFolderDialog,
   ideListTree,
@@ -188,37 +192,36 @@ describe('githubDisconnect', () => {
   });
 });
 
-describe('githubPush', () => {
-  it('TC-GH-06: invokes github_push without confirmation by default', async () => {
-    mockInvoke.mockResolvedValueOnce({ conflicts: [], needsConfirmation: null });
-    const result = await githubPush();
-    expect(mockInvoke).toHaveBeenCalledWith('github_push', { confirmDeletions: false });
-    expect(result.needsConfirmation).toBeNull();
+describe('sync commands', () => {
+  it('syncTrigger passes the reason', async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await syncTrigger('manual');
+    expect(mockInvoke).toHaveBeenCalledWith('sync_trigger', { reason: 'manual' });
   });
 
-  it('TC-GH-06b: passes confirmDeletions when the user confirmed', async () => {
-    mockInvoke.mockResolvedValueOnce({ conflicts: [], needsConfirmation: null });
-    await githubPush(true);
-    expect(mockInvoke).toHaveBeenCalledWith('github_push', { confirmDeletions: true });
+  it('syncConfirmDeletions sends the counts the user saw', async () => {
+    mockInvoke.mockResolvedValue(undefined);
+    await syncConfirmDeletions({ deleted: 15, total: 20 });
+    expect(mockInvoke).toHaveBeenCalledWith('sync_confirm_deletions', { deleted: 15, total: 20 });
   });
 
-  it('TC-GH-07: propagates errors from the backend', async () => {
-    mockInvoke.mockRejectedValueOnce('not_configured');
-    await expect(githubPush()).rejects.toBe('not_configured');
+  it('argument-less commands invoke the matching command', async () => {
+    mockInvoke.mockResolvedValue(undefined);
+    await syncHoldAck();
+    await syncDismissConflicts();
+    await syncGetState();
+    await syncBeforeQuit();
+    expect(mockInvoke.mock.calls.map((c) => c[0])).toEqual([
+      'sync_hold_ack',
+      'sync_dismiss_conflicts',
+      'sync_get_state',
+      'sync_before_quit',
+    ]);
   });
-});
 
-describe('githubPull', () => {
-  it('TC-GH-08: invokes github_pull and returns the conflicts', async () => {
-    mockInvoke.mockResolvedValueOnce({ conflicts: ['a (conflicto x).md'], needsConfirmation: null });
-    const r = await githubPull();
-    expect(r.conflicts).toEqual(['a (conflicto x).md']);
-    expect(mockInvoke).toHaveBeenCalledWith('github_pull');
-  });
-
-  it('TC-GH-09: propagates errors from the backend', async () => {
-    mockInvoke.mockRejectedValueOnce('git_error: network failure');
-    await expect(githubPull()).rejects.toBe('git_error: network failure');
+  it('propagates typed errors from the backend', async () => {
+    mockInvoke.mockRejectedValueOnce({ kind: 'notConfigured' });
+    await expect(syncTrigger('focus')).rejects.toEqual({ kind: 'notConfigured' });
   });
 });
 

@@ -148,7 +148,11 @@ export const useBrainStore = create<BrainState>((set, get) => ({
     set({ archiving: true, error: null });
     try {
       const editor = useEditorStore.getState();
-      const out = await editor.runRelocation(() => archiveSource(abs, targetFolder, vaultPath, conversationId));
+      const out = await editor.runRelocation(
+        () => archiveSource(abs, targetFolder, vaultPath, conversationId),
+        undefined,
+        (archived) => ({ from: abs, to: archived.path }),
+      );
       await useVaultStore.getState().refreshTree();
       await useEditorStore.getState().applyRelocation(abs, out.path, out.rewritten ?? []);
       const conversations = await brainGetConversations(vaultPath).catch(() => get().conversations);

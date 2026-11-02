@@ -19,8 +19,10 @@ export async function followH1Title(title: string): Promise<boolean> {
 
   const out = await useEditorStore
     .getState()
-    .runRelocation(() =>
-      invoke<TitleRename>('rename_note_from_title', { path: activeNotePath, title, vaultPath }),
+    .runRelocation(
+      () => invoke<TitleRename>('rename_note_from_title', { path: activeNotePath, title, vaultPath }),
+      undefined,
+      (renamed) => (renamed.path !== activeNotePath ? { from: activeNotePath, to: renamed.path } : null),
     );
   if (out.path !== activeNotePath) {
     await useVaultStore.getState().refreshTree();

@@ -1,0 +1,412 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import type { SyncState } from '../lib/tauri';
+import { useEditorStore, SAVE_HOLD_MAX_MS } from '../store/editorStore';
+import { useSyncStore } from '../store/syncStore';
+import { useAutoSync, TOAST_COPY_FAILED, TOAST_WRITE_FAILED } from './useAutoSync';
+
+const mockInvoke = vi.mocked(invoke);
+const mockListen = vi.mocked(listen);
+const NOTE = '/vault/proj/Idea.md';
+const COPY = 'proj/Idea (conflicto 2026-11-02 10-30).md';
+
+type Handler = (event: { payload: unknown }) => void;
+let handlers: Record<string, Handler>;
+
+function makeState(over: Partial<SyncState> = {}): SyncState {
+  return {
+    report: null,
+    error: null,
+    view: { running: false, pendingDebounce: false, consecutiveFailures: 0, offline: false, halted: false, needsReview: false },
+    status: { uncommitted: false, ahead: 0 },
+    pausedReason: null,
+    pendingConflicts: [],
+    lastSuccess: null,
+    ...over,
+  };
+}
+
+function finished(changedPaths: string[]): SyncState {
+  return makeState({
+    report: { changedPaths, conflicts: [], needsConfirmation: null, pushed: true },
+  });
+}
+
+function routeInvoke(handlersByCmd: Record<string, (args: unknown) => unknown>) {
+  mockInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+    const h = handlersByCmd[cmd];
+    return h ? h(args) : undefined;
+  });
+}
+
+function commands(): string[] {
+  return mockInvoke.mock.calls.map((c) => c[0] as string);
+}
+
+async function emit(name: string, payload?: unknown) {
+  await act(async () => {
+    handlers[name]({ payload });
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
+
+async function mount(showToast = vi.fn()) {
+  const view = renderHook(() => useAutoSync(showToast));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  return { ...view, showToast };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useFakeTimers();
+  handlers = {};
+  mockListen.mockImplementation(async (name: string, handler: unknown) => {
+    handlers[name] = handler as Handler;
+    return () => {};
+  });
+  routeInvoke({ sync_get_state: () => makeState() });
+  useEditorStore.setState({
+    activeNotePath: NOTE,
+    activeNoteContent: '# Idea',
+    vaultPath: '/vault',
+    vaultTree: [],
+    saveStatus: 'idle',
+    isDirty: false,
+    loadVersion: 3,
+    relocation: null,
+    saveHolds: 0,
+    lastConflictCopy: null,
+    saveBlockedPath: null,
+    deferredWrites: {},
+    diskContent: '# Idea',
+  });
+  useSyncStore.setState({ state: null, conflicts: [], vaultChangeCount: 0, running: false, localPending: false });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('useAutoSync', () => {
+  it('loads the sync state on mount', async () => {
+    routeInvoke({ sync_get_state: () => makeState({ lastSuccess: '2026-11-02T10:00:00Z' }) });
+    await mount();
+    expect(commands()).toContain('sync_get_state');
+    expect(useSyncStore.getState().state?.lastSuccess).toBe('2026-11-02T10:00:00Z');
+  });
+
+  it('acks hold after flush', async () => {
+    routeInvoke({ sync_get_state: () => makeState() });
+    await mount();
+    useEditorStore.getState().setContent('# Idea\n\npendiente');
+
+    await emit('sync-will-start');
+
+    const cmds = commands();
+    expect(cmds).toContain('write_note');
+    expect(cmds).toContain('sync_hold_ack');
+    expect(cmds.indexOf('write_note')).toBeLessThan(cmds.indexOf('sync_hold_ack'));
+    expect(useEditorStore.getState().saveHolds).toBe(1);
+  });
+
+  it('releases the hold on sync-hold-release', async () => {
+    await mount();
+    await emit('sync-will-start');
+    await emit('sync-hold-release');
+    expect(useEditorStore.getState().saveHolds).toBe(0);
+  });
+
+  it('shows "Nota actualizada desde GitHub" toast on reload', async () => {
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Remota' });
+    const { showToast } = await mount();
+    await emit('sync-will-start');
+
+    await emit('sync-finished', finished(['proj/Idea.md']));
+
+    expect(showToast).toHaveBeenCalledWith('Nota actualizada desde GitHub');
+    expect(useEditorStore.getState().activeNoteContent).toBe('# Remota');
+    expect(useEditorStore.getState().saveHolds).toBe(0);
+    expect(useSyncStore.getState().vaultChangeCount).toBe(1);
+    expect(commands()).toContain('list_vault_tree');
+  });
+
+  it('shows "La nota se borró en GitHub" toast when the clean note was deleted', async () => {
+    routeInvoke({
+      sync_get_state: () => makeState(),
+      read_note: () => {
+        throw 'path_not_found';
+      },
+    });
+    const { showToast } = await mount();
+    await emit('sync-finished', finished(['proj/Idea.md']));
+    expect(showToast).toHaveBeenCalledWith('La nota se borró en GitHub');
+    expect(useEditorStore.getState().activeNotePath).toBeNull();
+  });
+
+  it('adds the conflict copy to the conflicts notice', async () => {
+    routeInvoke({
+      sync_get_state: () => makeState(),
+      read_note: () => '# Remota',
+      write_conflict_copy: () => COPY,
+    });
+    const { showToast } = await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\ntecleado');
+
+    await emit('sync-finished', finished(['proj/Idea.md']));
+
+    expect(useSyncStore.getState().conflicts).toEqual([COPY]);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('keeps the frontend conflict copy when a later cycle reports backend conflicts', async () => {
+    routeInvoke({
+      sync_get_state: () => makeState(),
+      read_note: () => '# Remota',
+      write_conflict_copy: () => COPY,
+    });
+    await mount();
+    useEditorStore.setState({ activeNoteContent: '# Idea\n\ntecleado', isDirty: true });
+    await emit('sync-finished', finished(['proj/Idea.md']));
+    await emit('sync-finished', makeState({ pendingConflicts: ['b (conflicto x).md'] }));
+    expect(useSyncStore.getState().conflicts).toEqual(['b (conflicto x).md', COPY]);
+  });
+
+  it('shows the error toast when the GitHub version could not be kept', async () => {
+    routeInvoke({
+      sync_get_state: () => makeState(),
+      read_note: () => '# Remota',
+      write_conflict_copy: () => {
+        throw 'io_error: disk full';
+      },
+    });
+    const { showToast } = await mount();
+    useEditorStore.setState({ activeNoteContent: '# Idea\n\ntecleado', isDirty: true });
+    await emit('sync-finished', finished(['proj/Idea.md']));
+    expect(showToast).toHaveBeenCalledWith(
+      'No se pudo guardar la versión de GitHub; tu texto sigue en el editor',
+    );
+    expect(commands()).not.toContain('write_note');
+
+    // The next cycle retries even though it changed nothing.
+    routeInvoke({ read_note: () => '# Remota', write_conflict_copy: () => COPY });
+    await emit('sync-finished', finished([]));
+    expect(commands()).toContain('write_note');
+    expect(useSyncStore.getState().conflicts).toContain(COPY);
+  });
+
+  it('does nothing to the note when the cycle did not touch it', async () => {
+    const { showToast } = await mount();
+    await emit('sync-will-start');
+    await emit('sync-finished', finished(['otra.md']));
+    expect(showToast).not.toHaveBeenCalled();
+    expect(commands()).not.toContain('read_note');
+    expect(useEditorStore.getState().saveHolds).toBe(0);
+  });
+
+  it('triggers a sync after each successful save', async () => {
+    await mount();
+    useEditorStore.getState().setContent('# Idea\n\nnuevo');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(mockInvoke).toHaveBeenCalledWith('sync_trigger', { reason: 'changed' });
+  });
+  it('the status item shows "Sincronizando" from sync-will-start until sync-finished', async () => {
+    await mount();
+    expect(useSyncStore.getState().running).toBe(false);
+    await emit('sync-will-start');
+    expect(useSyncStore.getState().running).toBe(true);
+    await emit('sync-finished', finished([]));
+    expect(useSyncStore.getState().running).toBe(false);
+  });
+
+  it('a hold release without a report also ends "Sincronizando"', async () => {
+    await mount();
+    await emit('sync-will-start');
+    await emit('sync-hold-release');
+    expect(useSyncStore.getState().running).toBe(false);
+  });
+
+  it('a save shows "Pendiente" until a cycle reports the vault clean', async () => {
+    await mount();
+    await emit('sync-finished', finished([]));
+    expect(useSyncStore.getState().localPending).toBe(false);
+    useEditorStore.getState().setContent('# Idea\n\nnuevo');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(useSyncStore.getState().localPending).toBe(true);
+    await emit('sync-finished', finished([]));
+    expect(useSyncStore.getState().localPending).toBe(false);
+  });
+
+  it('refreshes the file tree when the vault changes on disk', async () => {
+    const { useVaultStore } = await import('../store/vaultStore');
+    const refreshTree = vi.fn().mockResolvedValue(undefined);
+    useVaultStore.setState({ refreshTree });
+    await mount();
+    await emit('vault-changed', ['agent.md']);
+    expect(refreshTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('a new cycle\'s hold waits for the previous sync-finished handling', async () => {
+    let finishRead!: (v: string) => void;
+    routeInvoke({
+      sync_get_state: () => makeState(),
+      read_note: () => new Promise<string>((r) => (finishRead = r)),
+      write_conflict_copy: () => COPY,
+    });
+    await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nmío');
+    await emit('sync-finished', finished(['proj/Idea.md']));
+    // The next cycle starts while the open note's remote version is being read.
+    await emit('sync-will-start');
+    expect(commands()).not.toContain('write_note');
+    expect(commands().filter((c) => c === 'sync_hold_ack')).toHaveLength(1);
+    await act(async () => {
+      finishRead('# Idea\n\nremota');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const cmds = commands();
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.indexOf('write_note'));
+    expect(cmds.filter((c) => c === 'sync_hold_ack')).toHaveLength(2);
+  });
+
+  it('lists the conflict copy of a note switched away from during the cycle', async () => {
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+    expect(commands()).not.toContain('write_note');
+
+    routeInvoke({ read_note: () => '# Idea\n\nfusionada', write_conflict_copy: () => COPY });
+    await emit('sync-finished', finished(['proj/Idea.md']));
+
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\nlocal',
+      vaultPath: '/vault',
+    });
+    expect(useSyncStore.getState().conflicts).toEqual([COPY]);
+    expect(mockInvoke).toHaveBeenCalledWith('sync_trigger', { reason: 'changed' });
+  });
+
+  it('toasts when a deferred note could not keep the GitHub version', async () => {
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    const { showToast } = await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    routeInvoke({
+      read_note: () => '# Idea\n\nfusionada',
+      write_conflict_copy: () => {
+        throw 'io_error: disk full';
+      },
+    });
+    await emit('sync-finished', finished(['proj/Idea.md']));
+
+    expect(showToast).toHaveBeenCalledWith(
+      'No se pudo guardar la versión de GitHub; tu texto sigue en el editor',
+    );
+    expect(commands()).not.toContain('write_note');
+  });
+
+  it('flushes deferred notes on sync-hold-release, copying conservatively', async () => {
+    useEditorStore.setState({ diskContent: null });
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    routeInvoke({ read_note: () => '# Idea', write_conflict_copy: () => COPY });
+    await emit('sync-hold-release');
+
+    const cmds = commands();
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.indexOf('write_note'));
+    expect(useSyncStore.getState().conflicts).toEqual([COPY]);
+  });
+  it('reports a deferred flush forced by the 60 s safety timer', async () => {
+    useEditorStore.setState({ diskContent: null });
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    // The release event is lost: the safety timer ends the hold.
+    routeInvoke({ read_note: () => '# Idea', write_conflict_copy: () => COPY });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SAVE_HOLD_MAX_MS);
+    });
+
+    expect(useSyncStore.getState().conflicts).toEqual([COPY]);
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\nlocal',
+      vaultPath: '/vault',
+    });
+    expect(mockInvoke).toHaveBeenCalledWith('sync_trigger', { reason: 'changed' });
+  });
+
+  it('toasts a distinct message when a deferred note cannot be written after its copy', async () => {
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    const { showToast } = await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    routeInvoke({
+      read_note: () => '# Idea\n\nfusionada',
+      write_conflict_copy: () => COPY,
+      write_note: () => {
+        throw 'io_error: disk full';
+      },
+    });
+    await emit('sync-finished', finished(['proj/Idea.md']));
+
+    expect(showToast).toHaveBeenCalledWith(TOAST_WRITE_FAILED);
+    expect(TOAST_WRITE_FAILED).toBe('No se pudo guardar la nota; tu texto sigue en el editor');
+    expect(showToast).not.toHaveBeenCalledWith(TOAST_COPY_FAILED);
+    expect(useSyncStore.getState().conflicts).toEqual([COPY]);
+    expect(useEditorStore.getState().deferredWrites[NOTE]).toBeDefined();
+  });
+
+  it('toasts the write-failure message when a deferred note cannot be read', async () => {
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    const { showToast } = await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    routeInvoke({
+      read_note: () => {
+        throw 'io_error: permission denied';
+      },
+    });
+    await emit('sync-hold-release');
+
+    expect(showToast).toHaveBeenCalledWith(TOAST_WRITE_FAILED);
+    expect(showToast).not.toHaveBeenCalledWith(TOAST_COPY_FAILED);
+  });
+});

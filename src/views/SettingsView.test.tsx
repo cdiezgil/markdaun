@@ -26,7 +26,7 @@ function makeState({
       selector({
         config: { repoUrl, isConnected },
         status: { hasChanges: false },
-        isLoading: false,
+        connecting: false,
         error: null,
         connectAction: null,
         connect: connectFn,
@@ -48,6 +48,19 @@ describe('SettingsView', () => {
   });
 
   // ─── TC-23: form visible when not connected ───────────────────────────────
+
+  it('opens scrolled to the GitHub section when asked by the status item', () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    window.location.hash = '#github';
+    makeState({ isConnected: true });
+    try {
+      render(<SettingsView />);
+      expect(scroll).toHaveBeenCalled();
+    } finally {
+      window.location.hash = '';
+    }
+  });
 
   it('TC-23: shows connection form when not connected', () => {
     makeState({ isConnected: false });

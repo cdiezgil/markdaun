@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -9,9 +9,11 @@ vi.mock('../../lib/tauri', () => ({
   githubConnectApply: vi.fn(),
   githubGetConfig: vi.fn(),
   githubDisconnect: vi.fn(),
-  githubPush: vi.fn(),
-  githubPull: vi.fn(),
   githubStatus: vi.fn(),
+  syncTrigger: vi.fn(),
+  syncConfirmDeletions: vi.fn(),
+  syncDismissConflicts: vi.fn(),
+  syncGetState: vi.fn(),
 }));
 
 const navigate = vi.fn();
@@ -29,17 +31,20 @@ const cancelConnect = vi.fn();
 const confirmDeletion = vi.fn();
 const cancelDeletion = vi.fn();
 const dismissConflicts = vi.fn();
+const syncNow = vi.fn();
 
 function setup(partial: Partial<ReturnType<typeof useSyncStore.getState>>) {
   useSyncStore.setState({
     pendingConnect: null,
     pendingDeletion: null,
+    deletionPromptOpen: false,
     conflicts: [],
     confirmConnect,
     cancelConnect,
     confirmDeletion,
     cancelDeletion,
     dismissConflicts,
+    syncNow,
     ...partial,
   });
   useVaultStore.setState({ vaultPath: '/vault' });
@@ -92,16 +97,42 @@ describe('SyncDialogs', () => {
   });
 
   it('deletion guard asks before deleting notes on GitHub', async () => {
-    setup({ pendingDeletion: { deleted: 15, total: 20 } });
+    setup({ pendingDeletion: { deleted: 15, total: 20 }, deletionPromptOpen: true });
     expect(
       screen.getByText('Esta sincronización borraría 15 de 20 notas en GitHub. ¿Continuar?'),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByTestId('confirm-dialog-delete'));
-    expect(confirmDeletion).toHaveBeenCalledWith('/vault');
+    expect(confirmDeletion).toHaveBeenCalledWith();
+  });
+
+  it('deletion guard with unknown counts (after a restart) checks first, never a blind Continuar', async () => {
+    setup({ pendingDeletion: null, deletionPromptOpen: true });
+    expect(screen.getByText(/Comprobando/)).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-dialog-delete')).toBeDisabled();
+    expect(syncNow).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByTestId('confirm-dialog-delete'));
+    expect(confirmDeletion).not.toHaveBeenCalled();
+  });
+
+  it('the refreshed counts replace the check', () => {
+    setup({ pendingDeletion: null, deletionPromptOpen: true });
+    act(() => {
+      useSyncStore.setState({ pendingDeletion: { deleted: 15, total: 20 } });
+    });
+    expect(
+      screen.getByText('Esta sincronización borraría 15 de 20 notas en GitHub. ¿Continuar?'),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-dialog-delete')).not.toBeDisabled();
+    expect(syncNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletion guard stays closed unless the prompt is open', () => {
+    setup({ pendingDeletion: { deleted: 15, total: 20 }, deletionPromptOpen: false });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('deletion guard: Cancelar pushes nothing', async () => {
-    setup({ pendingDeletion: { deleted: 15, total: 20 } });
+    setup({ pendingDeletion: { deleted: 15, total: 20 }, deletionPromptOpen: true });
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(cancelDeletion).toHaveBeenCalled();
     expect(confirmDeletion).not.toHaveBeenCalled();

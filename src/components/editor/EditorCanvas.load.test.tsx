@@ -15,7 +15,9 @@ vi.mock('../../hooks/useH1Follow', () => ({ useH1Follow: vi.fn() }));
 
 const setContentCmd = vi.fn();
 const focusCmd = vi.fn();
+const setEditable = vi.fn();
 const editor = {
+  setEditable,
   storage: { markdown: { getMarkdown: () => '# Test' } },
   commands: { setContent: setContentCmd, focus: focusCmd },
   state: { doc: { descendants: vi.fn() } },
@@ -52,6 +54,18 @@ beforeEach(() => {
     loadVersion: 1,
     focusTitleOnOpen: false,
     relocation: null,
+  });
+});
+
+describe('EditorCanvas read-only while quitting', () => {
+  it('turns the editor read-only while edits are locked, and back', () => {
+    useEditorStore.setState({ editLocked: false });
+    render(<EditorCanvas />);
+    act(() => useEditorStore.getState().setEditLocked(true));
+    // Without an update event, so the note is not marked as edited.
+    expect(setEditable).toHaveBeenLastCalledWith(false, false);
+    act(() => useEditorStore.getState().setEditLocked(false));
+    expect(setEditable).toHaveBeenLastCalledWith(true, false);
   });
 });
 

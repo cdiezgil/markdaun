@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConfirmDialog } from '../ConfirmDialog/ConfirmDialog';
 import { useSyncStore } from '../../store/syncStore';
@@ -10,19 +10,29 @@ function notes(n: number): string {
 
 /**
  * Every question sync must ask before it may change anything:
- * the connect decision, the mass-deletion guard, and the conflicts notice.
+ * the connect decision, the mass-deletion guard (open while the backend is paused for it),
+ * and the conflicts notice.
  */
 export function SyncDialogs(): JSX.Element {
   const navigate = useNavigate();
   const pendingConnect = useSyncStore((s) => s.pendingConnect);
   const pendingDeletion = useSyncStore((s) => s.pendingDeletion);
+  const deletionPromptOpen = useSyncStore((s) => s.deletionPromptOpen);
   const conflicts = useSyncStore((s) => s.conflicts);
   const confirmConnect = useSyncStore((s) => s.confirmConnect);
   const cancelConnect = useSyncStore((s) => s.cancelConnect);
   const confirmDeletion = useSyncStore((s) => s.confirmDeletion);
   const cancelDeletion = useSyncStore((s) => s.cancelDeletion);
   const dismissConflicts = useSyncStore((s) => s.dismissConflicts);
+  const syncNow = useSyncStore((s) => s.syncNow);
   const vaultPath = useVaultStore((s) => s.vaultPath);
+
+  // After a restart the pause survives but its counts do not: a manual cycle
+  // re-runs the guard and its report brings them (or lifts the pause).
+  const countsUnknown = deletionPromptOpen && pendingDeletion === null;
+  useEffect(() => {
+    if (countsUnknown) void syncNow();
+  }, [countsUnknown, syncNow]);
 
   const preview = pendingConnect?.preview;
   const downloading = preview?.case === 'local_empty';
@@ -44,11 +54,16 @@ export function SyncDialogs(): JSX.Element {
       />
 
       <ConfirmDialog
-        open={pendingDeletion !== null}
+        open={deletionPromptOpen}
         title="Borrar notas en GitHub"
-        description={`Esta sincronización borraría ${pendingDeletion?.deleted ?? 0} de ${pendingDeletion?.total ?? 0} notas en GitHub. ¿Continuar?`}
+        description={
+          pendingDeletion
+            ? `Esta sincronización borraría ${pendingDeletion.deleted} de ${pendingDeletion.total} notas en GitHub. ¿Continuar?`
+            : 'Comprobando cuántas notas se borrarían en GitHub…'
+        }
         confirmLabel="Continuar"
-        onConfirm={() => vaultPath && void confirmDeletion(vaultPath)}
+        confirmDisabled={pendingDeletion === null}
+        onConfirm={() => void confirmDeletion()}
         onCancel={cancelDeletion}
       />
 
@@ -106,7 +121,7 @@ export function SyncDialogs(): JSX.Element {
             ))}
           </ul>
           <button
-            onClick={dismissConflicts}
+            onClick={() => void dismissConflicts()}
             style={{
               alignSelf: 'flex-end',
               background: 'transparent',

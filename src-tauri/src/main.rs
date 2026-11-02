@@ -30,10 +30,11 @@ fn main() {
         .manage(voice::transcribe::EngineState::default())
         .manage(capture::shortcut::ShortcutState::default())
         .manage(capture::lifecycle::QuitFlag::default())
-        .on_window_event(|window, event| {
+        .manage(git::runner::SyncRunner::default())
+        .on_window_event(|window, event| match event {
             // Closing a window hides it: the app stays in the menu bar and
             // *Salir* (tray / Cmd+Q) goes through the exit guard.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
                 match capture::lifecycle::on_close_requested(window.label()) {
                     capture::lifecycle::CloseAction::Hide => {
                         api.prevent_close();
@@ -41,6 +42,14 @@ fn main() {
                     }
                 }
             }
+            // Focus or shown from the tray: the scheduler throttles to 1/min.
+            tauri::WindowEvent::Focused(true)
+                if window.label() == capture::lifecycle::MAIN_WINDOW =>
+            {
+                use tauri::Manager;
+                git::runner::trigger(window.app_handle(), git::scheduler::Trigger::Focus);
+            }
+            _ => {}
         })
         .setup(|app| {
             use tauri::Manager;
@@ -54,6 +63,8 @@ fn main() {
                 commands::sync_active_vault_index(app.handle());
             }
             capture::tray::build(app.handle())?;
+            // Automatic GitHub sync: inert unless a repo and vault are configured.
+            git::runner::restart(app.handle());
             if let Ok(db) = commands::brain_cmd::app_db_path(app.handle()) {
                 let registrar = commands::quick_cmd::PluginRegistrar(app.handle().clone());
                 let state = app.state::<capture::shortcut::ShortcutState>();
@@ -88,9 +99,15 @@ fn main() {
             commands::github_connect_apply,
             commands::github_get_config,
             commands::github_disconnect,
-            commands::github_push,
-            commands::github_pull,
             commands::github_status,
+            commands::sync_hold_ack,
+            commands::sync_trigger,
+            commands::sync_confirm_deletions,
+            commands::sync_dismiss_conflicts,
+            commands::sync_get_state,
+            commands::sync_before_quit,
+            commands::sync_cancel_quit,
+            commands::write_conflict_copy,
             commands::brain_query,
             commands::brain_get_conversations,
             commands::brain_get_messages,

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Check, CircleAlert, Loader, RefreshCw } from 'lucide-react';
-import { useSyncStore } from '../../store/syncStore';
+import { useSyncStore, indicatorFor, syncErrorText, type SyncIndicator } from '../../store/syncStore';
 import { useEditorStore } from '../../store/editorStore';
 import { onBrainIndexProgress, type IndexProgress } from '../../lib/tauri';
 
@@ -13,38 +14,89 @@ const itemStyle: React.CSSProperties = {
 
 const ICON = { size: 14, strokeWidth: 1.5 } as const;
 
+const INDICATOR_LABEL: Record<SyncIndicator, string> = {
+  upToDate: 'Al día',
+  syncing: 'Sincronizando',
+  pending: 'Pendiente',
+  offline: 'Sin conexión',
+  needsReview: 'Requiere revisión',
+};
+
+function lastSuccessText(iso: string | null): string | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return undefined;
+  return `Última sincronización: ${d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 function SyncItem(): JSX.Element | null {
   const isConnected = useSyncStore((s) => s.config.isConnected);
-  const hasChanges = useSyncStore((s) => s.status.hasChanges);
-  const isLoading = useSyncStore((s) => s.isLoading);
+  const state = useSyncStore((s) => s.state);
   const error = useSyncStore((s) => s.error);
+  const localConflicts = useSyncStore((s) => s.localConflicts);
+  const running = useSyncStore((s) => s.running);
+  const localPending = useSyncStore((s) => s.localPending);
+  const syncNow = useSyncStore((s) => s.syncNow);
+  const openDeletionPrompt = useSyncStore((s) => s.openDeletionPrompt);
+  const navigate = useNavigate();
   if (!isConnected) return null;
+
+  const buttonStyle: React.CSSProperties = {
+    ...itemStyle,
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    font: 'inherit',
+    cursor: 'pointer',
+  };
 
   if (error) {
     return (
-      <span data-testid="sync-status" title={error} style={{ ...itemStyle, color: 'var(--danger)' }}>
+      <button
+        type="button"
+        data-testid="sync-status"
+        title={error}
+        onClick={() => void syncNow()}
+        style={{ ...buttonStyle, color: 'var(--danger)' }}
+      >
         <CircleAlert {...ICON} /> Error de sincronización
-      </span>
+      </button>
     );
   }
-  if (isLoading) {
-    return (
-      <span data-testid="sync-status" style={itemStyle}>
-        <Loader {...ICON} /> Sincronizando
-      </span>
-    );
-  }
+  const indicator: SyncIndicator = state
+    ? indicatorFor(state, running, localConflicts, localPending)
+    : 'upToDate';
+  const icon =
+    indicator === 'syncing' ? <Loader {...ICON} />
+    : indicator === 'upToDate' ? <Check {...ICON} />
+    : indicator === 'pending' ? <RefreshCw {...ICON} />
+    : <CircleAlert {...ICON} />;
+  const title =
+    indicator === 'needsReview' && state?.error
+      ? syncErrorText(state.error)
+      : lastSuccessText(state?.lastSuccess ?? null);
+  // A rejected token is fixed in the GitHub settings, not by syncing again.
+  const unauthorized = indicator === 'needsReview' && state?.error?.kind === 'unauthorized';
+  const onClick = () => {
+    if (state?.pausedReason === 'deletion') openDeletionPrompt();
+    else if (unauthorized) navigate('/settings#github');
+    else void syncNow();
+  };
   return (
-    <span data-testid="sync-status" style={itemStyle}>
-      {hasChanges ? <RefreshCw {...ICON} /> : <Check {...ICON} />}
-      {hasChanges ? 'Cambios pendientes' : 'Al día'}
-    </span>
+    <button type="button" data-testid="sync-status" title={title} onClick={onClick} style={buttonStyle}>
+      {icon}
+      {INDICATOR_LABEL[indicator]}
+    </button>
   );
 }
 
 function SaveItem(): JSX.Element | null {
   const hasNote = useEditorStore((s) => s.activeNotePath !== null);
-  const isDirty = useEditorStore((s) => s.isDirty);
+  // Edits parked for a sync release or refused over a remote version are not on disk.
+  const unsaved = useEditorStore(
+    (s) =>
+      s.isDirty || s.saveBlockedPath !== null || Object.keys(s.deferredWrites).length > 0,
+  );
   if (!hasNote) return null;
   return (
     <span data-testid="save-state" style={{ ...itemStyle, gap: 6 }}>
@@ -55,11 +107,11 @@ function SaveItem(): JSX.Element | null {
           width: 6,
           height: 6,
           borderRadius: 'var(--radius-pill)',
-          background: isDirty ? 'var(--amber)' : 'var(--daun)',
+          background: unsaved ? 'var(--amber)' : 'var(--daun)',
           flexShrink: 0,
         }}
       />
-      {isDirty ? 'Sin guardar' : 'Guardado'}
+      {unsaved ? 'Sin guardar' : 'Guardado'}
     </span>
   );
 }

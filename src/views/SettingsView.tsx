@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSyncStore } from '../store/syncStore';
 import { useVaultStore } from '../store/vaultStore';
 import { ConfirmDialog } from '../components/ConfirmDialog/ConfirmDialog';
@@ -10,7 +10,7 @@ import { AppearanceSettings } from '../components/Settings/AppearanceSettings';
 
 export function SettingsView(): JSX.Element {
   const config = useSyncStore((s) => s.config);
-  const isLoading = useSyncStore((s) => s.isLoading);
+  const isLoading = useSyncStore((s) => s.connecting);
   const error = useSyncStore((s) => s.error);
   const connect = useSyncStore((s) => s.connect);
   const disconnect = useSyncStore((s) => s.disconnect);
@@ -20,6 +20,13 @@ export function SettingsView(): JSX.Element {
   const [repoUrl, setRepoUrl] = useState('');
   const [pat, setPat] = useState('');
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+
+  // The status item sends a rejected token here (`/settings#github`).
+  useEffect(() => {
+    if (window.location.hash === '#github') {
+      document.getElementById('github')?.scrollIntoView({ block: 'start' });
+    }
+  }, []);
 
   // Connecting only previews the remote; any decision is asked by <SyncDialogs />.
   const handleConnect = () => {
@@ -60,7 +67,7 @@ export function SettingsView(): JSX.Element {
       <AppearanceSettings />
 
       {/* GitHub Sync section */}
-      <section style={{ marginBottom: 'var(--space-8)' }}>
+      <section id="github" style={{ marginBottom: 'var(--space-8)' }}>
         <h2
           style={{
             fontSize: 15,

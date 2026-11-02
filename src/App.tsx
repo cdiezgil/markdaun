@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useVaultStore } from './store/vaultStore';
 import { useEditorStore } from './store/editorStore';
@@ -10,9 +10,10 @@ import { EditorView } from './views/EditorView';
 import { PreviewView } from './views/PreviewView';
 import { GraphView } from './views/GraphView';
 import { SettingsView } from './views/SettingsView';
-import { ExitDialog } from './components/Sync/ExitDialog';
+import { ConfirmDialog } from './components/ConfirmDialog/ConfirmDialog';
+import { finishQuit, flushEditsForQuit } from './lib/quitFlow';
 import { SyncDialogs } from './components/Sync/SyncDialogs';
-import { onInboxCaptured, onRequestQuit, onVoiceChanged, quitApp } from './lib/tauri';
+import { onInboxCaptured, onRequestQuit, onVoiceChanged } from './lib/tauri';
 import { captureToast } from './lib/inbox';
 import { useInboxStore } from './store/inboxStore';
 import { Toast } from './components/Shell/Toast';
@@ -26,10 +27,12 @@ import { InboxView } from './components/Inbox/InboxView';
 import { IdeView } from './views/IdeView';
 import { IdeTree } from './components/Ide/IdeTree';
 import { useIdeStore } from './store/ideStore';
+import { useAutoSync } from './hooks/useAutoSync';
 
 function AppLayout() {
-  const [showExitDialog, setShowExitDialog] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  // null: not quitting; 'syncing': flushing + final sync; 'confirm': edits could not be saved.
+  const [quitPhase, setQuitPhase] = useState<null | 'syncing' | 'confirm'>(null);
+  const quitting = useRef(false);
   const wizardOpen = useLlmStore((s) => s.wizardOpen);
   const vaultPath = useVaultStore((s) => s.vaultPath);
   const currentView = viewForPath(useLocation().pathname);
@@ -37,21 +40,26 @@ function AppLayout() {
   const inIde = currentView === 'ide';
   const [toast, setToast] = useState<string | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
+  // Editor side of automatic sync: save hold handshake and open-note reload.
+  useAutoSync(setToast);
 
   useEffect(() => {
     useVaultStore.getState().loadVault();
     useEditorStore.getState().initVault().catch(console.error);
     useIdeStore.getState().loadProjects().catch(console.error);
-    // The GitHub connection (repo URL in config.db, PAT in the keyring) persists
-    // across restarts; without loading it the sync UI thinks we're disconnected.
-    useSyncStore.getState().loadConfig().catch(console.error);
   }, []);
 
   const syncConnected = useSyncStore((s) => s.config.isConnected);
   const syncVaultPath = useVaultStore((s) => s.vaultPath);
+  // The GitHub connection (repo URL in config.db, PAT in the keyring) persists
+  // across restarts and belongs to the vault it was made for: reload it on
+  // startup and whenever the active vault changes.
+  useEffect(() => {
+    useSyncStore.getState().loadConfig().catch(console.error);
+  }, [syncVaultPath]);
   useEffect(() => {
     if (syncConnected && syncVaultPath) {
-      useSyncStore.getState().checkStatus(syncVaultPath).catch(console.error);
+      useSyncStore.getState().loadState().catch(console.error);
     }
   }, [syncConnected, syncVaultPath]);
 
@@ -61,9 +69,21 @@ function AppLayout() {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     onRequestQuit(() => {
-      const { config, status } = useSyncStore.getState();
-      if (config.isConnected && status.hasChanges) setShowExitDialog(true);
-      else void quitApp();
+      if (quitting.current) return;
+      quitting.current = true;
+      const syncFirst = useSyncStore.getState().config.isConnected;
+      setQuitPhase('syncing');
+      void flushEditsForQuit()
+        .then((allWritten) => {
+          if (allWritten) return finishQuit(syncFirst);
+          // Something could not be written: ask before leaving it behind.
+          setQuitPhase('confirm');
+        })
+        .catch((e) => {
+          console.error('quit failed:', e);
+          quitting.current = false;
+          setQuitPhase(null);
+        });
     })
       .then((fn) => (cancelled ? fn() : (unlisten = fn)))
       .catch(console.error);
@@ -72,6 +92,12 @@ function AppLayout() {
       unlisten?.();
     };
   }, []);
+
+  // While quitting the editor is read-only: a keystroke after the final flush
+  // would never reach the disk. Cancelling the quit unlocks it.
+  useEffect(() => {
+    useEditorStore.getState().setEditLocked(quitPhase !== null);
+  }, [quitPhase]);
 
   // Sync may have added/removed/merged notes on disk: reload the tree.
   const vaultChangeCount = useSyncStore((s) => s.vaultChangeCount);
@@ -162,25 +188,45 @@ function AppLayout() {
         </main>
       </div>
       <StatusBar />
-      <ExitDialog
-        open={showExitDialog}
-        isSyncing={isSyncing}
-        onSyncAndQuit={async () => {
-          setIsSyncing(true);
-          const { push } = useSyncStore.getState();
-          const vaultPath = useVaultStore.getState().vaultPath;
-          if (vaultPath) await push(vaultPath).catch(() => {});
-          setIsSyncing(false);
-          setShowExitDialog(false);
-          // A held-back push (deletion guard) must be answered first: don't quit.
-          if (useSyncStore.getState().pendingDeletion) return;
-          await quitApp();
+      {quitPhase === 'syncing' && (
+        <div
+          data-testid="quit-notice"
+          role="status"
+          style={{
+            position: 'fixed',
+            right: 'var(--space-6)',
+            bottom: 'var(--space-12)',
+            zIndex: 100,
+            padding: 'var(--space-3) var(--space-4)',
+            background: 'var(--surface)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: 'var(--shadow-pop)',
+            color: 'var(--ink)',
+            fontFamily: 'var(--font-sans)',
+            fontSize: 13,
+          }}
+        >
+          Sincronizando antes de salir…
+        </div>
+      )}
+      <ConfirmDialog
+        open={quitPhase === 'confirm'}
+        title="Salir"
+        description="Hay cambios que no se han podido guardar. ¿Salir igualmente?"
+        confirmLabel="Salir"
+        onConfirm={() => {
+          setQuitPhase('syncing');
+          finishQuit(useSyncStore.getState().config.isConnected).catch((e) => {
+            console.error('quit failed:', e);
+            quitting.current = false;
+            setQuitPhase(null);
+          });
         }}
-        onQuit={async () => {
-          setShowExitDialog(false);
-          await quitApp();
+        onCancel={() => {
+          quitting.current = false;
+          setQuitPhase(null);
         }}
-        onCancel={() => setShowExitDialog(false)}
       />
       <SyncDialogs />
       <Toast message={toast} onDismiss={dismissToast} />

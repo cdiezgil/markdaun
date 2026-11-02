@@ -93,13 +93,6 @@ export interface DeletionWarning {
   total: number;
 }
 
-export interface SyncResult {
-  /** Vault-relative paths of conflict copies created while merging. */
-  conflicts: string[];
-  /** Set when the push was NOT performed and needs the user's confirmation. */
-  needsConfirmation: DeletionWarning | null;
-}
-
 /** Step 1 of connecting: compare vault and remote without changing anything. */
 export async function githubConnectPreview(
   repoUrl: string,
@@ -129,18 +122,119 @@ export async function githubDisconnect(): Promise<void> {
   return invoke<void>('github_disconnect');
 }
 
-/**
- * Commit local changes, merge what is new on GitHub and push (never forced).
- * Resolves with `needsConfirmation` (and pushes nothing) when the push would
- * delete most of the remote notes and `confirmDeletions` is false.
- */
-export async function githubPush(confirmDeletions = false): Promise<SyncResult> {
-  return invoke<SyncResult>('github_push', { confirmDeletions });
+// ── Automatic sync ────────────────────────────────────────────────────────────
+
+/** Serialized `SyncError` (`{kind, detail}`; `notConfigured` has no detail). */
+export type SyncError =
+  | { kind: 'offline'; detail: string }
+  | { kind: 'unauthorized'; detail: string }
+  | { kind: 'notConfigured' }
+  | { kind: 'pushRejected'; detail: string }
+  | { kind: 'needsDeletionConfirmation'; detail: DeletionWarning }
+  | { kind: 'git'; detail: string };
+
+export interface CycleReport {
+  /** Vault-relative paths changed by the remote or by conflict copies. */
+  changedPaths: string[];
+  /** Vault-relative paths of conflict copies created while merging. */
+  conflicts: string[];
+  /** Set when the push was NOT performed and needs the user's confirmation. */
+  needsConfirmation: DeletionWarning | null;
+  pushed: boolean;
 }
 
-/** Fetch origin/main and merge it; same-note conflicts keep both versions. */
-export async function githubPull(): Promise<SyncResult> {
-  return invoke<SyncResult>('github_pull');
+export interface SyncStatus {
+  uncommitted: boolean;
+  ahead: number;
+}
+
+export interface SchedulerView {
+  running: boolean;
+  pendingDebounce: boolean;
+  consecutiveFailures: number;
+  offline: boolean;
+  /** Automatic retries stopped (Unauthorized) until a manual sync or a config change. */
+  halted: boolean;
+  /** Three or more consecutive failures; retries continue at the backoff cadence. */
+  needsReview: boolean;
+}
+
+/** Payload of `sync-finished` and the result of `sync_get_state`. */
+export interface SyncState {
+  report: CycleReport | null;
+  error: SyncError | null;
+  view: SchedulerView;
+  status: SyncStatus;
+  pausedReason: string | null;
+  pendingConflicts: string[];
+  lastSuccess: string | null;
+}
+
+export type SyncTriggerReason = 'focus' | 'changed' | 'manual';
+
+/** The frontend flushed its pending save and now holds saves. */
+export async function syncHoldAck(): Promise<void> {
+  return invoke<void>('sync_hold_ack');
+}
+
+/** Ask for a sync cycle; the result arrives as a `sync-finished` event. */
+export async function syncTrigger(reason: SyncTriggerReason): Promise<void> {
+  return invoke<void>('sync_trigger', { reason });
+}
+
+/**
+ * Answer yes to the deletion guard with the counts the user saw: the next
+ * cycle may push up to that many deletions, and asks again if there are more.
+ */
+export async function syncConfirmDeletions(seen: DeletionWarning): Promise<void> {
+  return invoke<void>('sync_confirm_deletions', { deleted: seen.deleted, total: seen.total });
+}
+
+/** Forget the pending conflict notices; resolves with the fresh state. */
+export async function syncDismissConflicts(): Promise<SyncState> {
+  return invoke<SyncState>('sync_dismiss_conflicts');
+}
+
+export async function syncGetState(): Promise<SyncState> {
+  return invoke<SyncState>('sync_get_state');
+}
+
+/** Final sync before quitting; never fails. */
+export async function syncBeforeQuit(): Promise<void> {
+  return invoke<void>('sync_before_quit');
+}
+
+/** The app did not exit after `syncBeforeQuit`: automatic sync resumes. */
+export async function syncCancelQuit(): Promise<void> {
+  return invoke<void>('sync_cancel_quit');
+}
+
+/**
+ * Copy the current on-disk content of `path` (the remote version a cycle just
+ * merged) to `<stem> (conflicto YYYY-MM-DD HH-mm).<ext>`. Returns the copy's
+ * vault-relative path.
+ */
+export async function writeConflictCopy(path: string, vaultPath: string): Promise<string> {
+  return invoke<string>('write_conflict_copy', { path, vaultPath });
+}
+
+/** A cycle is about to run: flush the pending save and ack with `syncHoldAck`. */
+export async function onSyncWillStart(cb: () => void): Promise<() => void> {
+  return listen('sync-will-start', () => cb());
+}
+
+export async function onSyncFinished(cb: (s: SyncState) => void): Promise<() => void> {
+  return listen<SyncState>('sync-finished', (event) => cb(event.payload));
+}
+
+/** The vault watcher saw files change on disk (vault-relative paths). */
+export async function onVaultChanged(cb: (paths: string[]) => void): Promise<() => void> {
+  return listen<string[]>('vault-changed', (event) => cb(event.payload));
+}
+
+/** End a save hold without a cycle result (stale session, skipped cycle). */
+export async function onSyncHoldRelease(cb: () => void): Promise<() => void> {
+  return listen('sync-hold-release', () => cb());
 }
 
 /** Return true if the vault has uncommitted local changes. */

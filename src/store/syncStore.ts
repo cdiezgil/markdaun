@@ -4,16 +4,76 @@ import {
   githubConnectApply,
   githubGetConfig,
   githubDisconnect,
-  githubPush,
-  githubPull,
-  githubStatus,
+  syncTrigger,
+  syncConfirmDeletions,
+  syncDismissConflicts,
+  syncGetState,
 } from '../lib/tauri';
 import type {
   ConnectChoice,
   ConnectPreview,
   ConnectResult,
   DeletionWarning,
+  SyncError,
+  SyncState,
 } from '../lib/tauri';
+
+export type SyncIndicator = 'upToDate' | 'syncing' | 'pending' | 'offline' | 'needsReview';
+
+/**
+ * What the status bar shows. `running` is whether a cycle is in flight right
+ * now (the scheduler view may lag a `sync-will-start` event); `localPending`
+ * is a save made since the last cycle report.
+ */
+export function indicatorFor(
+  s: SyncState,
+  running: boolean,
+  localConflicts: string[] = [],
+  localPending = false,
+): SyncIndicator {
+  if (
+    s.view.halted ||
+    s.view.needsReview ||
+    s.pausedReason !== null ||
+    s.pendingConflicts.length > 0 ||
+    localConflicts.length > 0
+  ) {
+    return 'needsReview';
+  }
+  if (running) return 'syncing';
+  if (s.view.offline) return 'offline';
+  if (localPending || s.status.uncommitted || s.status.ahead > 0 || s.view.pendingDebounce) {
+    return 'pending';
+  }
+  return 'upToDate';
+}
+
+/** Spanish, user-facing text for a backend sync error. */
+export function syncErrorText(e: SyncError): string {
+  switch (e.kind) {
+    case 'offline':
+      return 'Sin conexión con GitHub';
+    case 'unauthorized':
+      return 'Token de GitHub no válido o caducado';
+    case 'notConfigured':
+      return 'GitHub no está configurado';
+    case 'pushRejected':
+      return 'GitHub rechazó la subida';
+    case 'needsDeletionConfirmation':
+      return 'Pendiente de confirmar borrados';
+    case 'git':
+      return `Error de git: ${e.detail}`;
+  }
+}
+
+const SYNC_ERROR_KINDS = [
+  'offline',
+  'unauthorized',
+  'notConfigured',
+  'pushRejected',
+  'needsDeletionConfirmation',
+  'git',
+];
 
 export interface SyncConfig {
   repoUrl: string | null;
@@ -32,20 +92,41 @@ export interface PendingConnect {
   preview: ConnectPreview;
 }
 
-interface SyncState {
+interface SyncStoreState {
   config: SyncConfig;
+  /** Derived from `state`: uncommitted edits or unpushed commits. */
   status: SyncStatus;
-  isLoading: boolean;
+  /** Last cycle result / snapshot from the backend; null until first known. */
+  state: SyncState | null;
+  /** A connect or disconnect is in flight. */
+  connecting: boolean;
   error: string | null;
   connectAction: ConnectResult['action'] | null;
   /** Set when connecting needs the user to choose; nothing has been changed yet. */
   pendingConnect: PendingConnect | null;
   /** Set when a push was held back by the deletion guard. */
   pendingDeletion: DeletionWarning | null;
+  /**
+   * The deletion dialog is showing. Opens by itself once per launch while the
+   * backend is paused for deletions (counts may be unknown after a restart),
+   * whenever a cycle asks, and on `openDeletionPrompt`.
+   */
+  deletionPromptOpen: boolean;
+  /** The automatic open already happened this launch. */
+  deletionPromptShown: boolean;
   /** Conflict copies created by the last merge (vault-relative paths). */
   conflicts: string[];
+  /**
+   * Conflict copies made by the frontend (open note edited during a cycle).
+   * The backend does not persist them, so they survive its list replacing ours.
+   */
+  localConflicts: string[];
   /** Bumped whenever sync may have changed files on disk (reload the tree). */
   vaultChangeCount: number;
+  /** A cycle is in flight: set on `sync-will-start`, cleared when it ends. */
+  running: boolean;
+  /** A save landed since the last cycle report: shown as "Pendiente" right away. */
+  localPending: boolean;
 
   loadConfig(): Promise<void>;
   /** Preview the remote; applies directly only when nothing could be lost. */
@@ -53,19 +134,43 @@ interface SyncState {
   confirmConnect(choice: ConnectChoice): Promise<void>;
   cancelConnect(): void;
   disconnect(): Promise<void>;
-  push(vaultPath: string, confirmDeletions?: boolean): Promise<void>;
-  confirmDeletion(vaultPath: string): Promise<void>;
+  /** Store a `sync-finished` payload (or a `sync_get_state` result). */
+  applyFinished(payload: SyncState): void;
+  markRunning(running: boolean): void;
+  markPending(): void;
+  loadState(): Promise<void>;
+  syncNow(): Promise<void>;
+  confirmDeletion(): Promise<void>;
   cancelDeletion(): void;
-  dismissConflicts(): void;
-  pull(vaultPath: string): Promise<void>;
-  checkStatus(vaultPath: string): Promise<void>;
+  /** Re-open the deletion dialog (status item click); no-op unless paused for it. */
+  openDeletionPrompt(): void;
+  dismissConflicts(): Promise<void>;
+  /** Show frontend-made conflict copies in the conflicts notice. */
+  addConflicts(paths: string[]): void;
 }
+
+function union(a: string[], b: string[]): string[] {
+  return [...a, ...b.filter((p) => !a.includes(p))];
+}
+
+/** Spanish text for the plain-string errors of the connect commands. */
+const COMMAND_ERRORS: Record<string, string> = {
+  sync_busy: 'Sincronizando, inténtalo en unos segundos',
+};
 
 function errorText(e: unknown): string {
-  return typeof e === 'string' ? e : String(e);
+  if (typeof e === 'string') return COMMAND_ERRORS[e] ?? e;
+  if (typeof e === 'object' && e !== null && 'kind' in e) {
+    const kind = (e as { kind: unknown }).kind;
+    if (typeof kind === 'string' && SYNC_ERROR_KINDS.includes(kind)) {
+      return syncErrorText(e as SyncError);
+    }
+    return JSON.stringify(e);
+  }
+  return String(e);
 }
 
-export const useSyncStore: UseBoundStore<StoreApi<SyncState>> = create<SyncState>(
+export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<SyncStoreState>(
   (set, get) => {
     async function applyConnect(
       pending: PendingConnect,
@@ -77,22 +182,36 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncState>> = create<SyncState
         config: { repoUrl, isConnected: true },
         connectAction: result.action,
         conflicts: result.conflicts,
-        isLoading: false,
+        connecting: false,
         vaultChangeCount: s.vaultChangeCount + 1,
       }));
-      await get().checkStatus(vaultPath);
+      await get().loadState();
     }
 
     return {
     config: { repoUrl: null, isConnected: false },
     status: { hasChanges: false },
-    isLoading: false,
+    state: null,
+    connecting: false,
     error: null,
     connectAction: null,
     pendingConnect: null,
     pendingDeletion: null,
+    deletionPromptOpen: false,
+    deletionPromptShown: false,
     conflicts: [],
+    localConflicts: [],
     vaultChangeCount: 0,
+    running: false,
+    localPending: false,
+
+    markRunning(running) {
+      set({ running });
+    },
+
+    markPending() {
+      set({ localPending: true });
+    },
 
     async loadConfig() {
       set({ error: null });
@@ -107,7 +226,7 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncState>> = create<SyncState
     },
 
     async connect(repoUrl, pat, vaultPath) {
-      set({ isLoading: true, error: null, connectAction: null, pendingConnect: null });
+      set({ connecting: true, error: null, connectAction: null, pendingConnect: null });
       try {
         const preview = await githubConnectPreview(repoUrl, pat, vaultPath);
         if (preview.case === 'remote_empty') {
@@ -115,20 +234,20 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncState>> = create<SyncState
           return;
         }
         // Remote already has notes: the user decides before anything changes.
-        set({ isLoading: false, pendingConnect: { repoUrl, pat, vaultPath, preview } });
+        set({ connecting: false, pendingConnect: { repoUrl, pat, vaultPath, preview } });
       } catch (e) {
-        set({ isLoading: false, error: errorText(e) });
+        set({ connecting: false, error: errorText(e) });
       }
     },
 
     async confirmConnect(choice) {
       const pending = get().pendingConnect;
       if (!pending) return;
-      set({ isLoading: true, error: null, pendingConnect: null });
+      set({ connecting: true, error: null, pendingConnect: null });
       try {
         await applyConnect(pending, choice);
       } catch (e) {
-        set({ isLoading: false, error: errorText(e) });
+        set({ connecting: false, error: errorText(e) });
       }
     },
 
@@ -137,78 +256,114 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncState>> = create<SyncState
     },
 
     async disconnect() {
-      set({ isLoading: true, error: null });
+      set({ connecting: true, error: null });
       try {
         await githubDisconnect();
         set({
           config: { repoUrl: null, isConnected: false },
           status: { hasChanges: false },
           connectAction: null,
-          isLoading: false,
+          connecting: false,
+          // The backend dropped the pause and the conflict list with the link.
+          state: null,
+          pendingDeletion: null,
+          deletionPromptOpen: false,
+          conflicts: [],
+          localConflicts: [],
         });
       } catch (e) {
         set({
-          isLoading: false,
+          connecting: false,
           error: typeof e === 'string' ? e : String(e),
         });
       }
     },
 
-    async push(vaultPath, confirmDeletions = false) {
-      set({ isLoading: true, error: null });
+    applyFinished(payload) {
+      set((s) => {
+        const asked = payload.report?.needsConfirmation ?? null;
+        const paused = payload.pausedReason === 'deletion';
+        const autoOpen = paused && !s.deletionPromptShown;
+        return {
+          deletionPromptShown: s.deletionPromptShown || autoOpen,
+          deletionPromptOpen:
+            (asked !== null || autoOpen || s.deletionPromptOpen) && (paused || asked !== null),
+          state: payload,
+          // The report says what is still unsynced; the scheduler whether a
+          // cycle runs (a mid-cycle `sync_get_state` says so too).
+          running: payload.view.running,
+          localPending: false,
+          status: { hasChanges: payload.status.uncommitted || payload.status.ahead > 0 },
+          // Connect-time conflict copies are not persisted backend-side: only
+          // replace the list when the backend has some, never wipe it here
+          // (dismissConflicts clears it explicitly).
+          conflicts:
+            payload.pendingConflicts.length > 0
+              ? union(payload.pendingConflicts, s.localConflicts)
+              : s.conflicts,
+          // Keep the question while the deletion pause persists (the counts
+          // only travel with the cycle report).
+          pendingDeletion:
+            asked ?? (payload.pausedReason === 'deletion' ? s.pendingDeletion : null),
+          vaultChangeCount:
+            (payload.report?.changedPaths.length ?? 0) > 0
+              ? s.vaultChangeCount + 1
+              : s.vaultChangeCount,
+        };
+      });
+    },
+
+    async loadState() {
       try {
-        const result = await githubPush(confirmDeletions);
-        if (result.needsConfirmation) {
-          set({ isLoading: false, pendingDeletion: result.needsConfirmation });
-          return;
-        }
-        set((s) => ({
-          isLoading: false,
-          pendingDeletion: null,
-          conflicts: result.conflicts,
-          vaultChangeCount: s.vaultChangeCount + 1,
-        }));
-        await get().checkStatus(vaultPath);
-      } catch (e) {
-        set({ isLoading: false, error: errorText(e) });
+        get().applyFinished(await syncGetState());
+      } catch {
+        // Not configured yet or backend not ready: keep what we have.
       }
     },
 
-    async confirmDeletion(vaultPath) {
-      set({ pendingDeletion: null });
-      await get().push(vaultPath, true);
+    async syncNow() {
+      try {
+        await syncTrigger('manual');
+      } catch (e) {
+        set({ error: errorText(e) });
+      }
+    },
+
+    async confirmDeletion() {
+      // Never a blind "Continuar": without the counts the user saw, nothing
+      // is confirmed (the dialog refreshes them with a manual cycle).
+      const seen = get().pendingDeletion;
+      if (seen === null) return;
+      set({ pendingDeletion: null, deletionPromptOpen: false });
+      try {
+        await syncConfirmDeletions(seen);
+      } catch (e) {
+        set({ error: errorText(e) });
+      }
     },
 
     cancelDeletion() {
-      set({ pendingDeletion: null });
+      // Keep the counts: the status item re-opens the same question.
+      set({ deletionPromptOpen: false });
     },
 
-    dismissConflicts() {
-      set({ conflicts: [] });
+    openDeletionPrompt() {
+      if (get().state?.pausedReason === 'deletion') set({ deletionPromptOpen: true });
     },
 
-    async pull(vaultPath) {
-      set({ isLoading: true, error: null });
+    addConflicts(paths) {
+      set((s) => ({
+        conflicts: union(s.conflicts, paths),
+        localConflicts: union(s.localConflicts, paths),
+      }));
+    },
+
+    async dismissConflicts() {
+      set({ conflicts: [], localConflicts: [] });
       try {
-        const result = await githubPull();
-        set((s) => ({
-          isLoading: false,
-          conflicts: result.conflicts,
-          vaultChangeCount: s.vaultChangeCount + 1,
-        }));
-        await get().checkStatus(vaultPath);
+        get().applyFinished(await syncDismissConflicts());
       } catch (e) {
-        set({ isLoading: false, error: errorText(e) });
-      }
-    },
-
-    async checkStatus(vaultPath) {
-      try {
-        const hasChanges = await githubStatus();
-        set({ status: { hasChanges } });
-      } catch {
-        // If not configured or any error, just keep current state
-        set({ status: { hasChanges: false } });
+        set({ error: errorText(e) });
       }
     },
     };

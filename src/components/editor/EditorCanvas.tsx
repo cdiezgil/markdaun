@@ -10,6 +10,7 @@ import { attachmentKindOf } from '../../lib/attachments/types';
 import BacklinksSection from './BacklinksSection';
 import { useH1Follow } from '../../hooks/useH1Follow';
 import { firstH1ContentEnd } from '../../lib/h1Follow';
+import { keepScroll } from '../../lib/scrollKeep';
 
 /**
  * Resolve an href (possibly relative) against the directory of the current
@@ -153,12 +154,25 @@ export default function EditorCanvas({ onEditorReady, plainMdMode = false }: Edi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
+  // Read-only while quitting (no keystroke may land after the final flush).
+  const editLocked = useEditorStore((s) => s.editLocked);
+  useEffect(() => {
+    // No update event: toggling must not mark the note as edited.
+    editor?.setEditable(!editLocked, false);
+  }, [editor, editLocked]);
+
   // Reload content when a note is (re)loaded. A rename changes the path but
   // not the content, so it must not reset the cursor or unsaved edits.
+  const loadedPathRef = useRef<string | null>(null);
   useEffect(() => {
     if (!editor) return;
     if (activeNoteContent !== null) {
-      editor.commands.setContent(activeNoteContent);
+      // Reloading the same note (e.g. updated by sync): keep the scroll position.
+      const sameNote = loadedPathRef.current === activeNotePath;
+      const load = () => editor.commands.setContent(activeNoteContent);
+      if (sameNote) keepScroll(containerRef.current, load);
+      else load();
+      loadedPathRef.current = activeNotePath;
     }
     // A brand-new note opens with the cursor in its empty H1.
     if (useEditorStore.getState().focusTitleOnOpen) {

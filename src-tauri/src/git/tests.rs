@@ -2,7 +2,7 @@
 
 use crate::git::sync::{
     git_connect_apply_inner, git_connect_preview_inner, git_pull_inner, git_push_inner,
-    git_status_inner, push_branch, ConnectAction, ConnectCase, ConnectChoice, GitError,
+    git_status_inner, git_sync_inner, merge_remote_noting, push_branch, remote_changes, LateEdits, sanitize_device_name, sync_status_inner, CycleOptions, ConnectAction, ConnectCase, ConnectChoice, GitError,
     PushStatus,
 };
 use std::path::Path;
@@ -150,11 +150,11 @@ fn push_commit_message_format() {
     let msg = commit.message().unwrap_or("");
     // TC-05: message format
     assert!(
-        msg.starts_with("MarkDaun sync — "),
-        "TC-05: commit message should start with 'MarkDaun sync — ', got: {msg}"
+        msg.starts_with("MarkDaun sync ("),
+        "TC-05: commit message should start with 'MarkDaun sync (', got: {msg}"
     );
     // The suffix should be a valid RFC3339 timestamp
-    let suffix = msg.trim_start_matches("MarkDaun sync — ").trim();
+    let suffix = msg.rsplit(" — ").next().unwrap_or("").trim();
     assert!(
         suffix.contains('T') && (suffix.contains('+') || suffix.contains('Z') || suffix.ends_with('Z')),
         "TC-05: suffix should look like RFC3339, got: {suffix}"
@@ -698,3 +698,578 @@ fn libgit2_is_built_with_https_support() {
     );
 }
 
+
+// ─── Typed errors ─────────────────────────────────────────────────────────────
+
+mod typed_errors {
+    use super::*;
+    use crate::git::error::{classify, SyncError};
+    use git2::{ErrorClass, ErrorCode};
+
+    #[test]
+    fn unreachable_remote_is_offline() {
+        let dir = TempDir::new().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        repo.remote("origin", "https://127.0.0.1:9/x.git").unwrap();
+        let mut remote = repo.find_remote("origin").unwrap();
+        crate::git::error::apply_network_timeouts();
+        let err = remote
+            .fetch(&["+refs/heads/main:refs/remotes/origin/main"], None, None)
+            .unwrap_err();
+        assert!(matches!(
+            classify(&GitError::Git(err)),
+            SyncError::Offline(_)
+        ));
+    }
+
+    #[test]
+    fn auth_failure_is_unauthorized() {
+        let e = git2::Error::new(git2::ErrorCode::Auth, git2::ErrorClass::Http, "bad creds");
+        assert!(matches!(
+            classify(&GitError::Git(e)),
+            SyncError::Unauthorized(_)
+        ));
+    }
+
+    #[test]
+    fn ssl_error_is_git_not_offline() {
+        let e = git2::Error::new(ErrorCode::GenericError, ErrorClass::Ssl, "bad cert");
+        assert!(matches!(classify(&GitError::Git(e)), SyncError::Git(_)));
+    }
+
+    #[test]
+    fn http_401_is_unauthorized() {
+        let e = git2::Error::new(
+            ErrorCode::GenericError,
+            ErrorClass::Http,
+            "unexpected http status code: 401",
+        );
+        assert!(matches!(
+            classify(&GitError::Git(e)),
+            SyncError::Unauthorized(_)
+        ));
+    }
+
+    #[test]
+    fn push_rejected_maps() {
+        assert_eq!(
+            classify(&GitError::PushRejected("x".into())),
+            SyncError::PushRejected("x".into())
+        );
+    }
+
+    #[test]
+    fn serializes_as_kind_detail() {
+        assert_eq!(
+            serde_json::to_value(SyncError::Offline("d".into())).unwrap(),
+            serde_json::json!({"kind":"offline","detail":"d"})
+        );
+    }
+}
+
+
+// ─── Sync cycle ───────────────────────────────────────────────────────────────
+
+const GO: CycleOptions = CycleOptions {
+    confirm_deletions: false,
+    confirmed_deleted: None,
+    push_paused: false,
+};
+
+fn remote_oid(bare: &git2::Repository) -> git2::Oid {
+    remote_head(bare)
+}
+
+#[test]
+fn cycle_pushes_local_edit() {
+    let bare_dir = TempDir::new().unwrap();
+    let (bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    std::fs::write(dev.path().join("new.md"), "hi").unwrap();
+
+    let report = git_sync_inner(dev.path(), &url, "", GO).unwrap();
+    assert!(report.pushed);
+    assert!(tree_files(&bare, remote_oid(&bare)).contains(&"new.md".to_string()));
+}
+
+#[test]
+fn cycle_reports_changed_paths_from_remote() {
+    let bare_dir = TempDir::new().unwrap();
+    let (_bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    std::fs::remove_file(peer.path().join("note-1.md")).unwrap();
+    peer_commit_and_push(peer.path(), &[("a.md", "A")]);
+
+    let report = git_sync_inner(dev.path(), &url, "", GO).unwrap();
+    assert!(report.changed_paths.contains(&"a.md".to_string()));
+    assert!(report.changed_paths.contains(&"note-1.md".to_string()));
+    assert!(!dev.path().join("note-1.md").exists());
+}
+
+#[test]
+fn cycle_conflict_keeps_both() {
+    let bare_dir = TempDir::new().unwrap();
+    let (_bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("note-0.md", "peer")]);
+    std::fs::write(dev.path().join("note-0.md"), "mine").unwrap();
+
+    let report = git_sync_inner(dev.path(), &url, "", GO).unwrap();
+    let copies = conflict_copies(dev.path());
+    assert_eq!(copies.len(), 1);
+    assert_eq!(report.conflicts, copies);
+    assert!(report.changed_paths.contains(&copies[0]));
+    assert_eq!(std::fs::read_to_string(dev.path().join("note-0.md")).unwrap(), "mine");
+}
+
+#[test]
+fn wake_after_days_merges_both_sides() {
+    let bare_dir = TempDir::new().unwrap();
+    let (bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    for i in 0..20 {
+        peer_commit_and_push(peer.path(), &[(&format!("peer-{i}.md"), "p")]);
+    }
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    std::fs::write(dev.path().join("local-1.md"), "1").unwrap();
+    commit_all(&repo, "local 1");
+    std::fs::write(dev.path().join("local-2.md"), "2").unwrap();
+    commit_all(&repo, "local 2");
+    std::fs::write(dev.path().join("dirty.md"), "d").unwrap();
+
+    let report = git_sync_inner(dev.path(), &url, "", GO).unwrap();
+    assert!(report.pushed);
+    let remote = remote_oid(&bare);
+    let files = tree_files(&bare, remote);
+    for f in ["local-1.md", "local-2.md", "dirty.md", "peer-19.md", "peer-0.md"] {
+        assert!(files.contains(&f.to_string()), "missing {f}");
+    }
+    let local = repo.head().unwrap().target().unwrap();
+    assert_eq!(local, remote);
+}
+
+#[test]
+fn push_blocked_when_paused_but_merge_runs() {
+    let bare_dir = TempDir::new().unwrap();
+    let (bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("peer.md", "p")]);
+    let before = remote_oid(&bare);
+    std::fs::write(dev.path().join("mine.md"), "m").unwrap();
+
+    let opts = CycleOptions {
+        confirm_deletions: false,
+        confirmed_deleted: None,
+        push_paused: true,
+    };
+    let report = git_sync_inner(dev.path(), &url, "", opts).unwrap();
+    assert!(!report.pushed);
+    assert_eq!(remote_oid(&bare), before);
+    assert!(dev.path().join("peer.md").exists());
+}
+
+#[test]
+fn guard_stops_push_without_confirmation() {
+    let bare_dir = TempDir::new().unwrap();
+    let (bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 12);
+    let dev = clone_device(&url);
+    let before = remote_oid(&bare);
+    for i in 0..11 {
+        std::fs::remove_file(dev.path().join(format!("note-{i}.md"))).unwrap();
+    }
+
+    let report = git_sync_inner(dev.path(), &url, "", GO).unwrap();
+    assert!(report.needs_confirmation.is_some());
+    assert!(!report.pushed);
+    assert_eq!(remote_oid(&bare), before);
+}
+
+#[test]
+fn confirmation_covers_only_the_deletions_the_user_saw() {
+    let bare_dir = TempDir::new().unwrap();
+    let (bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 12);
+    let dev = clone_device(&url);
+    let before = remote_oid(&bare);
+    for i in 0..11 {
+        std::fs::remove_file(dev.path().join(format!("note-{i}.md"))).unwrap();
+    }
+    let saw_fewer = CycleOptions {
+        confirm_deletions: true,
+        confirmed_deleted: Some(7),
+        push_paused: false,
+    };
+    let report = git_sync_inner(dev.path(), &url, "", saw_fewer).unwrap();
+    assert_eq!(report.needs_confirmation.map(|w| w.deleted), Some(11));
+    assert!(!report.pushed);
+    assert_eq!(remote_oid(&bare), before);
+
+    let saw_all = CycleOptions {
+        confirmed_deleted: Some(11),
+        ..saw_fewer
+    };
+    let report = git_sync_inner(dev.path(), &url, "", saw_all).unwrap();
+    assert!(report.needs_confirmation.is_none());
+    assert!(report.pushed);
+}
+
+#[test]
+fn status_counts_ahead() {
+    let bare_dir = TempDir::new().unwrap();
+    let (_bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 2);
+    let dev = clone_device(&url);
+    assert_eq!(sync_status_inner(dev.path()).unwrap().ahead, 0);
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    std::fs::write(dev.path().join("x.md"), "x").unwrap();
+    commit_all(&repo, "local");
+
+    let status = sync_status_inner(dev.path()).unwrap();
+    assert_eq!(status.ahead, 1);
+    assert!(!status.uncommitted);
+}
+
+#[test]
+fn commit_message_has_device() {
+    let bare_dir = TempDir::new().unwrap();
+    let (bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 2);
+    let dev = clone_device(&url);
+    std::fs::write(dev.path().join("x.md"), "x").unwrap();
+    git_sync_inner(dev.path(), &url, "", GO).unwrap();
+
+    let msg = bare.find_commit(remote_oid(&bare)).unwrap().message().unwrap().to_string();
+    assert!(msg.starts_with("MarkDaun sync ("), "{msg}");
+}
+
+#[test]
+fn sanitize_device_name_cases() {
+    let n = sanitize_device_name("Carlos's MacBook.local");
+    assert!(!n.is_empty());
+    assert!(n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'), "{n}");
+    assert_eq!(sanitize_device_name(""), "Mac");
+    assert_eq!(sanitize_device_name("日本語"), "Mac");
+}
+
+mod persisted_state {
+    use crate::db::config::ConfigDb;
+    use crate::git::state::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn paused_reason_survives_reopen() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.db");
+        {
+            let db = ConfigDb::open(&path).unwrap();
+            assert_eq!(paused_reason(db.connection()), None);
+            set_paused_reason(db.connection(), Some("deletion")).unwrap();
+        }
+        let db = ConfigDb::open(&path).unwrap();
+        assert_eq!(paused_reason(db.connection()), Some("deletion".to_string()));
+        set_paused_reason(db.connection(), None).unwrap();
+        assert_eq!(paused_reason(db.connection()), None);
+    }
+
+    #[test]
+    fn conflicts_accumulate_and_dedupe() {
+        let dir = TempDir::new().unwrap();
+        let db = ConfigDb::open(&dir.path().join("config.db")).unwrap();
+        let c = db.connection();
+        assert!(pending_conflicts(c).is_empty());
+        add_conflicts(c, &["a".to_string()]).unwrap();
+        add_conflicts(c, &["a".to_string(), "b".to_string()]).unwrap();
+        assert_eq!(pending_conflicts(c), vec!["a".to_string(), "b".to_string()]);
+        clear_conflicts(c).unwrap();
+        assert!(pending_conflicts(c).is_empty());
+    }
+
+    #[test]
+    fn last_success_roundtrip_and_missing_table_is_absent() {
+        let dir = TempDir::new().unwrap();
+        let db = ConfigDb::open(&dir.path().join("config.db")).unwrap();
+        assert_eq!(last_success(db.connection()), None);
+        set_last_success(db.connection(), "2026-11-02T10:00:00+00:00").unwrap();
+        assert_eq!(
+            last_success(db.connection()),
+            Some("2026-11-02T10:00:00+00:00".to_string())
+        );
+        let bare = rusqlite::Connection::open_in_memory().unwrap();
+        assert_eq!(last_success(&bare), None);
+        assert!(set_last_success(&bare, "x").is_err(), "write failures must surface");
+    }
+}
+
+mod watcher_tests {
+    use crate::git::watcher::{is_ignored, VaultWatcher};
+    use std::path::{Path, PathBuf};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+    use tempfile::TempDir;
+
+    #[test]
+    fn ignores_git_and_markdaun() {
+        let cases = [
+            (".git/index", true),
+            (".git", true),
+            (".markdaun/config.db", true),
+            ("notes/.DS_Store", true),
+            (".DS_Store", true),
+            ("a.md~", true),
+            ("a.md.swp", true),
+            ("a.tmp", true),
+            (".#a.md", true),
+            ("sub/.#a.md", true),
+            ("a.md", false),
+            ("sub/a.md", false),
+            (".gitignore", false),
+            (".github/x.md", false),
+        ];
+        for (p, expected) in cases {
+            assert_eq!(is_ignored(Path::new(p)), expected, "{p}");
+        }
+    }
+
+    #[test]
+    fn watcher_reports_note_write() {
+        let dir = TempDir::new().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
+        let _w = VaultWatcher::start(dir.path().to_path_buf(), move |paths| {
+            let _ = tx.send(paths);
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        std::fs::write(dir.path().join(".git").join("x"), "x").unwrap();
+        std::fs::write(dir.path().join("n.md"), "hi").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen: Vec<PathBuf> = Vec::new();
+        while Instant::now() < deadline {
+            if let Ok(batch) = rx.recv_timeout(Duration::from_millis(500)) {
+                seen.extend(batch);
+                if seen.iter().any(|p| p == Path::new("n.md")) {
+                    break;
+                }
+            }
+        }
+        // Drain anything else, for longer than the 1 s debounce.
+        while let Ok(batch) = rx.recv_timeout(Duration::from_millis(1500)) {
+            seen.extend(batch);
+        }
+        let set: std::collections::HashSet<PathBuf> = seen.iter().cloned().collect();
+        let expected: std::collections::HashSet<PathBuf> =
+            [PathBuf::from("n.md")].into_iter().collect();
+        assert_eq!(set, expected, "got {seen:?}");
+        assert!(seen.iter().all(|p| p.is_relative()), "{seen:?}");
+    }
+}
+
+
+// ─── Late editor writes vs the merge checkout ─────────────────────────────────
+
+/// A write that lands after the cycle's first local commit (ack timeout,
+/// safety net) must be committed before a fast-forward checkout, not reverted.
+#[test]
+fn late_write_survives_fast_forward_and_is_pushed() {
+    let bare_dir = TempDir::new().unwrap();
+    let (bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("note-1.md", "peer")]);
+
+    // Fetch as the cycle does, then the editor writes before the merge.
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    repo.find_remote("origin")
+        .unwrap()
+        .fetch(&["refs/heads/main:refs/remotes/origin/main"], None, None)
+        .unwrap();
+    std::fs::write(dev.path().join("note-0.md"), "tecleado tarde").unwrap();
+
+    let mut own = LateEdits::new();
+    let copies = merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
+
+    assert!(copies.is_empty());
+    assert_eq!(std::fs::read_to_string(dev.path().join("note-0.md")).unwrap(), "tecleado tarde");
+    assert_eq!(std::fs::read_to_string(dev.path().join("note-1.md")).unwrap(), "peer");
+    assert!(own.contains_key("note-0.md"), "own late edit is not a remote change: {own:?}");
+    assert!(!own.contains_key("note-1.md"));
+
+    let report = git_sync_inner(dev.path(), &url, "", GO).unwrap();
+    assert!(report.pushed);
+    assert_eq!(blob_at(&bare, remote_oid(&bare), "note-0.md"), "tecleado tarde");
+}
+
+/// Same for a real merge: the late write on the note the peer also edited
+/// keeps the path and the remote version becomes a conflict copy.
+#[test]
+fn late_write_on_diverged_note_becomes_conflict_not_revert() {
+    let bare_dir = TempDir::new().unwrap();
+    let (_bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("note-0.md", "peer")]);
+    // A committed local change elsewhere forces a real merge.
+    std::fs::write(dev.path().join("note-2.md"), "mine").unwrap();
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    commit_all(&repo, "local");
+    repo.find_remote("origin")
+        .unwrap()
+        .fetch(&["refs/heads/main:refs/remotes/origin/main"], None, None)
+        .unwrap();
+    std::fs::write(dev.path().join("note-0.md"), "tecleado tarde").unwrap();
+
+    let mut own = LateEdits::new();
+    let copies = merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
+
+    assert_eq!(copies.len(), 1);
+    assert_eq!(std::fs::read_to_string(dev.path().join("note-0.md")).unwrap(), "tecleado tarde");
+    assert_eq!(std::fs::read_to_string(dev.path().join(&copies[0])).unwrap(), "peer");
+}
+
+/// A late write and a peer edit to different paragraphs of the same note
+/// auto-merge cleanly: the merged file holds content the editor has not seen,
+/// so it must be reported (the open note reloads instead of dropping the
+/// peer's hunk on its next save).
+#[test]
+fn late_write_with_non_overlapping_peer_edit_is_reported() {
+    let bare_dir = TempDir::new().unwrap();
+    let (_bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 1);
+    let base: String = (1..=12).map(|i| format!("línea {i}\n")).collect();
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("x.md", &base)]);
+    let dev = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("x.md", &base.replacen("línea 1\n", "línea 1 peer\n", 1))]);
+
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    let before = repo.head().unwrap().peel_to_tree().unwrap().id();
+    repo.find_remote("origin")
+        .unwrap()
+        .fetch(&["refs/heads/main:refs/remotes/origin/main"], None, None)
+        .unwrap();
+    std::fs::write(dev.path().join("x.md"), base.replace("línea 12\n", "línea 12 mía\n")).unwrap();
+
+    let mut own = LateEdits::new();
+    let copies = merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
+
+    assert!(copies.is_empty(), "non-overlapping hunks merge cleanly");
+    let merged = std::fs::read_to_string(dev.path().join("x.md")).unwrap();
+    assert!(merged.contains("línea 1 peer") && merged.contains("línea 12 mía"), "{merged}");
+    let changed = remote_changes(&repo, Some(before), &own).unwrap();
+    assert!(changed.contains(&"x.md".to_string()), "{changed:?}");
+}
+
+/// A late write the merge left untouched is still not a remote change.
+#[test]
+fn late_write_untouched_by_merge_is_not_reported() {
+    let bare_dir = TempDir::new().unwrap();
+    let (_bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("note-1.md", "peer")]);
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    let before = repo.head().unwrap().peel_to_tree().unwrap().id();
+    repo.find_remote("origin")
+        .unwrap()
+        .fetch(&["refs/heads/main:refs/remotes/origin/main"], None, None)
+        .unwrap();
+    std::fs::write(dev.path().join("note-0.md"), "tecleado tarde").unwrap();
+
+    let mut own = LateEdits::new();
+    merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
+
+    let changed = remote_changes(&repo, Some(before), &own).unwrap();
+    assert!(changed.contains(&"note-1.md".to_string()));
+    assert!(!changed.contains(&"note-0.md".to_string()), "{changed:?}");
+}
+
+// ─── Checkout before the branch moves ─────────────────────────────────────────
+
+#[cfg(unix)]
+mod checkout_order {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn local_main(dir: &Path) -> git2::Oid {
+        git2::Repository::open(dir)
+            .unwrap()
+            .find_reference("refs/heads/main")
+            .unwrap()
+            .target()
+            .unwrap()
+    }
+
+    fn set_mode(dir: &Path, mode: u32) {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// The remote adds `sub/b.md`; this device's `sub/` cannot be written.
+    fn setup() -> (TempDir, String, TempDir) {
+        let bare_dir = TempDir::new().unwrap();
+        let (_bare, url) = bare_repo(&bare_dir);
+        seed_remote(&url, 2);
+        let peer = clone_device(&url);
+        peer_commit_and_push(peer.path(), &[("sub/a.md", "a")]);
+        let dev = clone_device(&url);
+        peer_commit_and_push(peer.path(), &[("sub/b.md", "b")]);
+        (bare_dir, url, dev)
+    }
+
+    #[test]
+    fn failed_fast_forward_checkout_leaves_the_branch_unmoved() {
+        let (_bare, url, dev) = setup();
+        let before = local_main(dev.path());
+        set_mode(&dev.path().join("sub"), 0o555);
+        let res = git_sync_inner(dev.path(), &url, "", GO);
+        set_mode(&dev.path().join("sub"), 0o755);
+
+        assert!(
+            matches!(res, Err(crate::git::error::SyncError::Git(_))),
+            "{res:?}"
+        );
+        assert_eq!(local_main(dev.path()), before, "main must not move");
+
+        // Once writable, the next cycle fast-forwards normally.
+        git_sync_inner(dev.path(), &url, "", GO).unwrap();
+        assert_ne!(local_main(dev.path()), before);
+        assert_eq!(std::fs::read_to_string(dev.path().join("sub/b.md")).unwrap(), "b");
+    }
+
+    #[test]
+    fn failed_merge_checkout_leaves_the_branch_on_the_local_commit() {
+        let (_bare, url, dev) = setup();
+        std::fs::write(dev.path().join("mine.md"), "m").unwrap();
+        set_mode(&dev.path().join("sub"), 0o555);
+        let res = git_sync_inner(dev.path(), &url, "", GO);
+        set_mode(&dev.path().join("sub"), 0o755);
+
+        assert!(
+            matches!(res, Err(crate::git::error::SyncError::Git(_))),
+            "{res:?}"
+        );
+        let repo = git2::Repository::open(dev.path()).unwrap();
+        let head = repo.find_commit(local_main(dev.path())).unwrap();
+        assert_eq!(head.parent_count(), 1, "no merge commit on main yet");
+        assert!(head.tree().unwrap().get_path(Path::new("mine.md")).is_ok());
+
+        git_sync_inner(dev.path(), &url, "", GO).unwrap();
+        let head = repo.find_commit(local_main(dev.path())).unwrap();
+        assert_eq!(head.parent_count(), 2);
+        assert_eq!(std::fs::read_to_string(dev.path().join("mine.md")).unwrap(), "m");
+        assert_eq!(std::fs::read_to_string(dev.path().join("sub/b.md")).unwrap(), "b");
+    }
+}

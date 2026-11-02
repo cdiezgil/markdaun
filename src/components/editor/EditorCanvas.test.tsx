@@ -31,6 +31,7 @@ vi.mock('@tiptap/react', () => ({
         setImage: vi.fn().mockReturnValue({ run: vi.fn() }),
       }),
     }),
+    setEditable: vi.fn(),
     destroy: vi.fn(),
     isDestroyed: false,
   })),

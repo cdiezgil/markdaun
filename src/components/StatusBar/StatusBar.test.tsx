@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import React from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { StatusBar } from './StatusBar';
 import { useEditorStore } from '../../store/editorStore';
 import { useSyncStore } from '../../store/syncStore';
+import type { SyncState } from '../../lib/tauri';
 import { useLlmStore } from '../../store/llmStore';
 import { useGraphStore } from '../../store/graphStore';
 
@@ -43,12 +44,31 @@ beforeEach(() => {
   useSyncStore.setState({
     config: { repoUrl: null, isConnected: false },
     status: { hasChanges: false },
-    isLoading: false,
+    state: null,
+    connecting: false,
     error: null,
+    running: false,
+    localPending: false,
   });
   useLlmStore.setState({ connections: [], active: null, loaded: true });
 });
 afterEach(() => { vi.useRealTimers(); });
+
+function syncState(
+  over: Partial<SyncState> = {},
+  view: Partial<SyncState['view']> = {},
+): SyncState {
+  return {
+    report: null,
+    error: null,
+    view: { running: false, pendingDebounce: false, consecutiveFailures: 0, offline: false, halted: false, needsReview: false, ...view },
+    status: { uncommitted: false, ahead: 0 },
+    pausedReason: null,
+    pendingConflicts: [],
+    lastSuccess: null,
+    ...over,
+  };
+}
 
 describe('StatusBar', () => {
   it('hides note items when no note is open but keeps the AI selector', () => {
@@ -171,10 +191,120 @@ describe('StatusBar', () => {
       useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true } });
       renderBar();
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Al día');
-      act(() => { useSyncStore.setState({ status: { hasChanges: true } }); });
-      expect(screen.getByTestId('sync-status')).toHaveTextContent('Cambios pendientes');
-      act(() => { useSyncStore.setState({ isLoading: true }); });
+      act(() => { useSyncStore.setState({ state: syncState({ status: { uncommitted: true, ahead: 0 } }) }); });
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Pendiente');
+      act(() => { useSyncStore.setState({ state: syncState(), running: true }); });
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Sincronizando');
+      act(() => { useSyncStore.setState({ state: syncState({}, { offline: true }), running: false }); });
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Sin conexión');
+      act(() => { useSyncStore.setState({ state: syncState({ pausedReason: 'deletion' }) }); });
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Requiere revisión');
+    });
+
+    it('renders each indicator label', () => {
+      useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true } });
+      renderBar();
+      const cases: [Partial<SyncState>, Partial<SyncState['view']>, boolean, string][] = [
+        [{}, {}, false, 'Al día'],
+        [{ status: { uncommitted: true, ahead: 0 } }, {}, false, 'Pendiente'],
+        [{}, {}, true, 'Sincronizando'],
+        [{}, { offline: true }, false, 'Sin conexión'],
+        [{ pendingConflicts: ['a.md'] }, {}, false, 'Requiere revisión'],
+        [{}, { needsReview: true }, false, 'Requiere revisión'],
+      ];
+      for (const [over, view, running, label] of cases) {
+        act(() => { useSyncStore.setState({ state: syncState(over, view), running }); });
+        expect(screen.getByTestId('sync-status')).toHaveTextContent(label);
+      }
+    });
+
+    it('a save shows "Pendiente" before the backend reports it', () => {
+      useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true }, state: syncState(), running: false });
+      renderBar();
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Al día');
+      act(() => { useSyncStore.getState().markPending(); });
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Pendiente');
+    });
+
+    it('frontend-only conflict copies need review too', () => {
+      useSyncStore.setState({
+        config: { repoUrl: 'u', isConnected: true },
+        state: syncState(),
+        localConflicts: ['a (conflicto x).md'],
+      });
+      renderBar();
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Requiere revisión');
+      useSyncStore.setState({ localConflicts: [] });
+    });
+
+    it('tooltip shows the Spanish error text when review is needed', () => {
+      useSyncStore.setState({
+        config: { repoUrl: 'u', isConnected: true },
+        state: syncState({ error: { kind: 'unauthorized', detail: 'x' } }, { halted: true }),
+      });
+      renderBar();
+      expect(screen.getByTestId('sync-status')).toHaveAttribute('title', 'Token de GitHub no válido o caducado');
+    });
+
+    it('click triggers manual sync', () => {
+      const syncNow = vi.fn().mockResolvedValue(undefined);
+      useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true }, state: syncState(), syncNow });
+      renderBar();
+      fireEvent.click(screen.getByTestId('sync-status'));
+      expect(syncNow).toHaveBeenCalledTimes(1);
+    });
+
+    it('click opens the GitHub settings when the token was rejected', () => {
+      const syncNow = vi.fn().mockResolvedValue(undefined);
+      useSyncStore.setState({
+        config: { repoUrl: 'u', isConnected: true },
+        state: syncState({ error: { kind: 'unauthorized', detail: 'x' } }, { halted: true }),
+        syncNow,
+      });
+      let path = '';
+      function Probe(): null {
+        path = useLocation().pathname + useLocation().hash;
+        return null;
+      }
+      render(
+        <MemoryRouter initialEntries={['/']}>
+          <StatusBar />
+          <Probe />
+        </MemoryRouter>,
+      );
+      fireEvent.click(screen.getByTestId('sync-status'));
+      expect(path).toBe('/settings#github');
+      expect(syncNow).not.toHaveBeenCalled();
+    });
+
+    it('click opens deletion dialog when paused', () => {
+      const syncNow = vi.fn().mockResolvedValue(undefined);
+      const openDeletionPrompt = vi.fn();
+      useSyncStore.setState({
+        config: { repoUrl: 'u', isConnected: true },
+        state: syncState({ pausedReason: 'deletion' }),
+        syncNow,
+        openDeletionPrompt,
+      });
+      renderBar();
+      fireEvent.click(screen.getByTestId('sync-status'));
+      expect(openDeletionPrompt).toHaveBeenCalledTimes(1);
+      expect(syncNow).not.toHaveBeenCalled();
+    });
+
+    it('never says Guardado while a write is deferred or blocked', () => {
+      seedNote('x');
+      renderBar();
+      act(() => {
+        useEditorStore.setState({
+          deferredWrites: { '/vault/y.md': { content: 'c', vault: '/vault', base: null, blocked: false } },
+        });
+      });
+      expect(screen.getByTestId('save-state')).toHaveTextContent('Sin guardar');
+      act(() => { useEditorStore.setState({ deferredWrites: {}, saveBlockedPath: '/vault/x.md' }); });
+      expect(screen.getByTestId('save-state')).toHaveTextContent('Sin guardar');
+      act(() => { useEditorStore.setState({ saveBlockedPath: null }); });
+      expect(screen.getByTestId('save-state')).toHaveTextContent('Guardado');
     });
 
     it('styles sync errors with danger and exposes detail in tooltip', () => {

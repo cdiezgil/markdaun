@@ -12,7 +12,7 @@ use git2::{
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 use thiserror::Error;
@@ -74,6 +74,8 @@ pub struct DeletionWarning {
     pub total: usize,
 }
 
+/// Result of the legacy push/pull wrappers, kept for the sync tests.
+#[cfg(test)]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncResult {
@@ -93,6 +95,9 @@ pub enum GitError {
     StateChanged,
     #[error("push_rejected: {0}")]
     PushRejected(String),
+    /// Writing the merged tree into the vault failed; `main` was not moved.
+    #[error("checkout: {0}")]
+    Checkout(String),
 }
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
@@ -137,6 +142,7 @@ fn set_origin(repo: &Repository, remote_url: &str) -> Result<(), GitError> {
 /// has no `main` branch (empty repository). Network/auth errors propagate.
 fn fetch_main(repo: &Repository, pat: &str) -> Result<bool, GitError> {
     let mut remote = repo.find_remote("origin")?;
+    super::error::apply_network_timeouts();
     let mut opts = FetchOptions::new();
     opts.remote_callbacks(callbacks(pat));
     // NOTE: `Remote::list()` is avoided on purpose: git2 0.19 builds a slice from a
@@ -276,7 +282,7 @@ fn commit_local_changes(repo: &Repository) -> Result<bool, GitError> {
     }
     let tree = repo.find_tree(tree_oid)?;
     let sig = signature()?;
-    let msg = format!("MarkDaun sync — {}", Utc::now().to_rfc3339());
+    let msg = format!("MarkDaun sync ({}) — {}", device_name(), Utc::now().to_rfc3339());
     let parents: Vec<&git2::Commit> = parent.iter().collect();
     repo.commit(Some("refs/heads/main"), &sig, &sig, &msg, &tree, &parents)?;
     Ok(true)
@@ -284,7 +290,7 @@ fn commit_local_changes(repo: &Repository) -> Result<bool, GitError> {
 
 // ─── Merging ──────────────────────────────────────────────────────────────────
 
-fn conflict_copy_name(path: &str, stamp: &str, taken: &dyn Fn(&str) -> bool) -> String {
+pub(crate) fn conflict_copy_name(path: &str, stamp: &str, taken: &dyn Fn(&str) -> bool) -> String {
     let p = Path::new(path);
     let dir = p
         .parent()
@@ -336,27 +342,77 @@ fn union_lines(a: &[u8], b: &[u8]) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// Merge `origin/main` into the (fully committed) local `main`.
-/// Returns the conflict copies that were created.
+/// Paths this device committed late (see `commit_late_changes`) mapped to
+/// their blob in that commit (`None` when the late edit deleted the file).
+pub(crate) type LateEdits = BTreeMap<String, Option<Oid>>;
+
+/// Merge `origin/main` into the local `main`. Returns the conflict copies.
 fn merge_remote(repo: &Repository, stamp: &str) -> Result<Vec<String>, GitError> {
+    merge_remote_noting(repo, stamp, &mut LateEdits::new())
+}
+
+/// Commits local writes that landed after the cycle's first commit (an editor
+/// save after the ack timeout or the hold safety net), so the checkout
+/// below merges them instead of reverting them. Their paths go to `own`: they
+/// are this device's edits, not remote changes.
+fn commit_late_changes(repo: &Repository, own: &mut LateEdits) -> Result<(), GitError> {
+    let before = head_tree(repo).map(|t| t.id());
+    if commit_local_changes(repo)? {
+        let tree = head_tree(repo);
+        for path in diff_since(repo, before)? {
+            let blob = tree.as_ref().and_then(|t| blob_at(t, &path));
+            own.insert(path, blob);
+        }
+    }
+    Ok(())
+}
+
+/// Moves `main` to `target` only after its tree is in the working directory.
+/// A safe checkout (baseline: the current HEAD) never overwrites a file that
+/// differs from HEAD, so a write that lands after `commit_late_changes` makes
+/// the checkout fail instead of being lost. On failure `main` stays where it
+/// was: the next cycle commits whatever was written and merges again, so the
+/// remote changes are never silently reverted.
+fn checkout_then_move(repo: &Repository, target: Oid, msg: &str, force: bool) -> Result<(), GitError> {
+    let commit = repo.find_commit(target)?;
+    let mut cb = CheckoutBuilder::new();
+    if force {
+        cb.force();
+    } else {
+        cb.safe();
+    }
+    repo.checkout_tree(commit.as_object(), Some(&mut cb))
+        .map_err(|e| GitError::Checkout(e.message().to_string()))?;
+    repo.reference("refs/heads/main", target, true, msg)?;
+    repo.set_head("refs/heads/main")?;
+    Ok(())
+}
+
+/// [`merge_remote`], recording late local edits it had to commit in `own`.
+pub(crate) fn merge_remote_noting(
+    repo: &Repository,
+    stamp: &str,
+    own: &mut LateEdits,
+) -> Result<Vec<String>, GitError> {
     let Some(theirs) = remote_tip(repo) else {
         return Ok(vec![]);
     };
+    if head_oid(repo).is_some() {
+        commit_late_changes(repo, own)?;
+    }
     let Some(ours) = head_oid(repo) else {
-        // Unborn local branch: just adopt the remote history.
-        repo.reference("refs/heads/main", theirs, true, "adopt remote")?;
-        repo.set_head("refs/heads/main")?;
-        repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
+        // Unborn local branch (nothing local was ever committed): adopt the
+        // remote history. Forced, as there is no HEAD to compare against.
+        checkout_then_move(repo, theirs, "adopt remote", true)?;
         return Ok(vec![]);
     };
     if ours == theirs || repo.graph_descendant_of(ours, theirs)? {
         return Ok(vec![]); // up to date (or we are ahead)
     }
     if repo.graph_descendant_of(theirs, ours)? {
-        // Fast-forward. Everything local is committed, so this loses nothing.
-        repo.reference("refs/heads/main", theirs, true, "fast-forward")?;
-        repo.set_head("refs/heads/main")?;
-        repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
+        // Fast-forward. Everything local was just committed (and an ahead HEAD
+        // never fast-forwards), so this loses nothing.
+        checkout_then_move(repo, theirs, "fast-forward", false)?;
         return Ok(vec![]);
     }
 
@@ -414,20 +470,14 @@ fn merge_remote(repo: &Repository, stamp: &str) -> Result<Vec<String>, GitError>
     let tree = repo.find_tree(tree_oid)?;
     let sig = signature()?;
     let msg = format!("MarkDaun merge — {}", Utc::now().to_rfc3339());
-    repo.commit(
-        Some("refs/heads/main"),
-        &sig,
-        &sig,
-        &msg,
-        &tree,
-        &[&our_commit, &their_commit],
-    )?;
-    // Everything local was committed before merging, so forcing is lossless.
-    repo.checkout_head(Some(CheckoutBuilder::new().force()))?;
+    // The merge commit is created detached; `main` moves only once its tree
+    // is in the working directory.
+    let merged = repo.commit(None, &sig, &sig, &msg, &tree, &[&our_commit, &their_commit])?;
+    checkout_then_move(repo, merged, "merge", false)?;
     Ok(copies)
 }
 
-fn conflict_stamp() -> String {
+pub(crate) fn conflict_stamp() -> String {
     Local::now().format("%Y-%m-%d %H-%M").to_string()
 }
 
@@ -450,6 +500,7 @@ pub(crate) fn push_branch(repo: &Repository, pat: &str) -> Result<PushStatus, Gi
         }
         Ok(())
     });
+    super::error::apply_network_timeouts();
     let mut opts = PushOptions::new();
     opts.remote_callbacks(cb);
     let mut remote = repo.find_remote("origin")?;
@@ -470,12 +521,13 @@ fn push_with_retry(
     repo: &Repository,
     pat: &str,
     conflicts: &mut Vec<String>,
+    own: &mut LateEdits,
 ) -> Result<(), GitError> {
     match push_branch(repo, pat)? {
         PushStatus::Pushed => Ok(()),
         PushStatus::Rejected(_) => {
             fetch_main(repo, pat)?;
-            conflicts.extend(merge_remote(repo, &conflict_stamp())?);
+            conflicts.extend(merge_remote_noting(repo, &conflict_stamp(), own)?);
             match push_branch(repo, pat)? {
                 PushStatus::Pushed => Ok(()),
                 PushStatus::Rejected(msg) => Err(GitError::PushRejected(msg)),
@@ -514,56 +566,274 @@ pub fn git_status_inner(vault_path: &Path) -> Result<bool, GitError> {
     Ok(!statuses.is_empty())
 }
 
+/// Short, filesystem-safe name of this machine, used in commit messages.
+/// Computed once; never spawns a process on Windows.
+pub fn device_name() -> String {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| sanitize_device_name(&raw_hostname())).clone()
+}
+
+#[cfg(windows)]
+fn raw_hostname() -> String {
+    std::env::var("COMPUTERNAME").unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+fn raw_hostname() -> String {
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .unwrap_or_default()
+}
+
+pub(crate) fn sanitize_device_name(raw: &str) -> String {
+    let clean: String = raw
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .collect();
+    let clean = clean.trim_matches('-');
+    if clean.is_empty() {
+        "Mac".to_string()
+    } else {
+        clean.to_string()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CycleOptions {
+    pub confirm_deletions: bool,
+    /// Deletions the user saw when confirming. With `confirm_deletions`, a
+    /// guard that now counts more asks again instead of pushing; `None`
+    /// confirms any count.
+    pub confirmed_deleted: Option<usize>,
+    pub push_paused: bool,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CycleReport {
+    /// Vault-relative paths (`/` separators) that differ between the HEAD tree
+    /// after the cycle's local commit and the post-cycle HEAD tree: remote
+    /// changes and conflict copies, not the device's own edits.
+    pub changed_paths: Vec<String>,
+    /// Vault-relative paths of conflict copies created while merging.
+    pub conflicts: Vec<String>,
+    /// Set when the push was NOT performed and needs the user's confirmation.
+    pub needs_confirmation: Option<DeletionWarning>,
+    pub pushed: bool,
+}
+
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    pub uncommitted: bool,
+    pub ahead: usize,
+}
+
+/// Vault-relative paths whose content differs between two trees. Renames show
+/// up as a deletion plus an addition.
+fn changed_paths(
+    repo: &Repository,
+    before: Option<&Tree>,
+    after: Option<&Tree>,
+) -> Result<Vec<String>, git2::Error> {
+    let diff = repo.diff_tree_to_tree(before, after, None)?;
+    let mut out = std::collections::BTreeSet::new();
+    for delta in diff.deltas() {
+        let file = if delta.status() == git2::Delta::Deleted {
+            delta.old_file()
+        } else {
+            delta.new_file()
+        };
+        if let Some(p) = file.path() {
+            let path = p.to_string_lossy().replace('\\', "/");
+            let name = path.rsplit('/').next().unwrap_or(&path);
+            if path != ".gitignore" && !is_noise(name) {
+                out.insert(path);
+            }
+        }
+    }
+    Ok(out.into_iter().collect())
+}
+
+fn head_tree(repo: &Repository) -> Option<Tree<'_>> {
+    head_oid(repo)
+        .and_then(|oid| repo.find_commit(oid).ok())
+        .and_then(|c| c.tree().ok())
+}
+
+fn sync_cycle(
+    vault_path: &Path,
+    remote_url: &str,
+    pat: &str,
+    opts: CycleOptions,
+) -> Result<CycleReport, GitError> {
+    let repo = Repository::open(vault_path)?;
+    set_origin(&repo, remote_url)?;
+    commit_local_changes(&repo)?;
+    let before = head_tree(&repo).map(|t| t.id());
+
+    let mut conflicts = Vec::new();
+    // Late local edits committed by the merges: not reported as remote changes.
+    let mut own = LateEdits::new();
+    if fetch_main(&repo, pat)? {
+        conflicts.extend(merge_remote_noting(&repo, &conflict_stamp(), &mut own)?);
+        if !opts.push_paused {
+            if let Some(warning) = deletion_warning(&repo)?
+                .filter(|w| !confirmed(&opts, w))
+            {
+                return Ok(CycleReport {
+                    changed_paths: remote_changes(&repo, before, &own)?,
+                    conflicts,
+                    needs_confirmation: Some(warning),
+                    pushed: false,
+                });
+            }
+        }
+    }
+
+    let mut pushed = false;
+    if !opts.push_paused && head_oid(&repo).is_some() {
+        push_with_retry(&repo, pat, &mut conflicts, &mut own)?;
+        pushed = true;
+    }
+    Ok(CycleReport {
+        changed_paths: remote_changes(&repo, before, &own)?,
+        conflicts,
+        needs_confirmation: None,
+        pushed,
+    })
+}
+
+/// The user already accepted this many deletions (or more).
+fn confirmed(opts: &CycleOptions, w: &DeletionWarning) -> bool {
+    opts.confirm_deletions && opts.confirmed_deleted.is_none_or(|seen| w.deleted <= seen)
+}
+
+/// Paths changed since `before`, minus this device's late edits (`own`)
+/// that the merge left exactly as committed. A late-edited path the merge
+/// changed (e.g. a clean auto-merge with a peer's hunk) holds content the
+/// editor has not seen, so it is reported. Conflict copies are never in `own`.
+pub(crate) fn remote_changes(
+    repo: &Repository,
+    before: Option<Oid>,
+    own: &LateEdits,
+) -> Result<Vec<String>, git2::Error> {
+    let mut paths = diff_since(repo, before)?;
+    let head = head_tree(repo);
+    paths.retain(|p| match own.get(p) {
+        Some(late) => *late != head.as_ref().and_then(|t| blob_at(t, p)),
+        None => true,
+    });
+    Ok(paths)
+}
+
+fn blob_at(tree: &Tree, path: &str) -> Option<Oid> {
+    tree.get_path(Path::new(path)).ok().map(|e| e.id())
+}
+
+fn diff_since(repo: &Repository, before: Option<Oid>) -> Result<Vec<String>, git2::Error> {
+    let before_tree = before.map(|oid| repo.find_tree(oid)).transpose()?;
+    let after = head_tree(repo);
+    changed_paths(repo, before_tree.as_ref(), after.as_ref())
+}
+
+/// One full sync cycle: commit local changes, fetch, merge, deletion guard,
+/// push (never forced). The push is skipped when `push_paused` or when the
+/// guard fires without `confirm_deletions`.
+pub fn git_sync_inner(
+    vault: &Path,
+    url: &str,
+    pat: &str,
+    opts: CycleOptions,
+) -> Result<CycleReport, super::error::SyncError> {
+    sync_cycle(vault, url, pat, opts).map_err(|e| super::error::classify(&e))
+}
+
+/// Commit pending local changes without touching the network (quit path).
+/// Returns false when there was nothing to commit or the vault is not a repo.
+pub fn commit_local_inner(vault: &Path) -> Result<bool, super::error::SyncError> {
+    if !vault.join(".git").exists() {
+        return Ok(false);
+    }
+    Repository::open(vault)
+        .map_err(GitError::from)
+        .and_then(|repo| commit_local_changes(&repo))
+        .map_err(|e| super::error::classify(&e))
+}
+
+/// Uncommitted changes and the number of local commits not yet on `origin/main`.
+pub fn sync_status_inner(vault: &Path) -> Result<SyncStatus, super::error::SyncError> {
+    let to_err = |e: git2::Error| super::error::classify(&GitError::Git(e));
+    if !vault.join(".git").exists() {
+        return Ok(SyncStatus {
+            uncommitted: false,
+            ahead: 0,
+        });
+    }
+    let repo = Repository::open(vault).map_err(to_err)?;
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true).recurse_untracked_dirs(true);
+    let uncommitted = !repo.statuses(Some(&mut opts)).map_err(to_err)?.is_empty();
+    let ahead = match (head_oid(&repo), remote_tip(&repo)) {
+        (Some(h), Some(r)) => repo.graph_ahead_behind(h, r).map_err(to_err)?.0,
+        _ => 0,
+    };
+    Ok(SyncStatus { uncommitted, ahead })
+}
+
 /// Commit local changes on top of HEAD, merge anything new from the remote and
 /// push (never forced). When the push would delete most of the remote notes it
 /// is NOT performed unless `confirm_deletions` is true.
+#[cfg(test)]
 pub fn git_push_inner(
     vault_path: &Path,
     remote_url: &str,
     pat: &str,
     confirm_deletions: bool,
 ) -> Result<SyncResult, GitError> {
-    let repo = Repository::open(vault_path)?;
-    set_origin(&repo, remote_url)?;
-    commit_local_changes(&repo)?;
-
-    let mut conflicts = Vec::new();
-    if fetch_main(&repo, pat)? {
-        conflicts.extend(merge_remote(&repo, &conflict_stamp())?);
-        if !confirm_deletions {
-            if let Some(warning) = deletion_warning(&repo)? {
-                return Ok(SyncResult {
-                    conflicts,
-                    needs_confirmation: Some(warning),
-                });
-            }
-        }
-    }
-    push_with_retry(&repo, pat, &mut conflicts)?;
+    let report = sync_cycle(
+        vault_path,
+        remote_url,
+        pat,
+        CycleOptions {
+            confirm_deletions,
+            confirmed_deleted: None,
+            push_paused: false,
+        },
+    )?;
     Ok(SyncResult {
-        conflicts,
-        needs_confirmation: None,
+        conflicts: report.conflicts,
+        needs_confirmation: report.needs_confirmation,
     })
 }
 
 /// Commit local changes, fetch `origin/main` and merge it. Never discards
 /// local work: divergence becomes a merge commit, same-note edits keep both
 /// versions.
+#[cfg(test)]
 pub fn git_pull_inner(
     vault_path: &Path,
     remote_url: &str,
     pat: &str,
 ) -> Result<SyncResult, GitError> {
-    let repo = Repository::open(vault_path)?;
-    set_origin(&repo, remote_url)?;
-    commit_local_changes(&repo)?;
-    let conflicts = if fetch_main(&repo, pat)? {
-        merge_remote(&repo, &conflict_stamp())?
-    } else {
-        vec![]
-    };
+    let report = sync_cycle(
+        vault_path,
+        remote_url,
+        pat,
+        CycleOptions {
+            confirm_deletions: false,
+            confirmed_deleted: None,
+            push_paused: true,
+        },
+    )?;
     Ok(SyncResult {
-        conflicts,
+        conflicts: report.conflicts,
         needs_confirmation: None,
     })
 }
@@ -623,7 +893,7 @@ pub fn git_connect_apply_inner(
         conflicts.extend(merge_remote(&repo, &conflict_stamp())?);
     }
     if action != ConnectAction::Cloned {
-        push_with_retry(&repo, pat, &mut conflicts)?;
+        push_with_retry(&repo, pat, &mut conflicts, &mut LateEdits::new())?;
     }
     Ok(ConnectResult { action, conflicts })
 }
