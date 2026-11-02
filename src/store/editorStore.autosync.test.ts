@@ -304,7 +304,7 @@ describe('save hold', () => {
   });
 
   it('forces the hold off after 60 s so typing is never left unsaved', async () => {
-    routeInvoke({});
+    routeInvoke({ read_note: () => '# Idea' });
     await useEditorStore.getState().holdSaves();
     useEditorStore.getState().setContent('# Idea\n\nperdido');
     await vi.advanceTimersByTimeAsync(59_000);
@@ -318,6 +318,28 @@ describe('save hold', () => {
       content: '# Idea\n\nperdido',
       vaultPath: '/vault',
     });
+  });
+
+  it('the safety timer checks the disk first: a changed note gets a conflict copy before the write', async () => {
+    routeInvoke({ read_note: () => '# Idea\n\nde otro equipo', write_conflict_copy: () => COPY });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\nmío');
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const cmds = calledCommands();
+    expect(cmds).toContain('write_conflict_copy');
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.indexOf('write_note'));
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\nmío',
+      vaultPath: '/vault',
+    });
+  });
+
+  it('saveNow never writes a clean buffer', async () => {
+    routeInvoke({});
+    await useEditorStore.getState().saveNow();
+    expect(calledCommands()).not.toContain('write_note');
   });
 
   it('the safety timer does not fire after a normal release', async () => {
@@ -742,6 +764,109 @@ describe('deferred writes across relocations and reopening', () => {
       vaultPath: '/vault',
     });
     expect(useEditorStore.getState().activeNotePath).toBe(NOTE);
+  });
+
+  /**
+   * The reopened note's check is pending with no hold: the sync hold ended
+   * while a rename/move (of another note) is still finishing. The disk now
+   * holds a peer's version. Returns the function that lets the move finish.
+   */
+  async function checkPendingWithoutHold(): Promise<() => void> {
+    await deferNoteDuringHold();
+    await useEditorStore.getState().openNote(NOTE);
+    let finish!: () => void;
+    const gate = new Promise<void>((r) => (finish = r));
+    void useEditorStore.getState().runRelocation(
+      async () => null,
+      () => gate,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    routeInvoke({
+      read_note: (a) => ((a as { path: string }).path === NOTE ? '# Idea\n\nde otro equipo' : '# Otra'),
+      write_conflict_copy: () => COPY,
+      list_vault_tree: () => [],
+    });
+    await useEditorStore.getState().releaseSaves('unknown');
+    expect(useEditorStore.getState().saveHolds).toBe(0);
+    return finish;
+  }
+
+  function expectCopyThenLocalWrite(): void {
+    const cmds = calledCommands();
+    expect(cmds).toContain('write_conflict_copy');
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.indexOf('write_note'));
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\nlocal',
+      vaultPath: '/vault',
+    });
+  }
+
+  it('pending check: a debounced save never writes before the check', async () => {
+    const finish = await checkPendingWithoutHold();
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await vi.advanceTimersByTimeAsync(2000);
+    await useEditorStore.getState().saveNow();
+    expect(calledCommands()).not.toContain('write_note');
+    finish();
+    await vi.advanceTimersByTimeAsync(2000);
+    expectCopyThenLocalWrite();
+  });
+
+  it('pending check: a new hold does not flush the buffer before the check', async () => {
+    const finish = await checkPendingWithoutHold();
+    await useEditorStore.getState().holdSaves();
+    expect(calledCommands()).not.toContain('write_note');
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calledCommands()).not.toContain('write_note');
+    await useEditorStore.getState().releaseSaves([]);
+    await vi.advanceTimersByTimeAsync(2000);
+    expectCopyThenLocalWrite();
+  });
+
+  it('pending check: switching notes runs the check first and never drops the buffer', async () => {
+    const finish = await checkPendingWithoutHold();
+    const switching = useEditorStore.getState().openNote(OTHER);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calledCommands()).not.toContain('write_note');
+    finish();
+    await switching;
+    expectCopyThenLocalWrite();
+    expect(useEditorStore.getState().activeNotePath).toBe(OTHER);
+    expect(useEditorStore.getState().deferredWrites).toEqual({});
+  });
+
+  it('pending check: a switch keeps the buffer deferred when the check cannot keep the remote version', async () => {
+    const finish = await checkPendingWithoutHold();
+    routeInvoke({
+      read_note: (a) => ((a as { path: string }).path === NOTE ? '# Idea\n\nde otro equipo' : '# Otra'),
+      write_conflict_copy: () => {
+        throw 'io_error: disk full';
+      },
+      list_vault_tree: () => [],
+    });
+    const switching = useEditorStore.getState().openNote(OTHER);
+    finish();
+    await switching;
+    expect(calledCommands()).not.toContain('write_note');
+    expect(useEditorStore.getState().activeNotePath).toBe(OTHER);
+    expect(useEditorStore.getState().deferredWrites[NOTE]).toMatchObject({
+      content: '# Idea\n\nlocal',
+      blocked: true,
+    });
+  });
+
+  it('pending check: the quit flush runs the check before writing', async () => {
+    const { flushEditsForQuit } = await import('../lib/quitFlow');
+    const finish = await checkPendingWithoutHold();
+    const quitting = flushEditsForQuit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calledCommands()).not.toContain('write_note');
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await quitting).toBe(true);
+    expectCopyThenLocalWrite();
   });
 
   it('keeps a deferred note pending and reports a write failure after its copy', async () => {

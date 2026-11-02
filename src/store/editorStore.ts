@@ -91,6 +91,15 @@ export interface EditorState {
   setContent(markdown: string): void;
   setSelectionText(text: string): void;
   saveNow(): Promise<void>;
+  /**
+   * Write the open note's edits the safe way, never ending a hold: waits for
+   * a rename/move and a running check, runs a pending remote-change check
+   * (conflict copy first), then saves if the buffer is dirty. Used by quit.
+   */
+  flushEdits(): Promise<void>;
+  /** True while quitting: the editor is read-only so no keystroke is lost after the final flush. */
+  editLocked: boolean;
+  setEditLocked(locked: boolean): void;
   initVault(): Promise<void>;
   /** Reloads the tree the editor resolves wikilinks against. */
   refreshVaultTree(): Promise<void>;
@@ -323,6 +332,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
     if (!activeNotePath || activeNoteContent === null || !vaultPath) return;
     if (saveBlockedPath === activeNotePath) return; // would overwrite the remote version
     if (openCheckPath === activeNotePath) return; // checked against disk right now
+    // A reopened note still waits for its remote-change check: writing now
+    // could overwrite a peer's version without keeping it as a copy.
+    if (openNoteNeedsCheck()) return;
     const noteDir = activeNotePath.substring(0, activeNotePath.lastIndexOf('/'));
     const out = processImagesOnSave(activeNoteContent, noteDir);
     await writeNote(activeNotePath, out, vaultPath);
@@ -439,6 +451,21 @@ export const useEditorStore = create<EditorState>((set, get) => {
   /** Saves resume: the open note's pending save runs (after its check, if any). */
   function resumeOpenNote(): void {
     if (get().isDirty && !openNoteNeedsCheck()) scheduleSave();
+  }
+
+  /**
+   * Before the open note's buffer may be written outside a hold (switch,
+   * quit): let a rename/move finish, wait for a running check, and run a
+   * still-pending check now. Without a cycle report the check compares the
+   * disk with the note's base, so a changed disk is kept as a conflict copy.
+   */
+  async function settleOpenNote(): Promise<void> {
+    while (relocationInFlight !== null && get().isDirty) await relocationInFlight;
+    if (deferredFlush !== null) await deferredFlush;
+    if (openNoteNeedsCheck() && get().saveHolds === 0) {
+      releasedUnknown = true;
+      await flushDeferred();
+    }
   }
 
   /**
@@ -592,6 +619,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
   saveBlockedPath: null,
   deferredWrites: {},
   diskContent: null,
+  editLocked: false,
 
   async openNote(absolutePath: string) {
     // Never drop the previous note's pending edit. A rename/move is awaited
@@ -600,7 +628,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
     // overwrite the merged file. `writeBuffer` never writes a blocked note.
     if (deferredFlush !== null) await deferredFlush;
     clearDebounce();
-    while (relocationInFlight !== null && get().isDirty) await relocationInFlight;
+    // A pending remote-change check runs before the buffer may be written.
+    await settleOpenNote();
     clearDebounce();
     if (get().isDirty && get().activeNotePath !== null) {
       if (get().saveHolds > 0) {
@@ -611,6 +640,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
         } catch (e) {
           console.error('flush before switching notes failed:', e);
         }
+        // Not on disk (blocked, check failed, write failed): keep it for the
+        // next release instead of dropping it with the switch.
+        if (get().isDirty) deferActiveNote();
       }
     }
 
@@ -670,11 +702,21 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
   async saveNow() {
     if (get().saveHolds > 0) return; // releaseSaves reschedules once the hold ends
+    if (!get().isDirty) return; // nothing to write: never rewrite a clean buffer over disk
     try {
       await writeBuffer();
     } catch (e) {
       console.error('saveNow failed:', e);
     }
+  },
+
+  async flushEdits() {
+    await settleOpenNote();
+    await get().saveNow();
+  },
+
+  setEditLocked(locked: boolean) {
+    set({ editLocked: locked });
   },
 
   async initVault() {
@@ -734,7 +776,13 @@ export const useEditorStore = create<EditorState>((set, get) => {
         if (get().saveHolds === 0) return;
         console.warn('Save hold exceeded 60 s; resuming saves');
         set({ saveHolds: 0 });
-        resumeOpenNote();
+        // A cycle may still have changed the note on disk: check it like a
+        // reopened note (against what the editor last read or wrote) before
+        // writing, instead of saving blindly.
+        const { activeNotePath, isDirty, diskContent } = get();
+        if (isDirty && activeNotePath !== null && reopenedDuringHold?.path !== activeNotePath) {
+          reopenedDuringHold = { path: activeNotePath, base: diskContent };
+        }
         releasedUnknown = true;
         void flushDeferred();
       }, SAVE_HOLD_MAX_MS);

@@ -12,18 +12,29 @@ function hasUnwrittenEdits(): boolean {
 
 /** The flush gives up after this long; the user then decides (see App). */
 export const QUIT_FLUSH_TIMEOUT_MS = 15_000;
-/** Most holds the quit flush will release before giving up. */
-export const MAX_QUIT_RELEASES = 20;
+
+/**
+ * Resolves once no save hold is open. Holds are never ended early here: a
+ * sync hold ends when its cycle does (the backend's quit path waits for a
+ * running cycle anyway), so the open note is still checked against what the
+ * cycle merged before it is written.
+ */
+function holdsEnded(): Promise<void> {
+  if (useEditorStore.getState().saveHolds === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = useEditorStore.subscribe((s) => {
+      if (s.saveHolds === 0) {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
 
 async function flushOnce(): Promise<boolean> {
   try {
-    const editor = useEditorStore.getState();
-    let releases = 0;
-    while (useEditorStore.getState().saveHolds > 0) {
-      if (releases++ >= MAX_QUIT_RELEASES) return false;
-      await editor.releaseSaves('unknown');
-    }
-    await useEditorStore.getState().saveNow();
+    await holdsEnded();
+    await useEditorStore.getState().flushEdits();
   } catch (e) {
     console.error('flushing edits before quit failed:', e);
   }
@@ -31,11 +42,12 @@ async function flushOnce(): Promise<boolean> {
 }
 
 /**
- * Write what the editor still holds: end every save hold (so deferred writes
- * run), then save the open note. A save-blocked note is never written over
- * (`saveNow` refuses it) and a deferred entry that fails stays deferred.
- * Resolves true only when every edit reached the disk; a hung write, or holds
- * that never end, resolve false after a time bound.
+ * Write what the editor still holds: wait for every save hold to end (their
+ * releases write the deferred notes), then flush the open note through its
+ * remote-change check. A save-blocked note is never written over and a
+ * deferred entry that fails stays deferred. Resolves true only when every
+ * edit reached the disk; a hung write, or holds that never end, resolve
+ * false after a time bound.
  */
 export async function flushEditsForQuit(): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;

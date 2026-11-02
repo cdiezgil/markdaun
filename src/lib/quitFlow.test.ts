@@ -10,7 +10,7 @@ vi.mock('./tauri', async (orig) => ({
 
 import { writeNote, syncBeforeQuit, syncCancelQuit, quitApp } from './tauri';
 import { useEditorStore } from '../store/editorStore';
-import { finishQuit, flushEditsForQuit, QUIT_FLUSH_TIMEOUT_MS, MAX_QUIT_RELEASES } from './quitFlow';
+import { finishQuit, flushEditsForQuit, QUIT_FLUSH_TIMEOUT_MS } from './quitFlow';
 
 const base = {
   saveHolds: 0,
@@ -22,9 +22,12 @@ const base = {
   vaultPath: '/v',
 };
 
+// Tests replace actions (e.g. a hung `saveNow`); every test starts from the real ones.
+const initial = useEditorStore.getState();
+
 beforeEach(() => {
   vi.clearAllMocks();
-  useEditorStore.setState(base);
+  useEditorStore.setState({ ...initial, ...base });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -54,22 +57,31 @@ describe('flushEditsForQuit', () => {
     expect(await p).toBe(false);
   });
 
-  it('gives up after the time bound when releaseSaves never resolves', async () => {
+  it('never ends a sync hold early: waits for it, then writes', async () => {
     vi.useFakeTimers();
-    useEditorStore.setState({
-      saveHolds: 1,
-      releaseSaves: () => new Promise(() => {}),
-    });
+    useEditorStore.setState({ activeNotePath: '/v/a.md', activeNoteContent: 'old', diskContent: 'old' });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('mine');
+    const p = flushEditsForQuit();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(useEditorStore.getState().saveHolds).toBe(1);
+    expect(writeNote).not.toHaveBeenCalled();
+    // The cycle ends (Rust waits for it before quitting).
+    await useEditorStore.getState().releaseSaves([]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await p).toBe(true);
+    expect(writeNote).toHaveBeenCalledWith('/v/a.md', 'mine', '/v');
+  });
+
+  it('gives up after the time bound when a hold never ends, without releasing it', async () => {
+    vi.useFakeTimers();
+    useEditorStore.setState({ saveHolds: 1, isDirty: true, activeNotePath: '/v/a.md', activeNoteContent: 'x' });
+    const release = vi.spyOn(useEditorStore.getState(), 'releaseSaves');
     const p = flushEditsForQuit();
     await vi.advanceTimersByTimeAsync(QUIT_FLUSH_TIMEOUT_MS + 1);
     expect(await p).toBe(false);
-  });
-
-  it('caps the release loop when holds never go away', async () => {
-    const release = vi.fn().mockResolvedValue({});
-    useEditorStore.setState({ saveHolds: 1, releaseSaves: release });
-    expect(await flushEditsForQuit()).toBe(false);
-    expect(release).toHaveBeenCalledTimes(MAX_QUIT_RELEASES);
+    expect(release).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().saveHolds).toBe(1);
   });
 });
 
