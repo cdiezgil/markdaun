@@ -2,7 +2,7 @@
 
 use crate::git::sync::{
     git_connect_apply_inner, git_connect_preview_inner, git_pull_inner, git_push_inner,
-    git_status_inner, git_sync_inner, merge_remote_noting, push_branch, sanitize_device_name, sync_status_inner, CycleOptions, ConnectAction, ConnectCase, ConnectChoice, GitError,
+    git_status_inner, git_sync_inner, merge_remote_noting, push_branch, remote_changes, LateEdits, sanitize_device_name, sync_status_inner, CycleOptions, ConnectAction, ConnectCase, ConnectChoice, GitError,
     PushStatus,
 };
 use std::path::Path;
@@ -1066,14 +1066,14 @@ fn late_write_survives_fast_forward_and_is_pushed() {
         .unwrap();
     std::fs::write(dev.path().join("note-0.md"), "tecleado tarde").unwrap();
 
-    let mut own = std::collections::BTreeSet::new();
+    let mut own = LateEdits::new();
     let copies = merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
 
     assert!(copies.is_empty());
     assert_eq!(std::fs::read_to_string(dev.path().join("note-0.md")).unwrap(), "tecleado tarde");
     assert_eq!(std::fs::read_to_string(dev.path().join("note-1.md")).unwrap(), "peer");
-    assert!(own.contains("note-0.md"), "own late edit is not a remote change: {own:?}");
-    assert!(!own.contains("note-1.md"));
+    assert!(own.contains_key("note-0.md"), "own late edit is not a remote change: {own:?}");
+    assert!(!own.contains_key("note-1.md"));
 
     let report = git_sync_inner(dev.path(), &url, "", GO).unwrap();
     assert!(report.pushed);
@@ -1100,10 +1100,68 @@ fn late_write_on_diverged_note_becomes_conflict_not_revert() {
         .unwrap();
     std::fs::write(dev.path().join("note-0.md"), "tecleado tarde").unwrap();
 
-    let mut own = std::collections::BTreeSet::new();
+    let mut own = LateEdits::new();
     let copies = merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
 
     assert_eq!(copies.len(), 1);
     assert_eq!(std::fs::read_to_string(dev.path().join("note-0.md")).unwrap(), "tecleado tarde");
     assert_eq!(std::fs::read_to_string(dev.path().join(&copies[0])).unwrap(), "peer");
+}
+
+/// A late write and a peer edit to different paragraphs of the same note
+/// auto-merge cleanly: the merged file holds content the editor has not seen,
+/// so it must be reported (the open note reloads instead of dropping the
+/// peer's hunk on its next save).
+#[test]
+fn late_write_with_non_overlapping_peer_edit_is_reported() {
+    let bare_dir = TempDir::new().unwrap();
+    let (_bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 1);
+    let base: String = (1..=12).map(|i| format!("línea {i}\n")).collect();
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("x.md", &base)]);
+    let dev = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("x.md", &base.replacen("línea 1\n", "línea 1 peer\n", 1))]);
+
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    let before = repo.head().unwrap().peel_to_tree().unwrap().id();
+    repo.find_remote("origin")
+        .unwrap()
+        .fetch(&["refs/heads/main:refs/remotes/origin/main"], None, None)
+        .unwrap();
+    std::fs::write(dev.path().join("x.md"), base.replace("línea 12\n", "línea 12 mía\n")).unwrap();
+
+    let mut own = LateEdits::new();
+    let copies = merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
+
+    assert!(copies.is_empty(), "non-overlapping hunks merge cleanly");
+    let merged = std::fs::read_to_string(dev.path().join("x.md")).unwrap();
+    assert!(merged.contains("línea 1 peer") && merged.contains("línea 12 mía"), "{merged}");
+    let changed = remote_changes(&repo, Some(before), &own).unwrap();
+    assert!(changed.contains(&"x.md".to_string()), "{changed:?}");
+}
+
+/// A late write the merge left untouched is still not a remote change.
+#[test]
+fn late_write_untouched_by_merge_is_not_reported() {
+    let bare_dir = TempDir::new().unwrap();
+    let (_bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 3);
+    let dev = clone_device(&url);
+    let peer = clone_device(&url);
+    peer_commit_and_push(peer.path(), &[("note-1.md", "peer")]);
+    let repo = git2::Repository::open(dev.path()).unwrap();
+    let before = repo.head().unwrap().peel_to_tree().unwrap().id();
+    repo.find_remote("origin")
+        .unwrap()
+        .fetch(&["refs/heads/main:refs/remotes/origin/main"], None, None)
+        .unwrap();
+    std::fs::write(dev.path().join("note-0.md"), "tecleado tarde").unwrap();
+
+    let mut own = LateEdits::new();
+    merge_remote_noting(&repo, "2026-11-02 10-30", &mut own).unwrap();
+
+    let changed = remote_changes(&repo, Some(before), &own).unwrap();
+    assert!(changed.contains(&"note-1.md".to_string()));
+    assert!(!changed.contains(&"note-0.md".to_string()), "{changed:?}");
 }

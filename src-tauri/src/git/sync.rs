@@ -12,7 +12,7 @@ use git2::{
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 use thiserror::Error;
@@ -339,19 +339,27 @@ fn union_lines(a: &[u8], b: &[u8]) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// Paths this device committed late (see `commit_late_changes`) mapped to
+/// their blob in that commit (`None` when the late edit deleted the file).
+pub(crate) type LateEdits = BTreeMap<String, Option<Oid>>;
+
 /// Merge `origin/main` into the local `main`. Returns the conflict copies.
 fn merge_remote(repo: &Repository, stamp: &str) -> Result<Vec<String>, GitError> {
-    merge_remote_noting(repo, stamp, &mut BTreeSet::new())
+    merge_remote_noting(repo, stamp, &mut LateEdits::new())
 }
 
 /// Commits local writes that landed after the cycle's first commit (an editor
 /// save after the ack timeout or the hold safety net), so the forced checkout
 /// below merges them instead of reverting them. Their paths go to `own`: they
 /// are this device's edits, not remote changes.
-fn commit_late_changes(repo: &Repository, own: &mut BTreeSet<String>) -> Result<(), GitError> {
+fn commit_late_changes(repo: &Repository, own: &mut LateEdits) -> Result<(), GitError> {
     let before = head_tree(repo).map(|t| t.id());
     if commit_local_changes(repo)? {
-        own.extend(diff_since(repo, before)?);
+        let tree = head_tree(repo);
+        for path in diff_since(repo, before)? {
+            let blob = tree.as_ref().and_then(|t| blob_at(t, &path));
+            own.insert(path, blob);
+        }
     }
     Ok(())
 }
@@ -360,7 +368,7 @@ fn commit_late_changes(repo: &Repository, own: &mut BTreeSet<String>) -> Result<
 pub(crate) fn merge_remote_noting(
     repo: &Repository,
     stamp: &str,
-    own: &mut BTreeSet<String>,
+    own: &mut LateEdits,
 ) -> Result<Vec<String>, GitError> {
     let Some(theirs) = remote_tip(repo) else {
         return Ok(vec![]);
@@ -498,7 +506,7 @@ fn push_with_retry(
     repo: &Repository,
     pat: &str,
     conflicts: &mut Vec<String>,
-    own: &mut BTreeSet<String>,
+    own: &mut LateEdits,
 ) -> Result<(), GitError> {
     match push_branch(repo, pat)? {
         PushStatus::Pushed => Ok(()),
@@ -653,7 +661,7 @@ fn sync_cycle(
 
     let mut conflicts = Vec::new();
     // Late local edits committed by the merges: not reported as remote changes.
-    let mut own = BTreeSet::new();
+    let mut own = LateEdits::new();
     if fetch_main(&repo, pat)? {
         conflicts.extend(merge_remote_noting(&repo, &conflict_stamp(), &mut own)?);
         if !opts.confirm_deletions && !opts.push_paused {
@@ -681,16 +689,26 @@ fn sync_cycle(
     })
 }
 
-/// Paths changed since `before`, minus this device's late edits (`own`).
-/// Conflict copies are never in `own`, so they are still reported.
-fn remote_changes(
+/// Paths changed since `before`, minus this device's late edits (`own`)
+/// that the merge left exactly as committed. A late-edited path the merge
+/// changed (e.g. a clean auto-merge with a peer's hunk) holds content the
+/// editor has not seen, so it is reported. Conflict copies are never in `own`.
+pub(crate) fn remote_changes(
     repo: &Repository,
     before: Option<Oid>,
-    own: &BTreeSet<String>,
+    own: &LateEdits,
 ) -> Result<Vec<String>, git2::Error> {
     let mut paths = diff_since(repo, before)?;
-    paths.retain(|p| !own.contains(p));
+    let head = head_tree(repo);
+    paths.retain(|p| match own.get(p) {
+        Some(late) => *late != head.as_ref().and_then(|t| blob_at(t, p)),
+        None => true,
+    });
     Ok(paths)
+}
+
+fn blob_at(tree: &Tree, path: &str) -> Option<Oid> {
+    tree.get_path(Path::new(path)).ok().map(|e| e.id())
 }
 
 fn diff_since(repo: &Repository, before: Option<Oid>) -> Result<Vec<String>, git2::Error> {
@@ -847,7 +865,7 @@ pub fn git_connect_apply_inner(
         conflicts.extend(merge_remote(&repo, &conflict_stamp())?);
     }
     if action != ConnectAction::Cloned {
-        push_with_retry(&repo, pat, &mut conflicts, &mut BTreeSet::new())?;
+        push_with_retry(&repo, pat, &mut conflicts, &mut LateEdits::new())?;
     }
     Ok(ConnectResult { action, conflicts })
 }
