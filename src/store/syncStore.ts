@@ -66,6 +66,11 @@ interface SyncStoreState {
   pendingDeletion: DeletionWarning | null;
   /** Conflict copies created by the last merge (vault-relative paths). */
   conflicts: string[];
+  /**
+   * Conflict copies made by the frontend (open note edited during a cycle).
+   * The backend does not persist them, so they survive its list replacing ours.
+   */
+  localConflicts: string[];
   /** Bumped whenever sync may have changed files on disk (reload the tree). */
   vaultChangeCount: number;
 
@@ -82,6 +87,12 @@ interface SyncStoreState {
   confirmDeletion(): Promise<void>;
   cancelDeletion(): void;
   dismissConflicts(): Promise<void>;
+  /** Show frontend-made conflict copies in the conflicts notice. */
+  addConflicts(paths: string[]): void;
+}
+
+function union(a: string[], b: string[]): string[] {
+  return [...a, ...b.filter((p) => !a.includes(p))];
 }
 
 function errorText(e: unknown): string {
@@ -118,6 +129,7 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
     pendingConnect: null,
     pendingDeletion: null,
     conflicts: [],
+    localConflicts: [],
     vaultChangeCount: 0,
 
     async loadConfig() {
@@ -189,7 +201,10 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
           // Connect-time conflict copies are not persisted backend-side: only
           // replace the list when the backend has some, never wipe it here
           // (dismissConflicts clears it explicitly).
-          conflicts: payload.pendingConflicts.length > 0 ? payload.pendingConflicts : s.conflicts,
+          conflicts:
+            payload.pendingConflicts.length > 0
+              ? union(payload.pendingConflicts, s.localConflicts)
+              : s.conflicts,
           // Keep the question while the deletion pause persists (the counts
           // only travel with the cycle report).
           pendingDeletion:
@@ -231,8 +246,15 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
       set({ pendingDeletion: null });
     },
 
+    addConflicts(paths) {
+      set((s) => ({
+        conflicts: union(s.conflicts, paths),
+        localConflicts: union(s.localConflicts, paths),
+      }));
+    },
+
     async dismissConflicts() {
-      set({ conflicts: [] });
+      set({ conflicts: [], localConflicts: [] });
       try {
         get().applyFinished(await syncDismissConflicts());
       } catch (e) {

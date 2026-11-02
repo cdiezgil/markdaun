@@ -412,3 +412,54 @@ mod runner_cycle {
             .is_ok());
     }
 }
+
+mod conflict_copy {
+    use crate::commands::sync_cmd::write_conflict_copy_inner;
+    use tempfile::TempDir;
+
+    #[test]
+    fn write_conflict_copy_creates_sibling() {
+        let vault = TempDir::new().unwrap();
+        std::fs::create_dir_all(vault.path().join("proj")).unwrap();
+        let note = vault.path().join("proj/Idea.md");
+        std::fs::write(&note, "# Remota").unwrap();
+
+        let rel = write_conflict_copy_inner(&note, vault.path()).unwrap();
+
+        let re = regex_lite_match(&rel);
+        assert!(re, "unexpected name: {rel}");
+        assert_eq!(std::fs::read_to_string(vault.path().join(&rel)).unwrap(), "# Remota");
+        assert_eq!(std::fs::read_to_string(&note).unwrap(), "# Remota", "original untouched");
+
+        // A second copy in the same minute gets a distinct name.
+        let rel2 = write_conflict_copy_inner(&note, vault.path()).unwrap();
+        assert_ne!(rel, rel2);
+        assert!(vault.path().join(&rel2).exists());
+    }
+
+    #[test]
+    fn write_conflict_copy_rejects_paths_outside_vault() {
+        let vault = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let f = outside.path().join("x.md");
+        std::fs::write(&f, "x").unwrap();
+        assert_eq!(
+            write_conflict_copy_inner(&f, vault.path()).unwrap_err(),
+            "path_outside_vault"
+        );
+    }
+
+    /// `proj/Idea (conflicto YYYY-MM-DD HH-mm).md`
+    fn regex_lite_match(rel: &str) -> bool {
+        let Some(rest) = rel.strip_prefix("proj/Idea (conflicto ") else { return false };
+        let Some(stamp) = rest.strip_suffix(").md") else { return false };
+        let b = stamp.as_bytes();
+        b.len() == 16
+            && b.iter().enumerate().all(|(i, c)| match i {
+                4 | 7 => *c == b'-',
+                10 => *c == b' ',
+                13 => *c == b'-',
+                _ => c.is_ascii_digit(),
+            })
+    }
+}

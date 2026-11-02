@@ -287,7 +287,7 @@ fn commit_local_changes(repo: &Repository) -> Result<bool, GitError> {
 
 // ─── Merging ──────────────────────────────────────────────────────────────────
 
-fn conflict_copy_name(path: &str, stamp: &str, taken: &dyn Fn(&str) -> bool) -> String {
+pub(crate) fn conflict_copy_name(path: &str, stamp: &str, taken: &dyn Fn(&str) -> bool) -> String {
     let p = Path::new(path);
     let dir = p
         .parent()
@@ -430,7 +430,7 @@ fn merge_remote(repo: &Repository, stamp: &str) -> Result<Vec<String>, GitError>
     Ok(copies)
 }
 
-fn conflict_stamp() -> String {
+pub(crate) fn conflict_stamp() -> String {
     Local::now().format("%Y-%m-%d %H-%M").to_string()
 }
 

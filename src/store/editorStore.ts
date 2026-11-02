@@ -6,12 +6,17 @@ import {
   listVaultTree,
   convertAssetSrc,
   brainUpdateEmbedding,
+  chatWriteNote,
+  writeConflictCopy,
   type VaultEntry,
 } from '../lib/tauri';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type SaveStatus = 'idle' | 'saving' | 'saved';
+
+/** What a sync cycle did to the open note (see `applyRemoteChanges`). */
+export type RemoteChangeResult = 'none' | 'reloaded' | 'conflict' | 'deleted';
 
 export interface EditorState {
   activeNotePath: string | null;
@@ -31,6 +36,13 @@ export interface EditorState {
   focusTitleOnOpen: boolean;
   /** Last rename/move of the active note (lets the route follow the new path). */
   relocation: { from: string; to: string } | null;
+  /**
+   * Open save holds (rename/move, sync cycles). Saves are deferred while > 0;
+   * typing keeps updating the buffer and the pending save runs on release.
+   */
+  saveHolds: number;
+  /** Vault-relative conflict copy written by the last `applyRemoteChanges`, or null. */
+  lastConflictCopy: string | null;
 
   // Actions
   openNote(absolutePath: string): Promise<void>;
@@ -51,13 +63,44 @@ export interface EditorState {
    * note when `rewritten` shows links in it changed on disk.
    */
   applyRelocation(from: string, to: string, rewritten: string[]): Promise<void>;
+  /** Flush the pending debounced save, then hold saves until `releaseSaves`. */
+  holdSaves(): Promise<void>;
+  /** End one hold; the deferred save runs when the last hold ends. */
+  releaseSaves(): void;
+  /**
+   * A sync cycle changed `changedPaths` (vault-relative). Reloads, closes or
+   * keeps the open note; unsaved edits always win and the remote version is
+   * kept as a conflict copy. Writes the buffer even while saves are held.
+   */
+  applyRemoteChanges(changedPaths: string[], vaultPath: string): Promise<RemoteChangeResult>;
 }
 
 // ── Internal debounce ref (module-level, not in store state) ───────────────────
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-/** True while a rename/move runs: saves are deferred to avoid writing to the old path. */
-let relocating = false;
+/** Forces a stuck hold off: a lost release event must never keep typing unsaved. */
+let holdSafetyTimer: ReturnType<typeof setTimeout> | null = null;
+
+const SAVE_DEBOUNCE_MS = 1000;
+export const SAVE_HOLD_MAX_MS = 60_000;
+
+function clearDebounce(): void {
+  if (debounceTimer !== null) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+}
+
+/** `abs` relative to `vault` with `/` separators, or null when outside it. */
+function vaultRelative(abs: string, vault: string): string | null {
+  const a = abs.replace(/\\/g, '/');
+  const v = vault.replace(/\\/g, '/').replace(/\/+$/, '');
+  return a.startsWith(v + '/') ? a.slice(v.length + 1) : null;
+}
+
+function isNotFound(e: unknown): boolean {
+  return typeof e === 'string' && e.includes('not_found');
+}
 
 // ── Image path helpers ────────────────────────────────────────────────────────
 
@@ -166,7 +209,35 @@ export function processImagesOnSave(markdown: string, noteDir: string): string {
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
-export const useEditorStore = create<EditorState>((set, get) => ({
+export const useEditorStore = create<EditorState>((set, get) => {
+  function scheduleSave(): void {
+    clearDebounce();
+    debounceTimer = setTimeout(() => {
+      get().saveNow().catch(console.error);
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  /** Marks the buffer clean unless it changed while the write was in flight. */
+  function markSaved(path: string, content: string): void {
+    if (get().activeNoteContent === content && get().activeNotePath === path) {
+      set({ saveStatus: 'saved', isDirty: false, lastSavedAt: Date.now() });
+    }
+  }
+
+  /** Writes the buffer to its path, ignoring holds. Throws on a failed write. */
+  async function writeBuffer(): Promise<void> {
+    const { activeNotePath, activeNoteContent, vaultPath } = get();
+    if (!activeNotePath || activeNoteContent === null || !vaultPath) return;
+    const noteDir = activeNotePath.substring(0, activeNotePath.lastIndexOf('/'));
+    await writeNote(activeNotePath, processImagesOnSave(activeNoteContent, noteDir), vaultPath);
+    markSaved(activeNotePath, activeNoteContent);
+    // Fire-and-forget: update embeddings after successful save (TC-35)
+    if (activeNotePath.endsWith('.md')) {
+      brainUpdateEmbedding(activeNotePath, vaultPath).catch(() => {});
+    }
+  }
+
+  return {
   activeNotePath: null,
   activeNoteContent: null,
   vaultPath: null,
@@ -178,13 +249,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   loadVersion: 0,
   focusTitleOnOpen: false,
   relocation: null,
+  saveHolds: 0,
+  lastConflictCopy: null,
 
   async openNote(absolutePath: string) {
     // Cancel any pending debounced save for the previous note
-    if (debounceTimer !== null) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
+    clearDebounce();
 
     const { vaultPath } = get();
     if (!vaultPath) return;
@@ -212,32 +282,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setContent(markdown: string) {
     set({ activeNoteContent: markdown, saveStatus: 'saving', isDirty: true });
 
-    if (debounceTimer !== null) {
-      clearTimeout(debounceTimer);
-    }
-    debounceTimer = setTimeout(() => {
-      get().saveNow().catch(console.error);
-    }, 1000);
+    scheduleSave();
   },
 
   async saveNow() {
-    const { activeNotePath, activeNoteContent, vaultPath } = get();
-    if (!activeNotePath || activeNoteContent === null || !vaultPath) return;
-    if (relocating) return; // runRelocation reschedules once the new path is known
-
-    const noteDir = activeNotePath.substring(0, activeNotePath.lastIndexOf('/'));
-    const processedMarkdown = processImagesOnSave(activeNoteContent, noteDir);
-
+    if (get().saveHolds > 0) return; // releaseSaves reschedules once the hold ends
     try {
-      await writeNote(activeNotePath, processedMarkdown, vaultPath);
-      // Edits made while the write was in flight keep the note dirty.
-      if (get().activeNoteContent === activeNoteContent && get().activeNotePath === activeNotePath) {
-        set({ saveStatus: 'saved', isDirty: false, lastSavedAt: Date.now() });
-      }
-      // Fire-and-forget: update embeddings after successful save (TC-35)
-      if (activeNotePath.endsWith('.md')) {
-        brainUpdateEmbedding(activeNotePath, vaultPath).catch(() => {});
-      }
+      await writeBuffer();
     } catch (e) {
       console.error('saveNow failed:', e);
     }
@@ -258,22 +309,97 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   async runRelocation<T>(run: () => Promise<T>): Promise<T> {
-    if (debounceTimer !== null) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
-    if (get().isDirty) await get().saveNow();
-    relocating = true;
+    // Hold saves so nothing is written to a path that is going away.
+    await get().holdSaves();
     try {
       return await run();
     } finally {
-      relocating = false;
-      if (get().isDirty) {
-        debounceTimer = setTimeout(() => {
-          get().saveNow().catch(console.error);
-        }, 1000);
+      get().releaseSaves();
+    }
+  },
+
+  async holdSaves() {
+    clearDebounce();
+    // Count the hold before flushing so a release arriving mid-flush is not
+    // lost; the flush itself bypasses the hold.
+    const holds = get().saveHolds + 1;
+    set({ saveHolds: holds });
+    if (holds === 1) {
+      if (holdSafetyTimer !== null) clearTimeout(holdSafetyTimer);
+      holdSafetyTimer = setTimeout(() => {
+        holdSafetyTimer = null;
+        if (get().saveHolds === 0) return;
+        console.warn('Save hold exceeded 60 s; resuming saves');
+        set({ saveHolds: 0 });
+        if (get().isDirty) scheduleSave();
+      }, SAVE_HOLD_MAX_MS);
+    }
+    if (get().isDirty) {
+      try {
+        await writeBuffer();
+      } catch (e) {
+        console.error('flush before hold failed:', e);
       }
     }
+  },
+
+  releaseSaves() {
+    const holds = get().saveHolds;
+    if (holds === 0) return;
+    set({ saveHolds: holds - 1 });
+    if (holds > 1) return;
+    if (holdSafetyTimer !== null) {
+      clearTimeout(holdSafetyTimer);
+      holdSafetyTimer = null;
+    }
+    if (get().isDirty) scheduleSave();
+  },
+
+  async applyRemoteChanges(changedPaths: string[], vaultPath: string) {
+    set({ lastConflictCopy: null });
+    const { activeNotePath } = get();
+    if (!activeNotePath) return 'none';
+    const rel = vaultRelative(activeNotePath, vaultPath);
+    if (rel === null || !changedPaths.includes(rel)) return 'none';
+
+    let deleted = false;
+    try {
+      await readNote(activeNotePath, vaultPath);
+    } catch (e) {
+      if (!isNotFound(e)) throw e;
+      deleted = true;
+    }
+    // Read after the await: the user may have typed meanwhile.
+    const { isDirty, activeNoteContent } = get();
+    const buffer = isDirty ? activeNoteContent : null;
+
+    if (deleted) {
+      if (buffer === null) {
+        clearDebounce();
+        set({
+          activeNotePath: null,
+          activeNoteContent: null,
+          isDirty: false,
+          saveStatus: 'idle',
+          selectionText: '',
+        });
+        return 'deleted';
+      }
+      // Edit wins over delete: recreate the note from the buffer.
+      const noteDir = activeNotePath.substring(0, activeNotePath.lastIndexOf('/'));
+      await chatWriteNote(rel, processImagesOnSave(buffer, noteDir), 'create', vaultPath);
+      markSaved(activeNotePath, buffer);
+      return 'conflict';
+    }
+    if (buffer === null) {
+      await get().openNote(activeNotePath);
+      return 'reloaded';
+    }
+    // Local keeps the path; the remote version on disk becomes a conflict copy.
+    const copy = await writeConflictCopy(activeNotePath, vaultPath);
+    set({ lastConflictCopy: copy });
+    await writeBuffer();
+    return 'conflict';
   },
 
   async applyRelocation(from: string, to: string, rewritten: string[]) {
@@ -289,4 +415,5 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       await get().openNote(mapped);
     }
   },
-}));
+};
+});

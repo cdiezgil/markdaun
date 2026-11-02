@@ -26,6 +26,7 @@ import { InboxView } from './components/Inbox/InboxView';
 import { IdeView } from './views/IdeView';
 import { IdeTree } from './components/Ide/IdeTree';
 import { useIdeStore } from './store/ideStore';
+import { useAutoSync } from './hooks/useAutoSync';
 
 function AppLayout() {
   const [showExitDialog, setShowExitDialog] = useState(false);
@@ -37,6 +38,8 @@ function AppLayout() {
   const inIde = currentView === 'ide';
   const [toast, setToast] = useState<string | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
+  // Editor side of automatic sync: save hold handshake and open-note reload.
+  useAutoSync(setToast);
 
   useEffect(() => {
     useVaultStore.getState().loadVault();

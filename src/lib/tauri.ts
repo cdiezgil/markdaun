@@ -198,6 +198,15 @@ export async function syncBeforeQuit(): Promise<void> {
   return invoke<void>('sync_before_quit');
 }
 
+/**
+ * Copy the current on-disk content of `path` (the remote version a cycle just
+ * merged) to `<stem> (conflicto YYYY-MM-DD HH-mm).<ext>`. Returns the copy's
+ * vault-relative path.
+ */
+export async function writeConflictCopy(path: string, vaultPath: string): Promise<string> {
+  return invoke<string>('write_conflict_copy', { path, vaultPath });
+}
+
 /** A cycle is about to run: flush the pending save and ack with `syncHoldAck`. */
 export async function onSyncWillStart(cb: () => void): Promise<() => void> {
   return listen('sync-will-start', () => cb());

@@ -243,3 +243,32 @@ pub async fn sync_before_quit(app: tauri::AppHandle) -> Result<(), SyncError> {
     runner::before_quit(&app).await;
     Ok(())
 }
+
+// ─── Open-note conflict copy ──────────────────────────────────────────────────
+
+/// Copies the current on-disk content of `path` (the remote version a cycle
+/// just merged) to its sibling `<stem> (conflicto YYYY-MM-DD HH-mm).<ext>`.
+/// Returns the copy's vault-relative, `/`-separated path.
+pub fn write_conflict_copy_inner(path: &Path, vault: &Path) -> Result<String, String> {
+    crate::commands::fs_ops::assert_within_vault(path, vault)?;
+    let canonical_vault = vault.canonicalize().map_err(|_| "path_not_found".to_string())?;
+    let canonical_path = path.canonicalize().map_err(|_| "path_not_found".to_string())?;
+    let rel = canonical_path
+        .strip_prefix(&canonical_vault)
+        .map_err(|_| "path_outside_vault".to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let name = crate::git::sync::conflict_copy_name(
+        &rel,
+        &crate::git::sync::conflict_stamp(),
+        &|n| canonical_vault.join(n).exists(),
+    );
+    std::fs::copy(&canonical_path, canonical_vault.join(&name))
+        .map_err(|e| format!("io_error: {e}"))?;
+    Ok(name)
+}
+
+#[tauri::command]
+pub async fn write_conflict_copy(path: String, vault_path: String) -> Result<String, String> {
+    write_conflict_copy_inner(Path::new(&path), Path::new(&vault_path))
+}

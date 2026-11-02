@@ -321,3 +321,24 @@ describe('useSyncStore', () => {
     expect(config.repoUrl).toBeNull();
   });
 });
+
+describe('frontend conflict copies', () => {
+  beforeEach(() => {
+    useSyncStore.setState({ conflicts: [], localConflicts: [] });
+  });
+
+  it('addConflicts shows the copy without duplicates', () => {
+    useSyncStore.getState().addConflicts(['a (conflicto x).md']);
+    useSyncStore.getState().addConflicts(['a (conflicto x).md']);
+    expect(useSyncStore.getState().conflicts).toEqual(['a (conflicto x).md']);
+  });
+
+  it('dismissConflicts clears frontend copies too', async () => {
+    vi.mocked(syncDismissConflicts).mockResolvedValue(makeState());
+    useSyncStore.getState().addConflicts(['a (conflicto x).md']);
+    await useSyncStore.getState().dismissConflicts();
+    expect(useSyncStore.getState().localConflicts).toEqual([]);
+    useSyncStore.getState().applyFinished(makeState({ pendingConflicts: ['b.md'] }));
+    expect(useSyncStore.getState().conflicts).toEqual(['b.md']);
+  });
+});
