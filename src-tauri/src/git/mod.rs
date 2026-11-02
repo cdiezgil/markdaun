@@ -1,4 +1,5 @@
 pub mod error;
+pub mod scheduler;
 pub mod state;
 pub mod sync;
 pub use sync::{
@@ -8,3 +9,5 @@ pub use sync::{
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod scheduler_tests;
