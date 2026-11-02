@@ -160,7 +160,7 @@ These override the sections above where they are more specific.
    - `github_connect_apply` takes the same lock.
    - The scheduler is inert until sync is configured and connected.
    - Re-indexing is requested after the lock is released, via `spawn_vault_sync`, whose `IndexLocks` already skips duplicates.
-10. **`changedPaths`** is the diff between the pre-cycle HEAD tree and the post-cycle HEAD tree. That includes added, modified and deleted paths and conflict copies; a rename counts as a delete plus an add.
+10. **`changedPaths`** is the diff between the HEAD tree **after the cycle's local commit** and the post-cycle HEAD tree, so it covers remote changes and conflict copies, not the device's own edits. That includes added, modified and deleted paths and conflict copies; a rename counts as a delete plus an add.
 11. **Small details.**
     - Hostname comes from the OS, sanitised to `[A-Za-z0-9-]`, with `Mac` as the fallback.
     - The "Cambios sin sincronizar" dialog and any dirty-tracking used only by it are removed.

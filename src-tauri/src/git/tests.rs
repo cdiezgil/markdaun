@@ -2,7 +2,7 @@
 
 use crate::git::sync::{
     git_connect_apply_inner, git_connect_preview_inner, git_pull_inner, git_push_inner,
-    git_status_inner, git_sync_inner, push_branch, sync_status_inner, CycleOptions, ConnectAction, ConnectCase, ConnectChoice, GitError,
+    git_status_inner, git_sync_inner, push_branch, sanitize_device_name, sync_status_inner, CycleOptions, ConnectAction, ConnectCase, ConnectChoice, GitError,
     PushStatus,
 };
 use std::path::Path;
@@ -919,4 +919,13 @@ fn commit_message_has_device() {
 
     let msg = bare.find_commit(remote_oid(&bare)).unwrap().message().unwrap().to_string();
     assert!(msg.starts_with("MarkDaun sync ("), "{msg}");
+}
+
+#[test]
+fn sanitize_device_name_cases() {
+    let n = sanitize_device_name("Carlos's MacBook.local");
+    assert!(!n.is_empty());
+    assert!(n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'), "{n}");
+    assert_eq!(sanitize_device_name(""), "Mac");
+    assert_eq!(sanitize_device_name("日本語"), "Mac");
 }

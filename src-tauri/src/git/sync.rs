@@ -517,8 +517,20 @@ pub fn git_status_inner(vault_path: &Path) -> Result<bool, GitError> {
 }
 
 /// Short, filesystem-safe name of this machine, used in commit messages.
+/// Computed once; never spawns a process on Windows.
 pub fn device_name() -> String {
-    let raw = std::process::Command::new("hostname")
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| sanitize_device_name(&raw_hostname())).clone()
+}
+
+#[cfg(windows)]
+fn raw_hostname() -> String {
+    std::env::var("COMPUTERNAME").unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+fn raw_hostname() -> String {
+    std::process::Command::new("hostname")
         .output()
         .ok()
         .filter(|o| o.status.success())
@@ -526,11 +538,10 @@ pub fn device_name() -> String {
         .filter(|h| !h.is_empty())
         .or_else(|| std::env::var("HOSTNAME").ok())
         .or_else(|| std::env::var("COMPUTERNAME").ok())
-        .unwrap_or_default();
-    sanitize_device_name(&raw)
+        .unwrap_or_default()
 }
 
-fn sanitize_device_name(raw: &str) -> String {
+pub(crate) fn sanitize_device_name(raw: &str) -> String {
     let clean: String = raw
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
@@ -552,7 +563,9 @@ pub struct CycleOptions {
 #[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CycleReport {
-    /// Vault-relative paths (`/` separators) that changed in HEAD by merging.
+    /// Vault-relative paths (`/` separators) that differ between the HEAD tree
+    /// after the cycle's local commit and the post-cycle HEAD tree: remote
+    /// changes and conflict copies, not the device's own edits.
     pub changed_paths: Vec<String>,
     /// Vault-relative paths of conflict copies created while merging.
     pub conflicts: Vec<String>,
