@@ -217,6 +217,20 @@ describe('presencia en la barra de menús y guarda de salida', () => {
     expect(calls()).not.toContain('sync_before_quit');
   });
 
+  it('the editor is read-only from the quit request until the quit is cancelled', async () => {
+    await setSync(true);
+    const { useEditorStore } = await import('./store/editorStore');
+    useEditorStore.setState({ activeNotePath: '/v/a.md', saveBlockedPath: '/v/a.md', isDirty: true });
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+    expect(useEditorStore.getState().editLocked).toBe(false);
+    await requestQuit();
+    expect(useEditorStore.getState().editLocked).toBe(true);
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Cancelar' }));
+    expect(useEditorStore.getState().editLocked).toBe(false);
+  });
+
   it('edits that cannot be written ask first; Cancelar aborts without syncing', async () => {
     await setSync(true);
     const { useEditorStore } = await import('./store/editorStore');

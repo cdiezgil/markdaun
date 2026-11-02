@@ -154,6 +154,13 @@ export default function EditorCanvas({ onEditorReady, plainMdMode = false }: Edi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
+  // Read-only while quitting (no keystroke may land after the final flush).
+  const editLocked = useEditorStore((s) => s.editLocked);
+  useEffect(() => {
+    // No update event: toggling must not mark the note as edited.
+    editor?.setEditable(!editLocked, false);
+  }, [editor, editLocked]);
+
   // Reload content when a note is (re)loaded. A rename changes the path but
   // not the content, so it must not reset the cursor or unsaved edits.
   const loadedPathRef = useRef<string | null>(null);

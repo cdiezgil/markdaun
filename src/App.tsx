@@ -93,6 +93,12 @@ function AppLayout() {
     };
   }, []);
 
+  // While quitting the editor is read-only: a keystroke after the final flush
+  // would never reach the disk. Cancelling the quit unlocks it.
+  useEffect(() => {
+    useEditorStore.getState().setEditLocked(quitPhase !== null);
+  }, [quitPhase]);
+
   // Sync may have added/removed/merged notes on disk: reload the tree.
   const vaultChangeCount = useSyncStore((s) => s.vaultChangeCount);
   useEffect(() => {
