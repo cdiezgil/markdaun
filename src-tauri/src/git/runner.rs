@@ -548,6 +548,8 @@ pub trait CycleHost {
     fn finished(&self, payload: &SyncFinishedPayload);
     fn record_error(&self, error: Option<SyncError>);
     fn reindex(&self);
+    /// Transcribe recordings that the merge brought into `Entrada/`.
+    fn transcribe_new_audio(&self, changed: &[String]);
 }
 
 /// Emits `sync-hold-release` on drop unless the cycle reported
@@ -630,6 +632,7 @@ where
     drop(hold);
     if !changed.is_empty() {
         host.reindex();
+        host.transcribe_new_audio(&changed);
     }
 }
 
@@ -672,6 +675,9 @@ impl CycleHost for AppHost<'_> {
     }
     fn reindex(&self) {
         crate::commands::vault_index::spawn_vault_sync(self.app, self.vault.to_string());
+    }
+    fn transcribe_new_audio(&self, changed: &[String]) {
+        crate::commands::voice_cmd::transcribe_pending(self.app, self.vault, changed);
     }
 }
 

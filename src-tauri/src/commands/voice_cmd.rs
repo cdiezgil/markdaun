@@ -9,6 +9,7 @@ use crate::capture::lifecycle::{hide_quick_capture, is_main_visible, MAIN_WINDOW
 use crate::db::ConfigDb;
 use crate::llm::embeddings::HF_BASE_URL;
 use crate::models_mirror::Mirror;
+use crate::voice::auto::{inbox_files, pending_transcriptions};
 use crate::voice::jobs::{parse_recorded, run_job, VoiceJobs};
 use crate::voice::model::{download_model, is_downloaded, model_path, spec_for, ModelSpec, DEFAULT_MODEL, MODELS};
 use crate::voice::save::save_recording;
@@ -137,7 +138,7 @@ impl Throttle {
 /// Transcribes the inbox recording `rel` in the background: fetches the model
 /// on first use, then writes the note next to the audio. Jobs run one at a
 /// time (the model uses the whole machine).
-fn start_job(app: tauri::AppHandle, vault: String, rel: String) {
+pub(crate) fn start_job(app: tauri::AppHandle, vault: String, rel: String) {
     std::thread::spawn(move || {
         let jobs = app.state::<VoiceJobs>();
         let engines = app.state::<EngineState>();
@@ -200,6 +201,25 @@ pub async fn quick_capture_save_audio(
         notify_saved(&app);
     }
     Ok(summary)
+}
+
+/// Starts a transcription for every recording in `candidates` (vault-relative
+/// paths) that arrived without a note, e.g. uploaded by the phone and synced.
+pub(crate) fn transcribe_pending(app: &tauri::AppHandle, vault: &str, candidates: &[String]) {
+    let pending = {
+        let jobs = app.state::<VoiceJobs>();
+        pending_transcriptions(Path::new(vault), candidates, &jobs)
+    };
+    for rel in pending {
+        start_job(app.clone(), vault.to_string(), rel);
+    }
+}
+
+/// Startup scan: transcribes whatever is waiting in `Entrada/` of the active vault.
+pub(crate) fn transcribe_inbox_at_startup(app: &tauri::AppHandle) {
+    let Ok(db) = app_db_path(app) else { return };
+    let Ok(Some(vault)) = get_active_vault_inner(&db) else { return };
+    transcribe_pending(app, &vault, &inbox_files(Path::new(&vault)));
 }
 
 /// Retries the transcription of a recording that failed (or was interrupted).

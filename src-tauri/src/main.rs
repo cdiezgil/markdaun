@@ -65,6 +65,8 @@ fn main() {
             capture::tray::build(app.handle())?;
             // Automatic GitHub sync: inert unless a repo and vault are configured.
             git::runner::restart(app.handle());
+            // Recordings uploaded by the phone that are still waiting for a note.
+            commands::voice_cmd::transcribe_inbox_at_startup(app.handle());
             if let Ok(db) = commands::brain_cmd::app_db_path(app.handle()) {
                 let registrar = commands::quick_cmd::PluginRegistrar(app.handle().clone());
                 let state = app.state::<capture::shortcut::ShortcutState>();

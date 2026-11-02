@@ -72,7 +72,7 @@ pub struct VoiceInfo {
 }
 
 /// Audio containers a recording (or a future import) may arrive in.
-const AUDIO_EXTS: [&str; 8] = ["m4a", "mp4", "webm", "ogg", "opus", "wav", "mp3", "aac"];
+pub(crate) const AUDIO_EXTS: [&str; 8] = ["m4a", "mp4", "webm", "ogg", "opus", "wav", "mp3", "aac"];
 /// Media a note can link next to itself (recordings, pasted captures).
 const LINKED_MEDIA_EXTS: [&str; 9] = ["m4a", "mp4", "webm", "ogg", "opus", "wav", "mp3", "aac", "png"];
 const INTERRUPTED: &str = "Transcripción interrumpida";

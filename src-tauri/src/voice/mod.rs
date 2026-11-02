@@ -2,6 +2,7 @@
 //! and the Markdown note a recording becomes.
 
 pub mod audio;
+pub mod auto;
 pub mod jobs;
 pub mod model;
 pub mod note;
