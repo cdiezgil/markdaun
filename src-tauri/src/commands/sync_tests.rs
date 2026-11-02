@@ -208,7 +208,7 @@ mod runner_cycle {
     use super::{bare_remote, mem_db, vault_with_file};
     use crate::commands::sync_cmd::{configure_inner, configure_locked};
     use crate::db::ConfigDb;
-    use crate::git::runner::{run_cycle_inner, CycleMode, SyncLocks};
+    use crate::git::runner::{confirm_allowed, run_cycle_inner, CycleMode, SyncLocks};
     use crate::git::scheduler::Outcome;
     use crate::git::state;
     use crate::git::ConnectChoice;
@@ -297,6 +297,36 @@ mod runner_cycle {
         assert_eq!(state::paused_reason(c), None);
         assert!(state::last_success(c).is_some());
         assert_eq!(remote_notes(&url), 1);
+    }
+
+    #[test]
+    fn confirm_without_persisted_pause_still_trips_guard() {
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+        let vault = connected_vault(&url, &db_path, 12);
+        delete_notes(vault.path(), 11);
+        let db = ConfigDb::open(&db_path).unwrap();
+        let c = db.connection();
+        assert_eq!(state::paused_reason(c), None);
+
+        // A stale "Continuar" with no deletion pause on record.
+        let run = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::ConfirmDeletions);
+        assert_eq!(run.outcome, Outcome::Paused);
+        assert!(run.report.unwrap().needs_confirmation.is_some());
+        assert_eq!(remote_notes(&url), 12, "guard must still block the push");
+        assert_eq!(state::paused_reason(c).as_deref(), Some("deletion"));
+    }
+
+    #[test]
+    fn confirm_requires_a_deletion_pause() {
+        let (_d, db_path) = mem_db();
+        let db = ConfigDb::open(&db_path).unwrap();
+        let c = db.connection();
+        assert!(confirm_allowed(c).is_err());
+        state::set_paused_reason(c, Some("other")).unwrap();
+        assert!(confirm_allowed(c).is_err());
+        state::set_paused_reason(c, Some("deletion")).unwrap();
+        assert!(confirm_allowed(c).is_ok());
     }
 
     #[test]

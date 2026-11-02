@@ -205,12 +205,16 @@ pub async fn sync_trigger(app: tauri::AppHandle, reason: TriggerReason) -> Resul
 }
 
 /// "Continuar" in the deletion dialog: the next cycle pushes with
-/// `confirm_deletions` and clears the pause once it succeeds.
+/// `confirm_deletions` and clears the pause once it succeeds. Refused when
+/// no deletion pause is persisted.
 #[tauri::command]
 pub async fn sync_confirm_deletions(app: tauri::AppHandle) -> Result<(), SyncError> {
     if !app.state::<SyncRunner>().is_active() {
         return Err(SyncError::NotConfigured);
     }
+    let db_path = app_db_path(&app).map_err(SyncError::Git)?;
+    let db = ConfigDb::open(&db_path).map_err(|e| SyncError::Git(e.to_string()))?;
+    runner::confirm_allowed(db.connection())?;
     app.state::<SyncRunner>()
         .request_mode(CycleMode::ConfirmDeletions);
     runner::trigger(&app, Trigger::Manual);

@@ -17,10 +17,11 @@ use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, OwnedMutexGuard};
 
 pub const WILL_START_EVENT: &str = "sync-will-start";
 pub const FINISHED_EVENT: &str = "sync-finished";
@@ -77,10 +78,14 @@ pub fn run_cycle_inner(
     pat: &str,
     mode: CycleMode,
 ) -> CycleRun {
-    let paused = state::paused_reason(db).is_some();
+    let reason = state::paused_reason(db);
+    let paused = reason.is_some();
     let push_paused = paused && mode == CycleMode::Auto;
+    // A stale "Continuar" must never skip the guard: confirming needs the
+    // deletion pause that asked for it to still be on record.
     let opts = CycleOptions {
-        confirm_deletions: mode == CycleMode::ConfirmDeletions,
+        confirm_deletions: mode == CycleMode::ConfirmDeletions
+            && reason.as_deref() == Some(PAUSE_DELETION),
         push_paused,
     };
     match git_sync_inner(vault, url, pat, opts) {
@@ -110,6 +115,14 @@ pub fn run_cycle_inner(
             report: None,
             error: Some(e),
         },
+    }
+}
+
+/// `sync_confirm_deletions` is only accepted while a deletion pause is persisted.
+pub fn confirm_allowed(db: &Connection) -> Result<(), SyncError> {
+    match state::paused_reason(db).as_deref() {
+        Some(PAUSE_DELETION) => Ok(()),
+        _ => Err(SyncError::Git("no_deletion_pause".to_string())),
     }
 }
 
@@ -153,6 +166,8 @@ pub struct Engine {
     in_cycle: Option<HashSet<String>>,
     /// The last cycle's own paths, ignored until the deadline.
     recent: Option<(Instant, HashSet<String>)>,
+    /// Set by the quit path: no cycle may start any more.
+    quitting: bool,
 }
 
 impl Engine {
@@ -161,10 +176,19 @@ impl Engine {
             scheduler: Scheduler::new_at(now, wall),
             in_cycle: None,
             recent: None,
+            quitting: false,
         }
     }
 
+    pub fn quit(&mut self) {
+        self.quitting = true;
+    }
+
     fn started(&mut self, action: Action) -> Action {
+        if self.quitting {
+            // The scheduler may think a cycle runs; nothing will end it now.
+            return Action::None;
+        }
         if action == Action::StartCycle {
             self.in_cycle = Some(HashSet::new());
         }
@@ -196,11 +220,14 @@ impl Engine {
         }
     }
 
-    /// End of the running cycle; `changed` is its `changed_paths`.
-    pub fn end(&mut self, outcome: Outcome, changed: &[String], now: Instant) {
+    /// End of the running cycle; `changed` is its `changed_paths`. `clean`
+    /// means the vault had nothing uncommitted and nothing unpushed right
+    /// after the cycle: foreign writes seen during it were already synced
+    /// (typically the handshake flush), so they do not cost a rerun.
+    pub fn end(&mut self, outcome: Outcome, changed: &[String], clean: bool, now: Instant) {
         let own: HashSet<String> = changed.iter().cloned().collect();
         if let Some(buffer) = self.in_cycle.take() {
-            if buffer.iter().any(|p| !own.contains(p)) {
+            if !clean && buffer.iter().any(|p| !own.contains(p)) {
                 self.scheduler.on_external_change_during_cycle();
             }
         }
@@ -218,8 +245,13 @@ impl Engine {
 pub struct SyncLocks(Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>);
 
 impl SyncLocks {
+    /// The key is the canonical path, so `/var/x` and `/private/var/x/.`
+    /// share one lock; a path that cannot be resolved is used as given.
     pub fn for_vault(&self, vault: &str) -> Arc<tokio::sync::Mutex<()>> {
-        lock(&self.0).entry(vault.to_string()).or_default().clone()
+        let key = std::fs::canonicalize(vault)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| vault.to_string());
+        lock(&self.0).entry(key).or_default().clone()
     }
 }
 
@@ -245,6 +277,7 @@ impl Drop for Session {
 
 #[derive(Clone)]
 struct Ctx {
+    id: u64,
     engine: Arc<Mutex<Engine>>,
     vault: String,
     url: String,
@@ -254,9 +287,15 @@ struct Ctx {
 pub struct SyncRunner {
     pub locks: SyncLocks,
     session: Mutex<Option<Session>>,
-    acks: Mutex<Vec<oneshot::Sender<()>>>,
+    /// Bumped by every restart; cycles of older sessions report nothing.
+    session_id: AtomicU64,
+    /// Only the handshake in progress may be acknowledged.
+    ack_slot: Mutex<Option<oneshot::Sender<()>>>,
     mode: Mutex<CycleMode>,
     last_error: Mutex<Option<SyncError>>,
+    quitting: AtomicBool,
+    /// Held from the quit cycle until the process exits.
+    quit_guard: Mutex<Option<OwnedMutexGuard<()>>>,
 }
 
 impl SyncRunner {
@@ -273,21 +312,48 @@ impl SyncRunner {
         *m = (*m).max(mode);
     }
 
-    fn take_mode(&self) -> CycleMode {
+    pub(crate) fn take_mode(&self) -> CycleMode {
         std::mem::take(&mut *lock(&self.mode))
     }
 
     /// The frontend flushed and holds its saves.
     pub fn ack(&self) {
-        for tx in lock(&self.acks).drain(..) {
+        if let Some(tx) = lock(&self.ack_slot).take() {
             let _ = tx.send(());
         }
     }
 
-    fn register_ack(&self) -> oneshot::Receiver<()> {
+    /// Open the ack slot for a new handshake, replacing any stale sender.
+    pub(crate) fn register_ack(&self) -> oneshot::Receiver<()> {
         let (tx, rx) = oneshot::channel();
-        lock(&self.acks).push(tx);
+        *lock(&self.ack_slot) = Some(tx);
         rx
+    }
+
+    fn clear_ack(&self) {
+        lock(&self.ack_slot).take();
+    }
+
+    /// Forget everything tied to the previous session and return the new
+    /// session id.
+    pub(crate) fn reset_for_restart(&self) -> u64 {
+        *lock(&self.mode) = CycleMode::Auto;
+        *lock(&self.last_error) = None;
+        self.clear_ack();
+        self.session_id.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    pub(crate) fn is_current(&self, id: u64) -> bool {
+        self.session_id.load(Ordering::SeqCst) == id
+    }
+
+    pub(crate) fn begin_quit(&self) {
+        self.quitting.store(true, Ordering::SeqCst);
+    }
+
+    /// False once the app is quitting: no new git work may start.
+    pub(crate) fn may_run(&self) -> bool {
+        !self.quitting.load(Ordering::SeqCst)
     }
 }
 
@@ -328,14 +394,18 @@ fn read_pat() -> Result<String, SyncError> {
 /// so a halted scheduler (e.g. after `Unauthorized`) starts fresh.
 pub fn restart(app: &AppHandle) {
     let runner = app.state::<SyncRunner>();
+    if !runner.may_run() {
+        return;
+    }
     // Drop the old session outside the lock: it stops its watcher.
     let old = lock(&runner.session).take();
     drop(old);
-    *lock(&runner.last_error) = None;
+    let id = runner.reset_for_restart();
     let Some((vault, url)) = configured(app) else {
         return;
     };
     let ctx = Ctx {
+        id,
         engine: Arc::new(Mutex::new(Engine::new(Instant::now(), SystemTime::now()))),
         vault,
         url,
@@ -352,7 +422,11 @@ pub fn restart(app: &AppHandle) {
 
 /// Feed a discrete trigger to the scheduler; start a cycle if it says so.
 pub fn trigger(app: &AppHandle, t: Trigger) {
-    let Some(ctx) = app.state::<SyncRunner>().ctx() else {
+    let runner = app.state::<SyncRunner>();
+    if !runner.may_run() {
+        return;
+    }
+    let Some(ctx) = runner.ctx() else {
         return;
     };
     let action = lock(&ctx.engine).trigger(t, Instant::now());
@@ -387,6 +461,9 @@ fn spawn_tick_loop(app: AppHandle, ctx: Ctx) -> tauri::async_runtime::JoinHandle
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             interval.tick().await;
+            if !app.state::<SyncRunner>().may_run() {
+                break;
+            }
             // Never `on_trigger(Tick)`: only `on_tick` detects a wake.
             let action = lock(&ctx.engine).tick(Instant::now(), SystemTime::now());
             if action == Action::StartCycle {
@@ -400,7 +477,9 @@ fn spawn_tick_loop(app: AppHandle, ctx: Ctx) -> tauri::async_runtime::JoinHandle
 async fn handshake(app: &AppHandle) {
     let rx = app.state::<SyncRunner>().register_ack();
     let _ = app.emit(WILL_START_EVENT, ());
-    let _ = tokio::time::timeout(ACK_WAIT, rx).await;
+    if tokio::time::timeout(ACK_WAIT, rx).await.is_err() {
+        app.state::<SyncRunner>().clear_ack();
+    }
 }
 
 /// Runs on a blocking thread: one cycle plus the state to report with it.
@@ -435,8 +514,15 @@ fn cycle_blocking(
 /// Lock, handshake, run, report. Reindexing is requested after the lock is
 /// released; `spawn_vault_sync` skips duplicates on its own.
 async fn run_cycle(app: AppHandle, ctx: Ctx) {
+    if !app.state::<SyncRunner>().may_run() {
+        return;
+    }
     let cycle_lock = app.state::<SyncRunner>().locks.for_vault(&ctx.vault);
     let guard = cycle_lock.lock_owned().await;
+    // The quit path may have started while this cycle waited for the lock.
+    if !app.state::<SyncRunner>().may_run() {
+        return;
+    }
     handshake(&app).await;
     let mode = app.state::<SyncRunner>().take_mode();
     let (path, vault, url) = (db_path(&app), ctx.vault.clone(), ctx.url.clone());
@@ -457,12 +543,18 @@ async fn run_cycle(app: AppHandle, ctx: Ctx) {
         .as_ref()
         .map(|r| r.changed_paths.clone())
         .unwrap_or_default();
+    let clean = !snap.status.uncommitted && snap.status.ahead == 0;
     let view = {
         let mut engine = lock(&ctx.engine);
-        engine.end(run.outcome, &changed, Instant::now());
+        engine.end(run.outcome, &changed, clean, Instant::now());
         engine.view()
     };
-    *lock(&app.state::<SyncRunner>().last_error) = run.error.clone();
+    let runner = app.state::<SyncRunner>();
+    if !runner.is_current(ctx.id) {
+        // A restart (reconnect, vault change) replaced this session.
+        return;
+    }
+    *lock(&runner.last_error) = run.error.clone();
     let payload = SyncFinishedPayload {
         report: run.report,
         error: run.error,
@@ -503,34 +595,54 @@ pub fn current_state(app: &AppHandle) -> SyncFinishedPayload {
     }
 }
 
-/// Quit path: flush handshake, commit locally, then one bounded cycle if none
-/// is running; otherwise wait for the running one. Never cancels a cycle.
+/// Quit path. Neutralises the session first (no tick, watcher or trigger can
+/// start git work), then takes the cycle lock, waiting for a running cycle,
+/// and keeps it until exit. Under the lock: flush handshake, local commit,
+/// and one bounded push cycle unless a cycle just ran and nothing new was
+/// committed. Never cancels a running git operation.
 pub async fn before_quit(app: &AppHandle) {
-    let Some(ctx) = app.state::<SyncRunner>().ctx() else {
+    let runner = app.state::<SyncRunner>();
+    runner.begin_quit();
+    let Some(ctx) = runner.ctx() else {
         return;
+    };
+    lock(&ctx.engine).quit();
+    // Stops the tick loop and the watcher; a running cycle keeps going.
+    let old = lock(&runner.session).take();
+    drop(old);
+
+    let cycle_lock = runner.locks.for_vault(&ctx.vault);
+    let (guard, cycle_just_ran) = match cycle_lock.clone().try_lock_owned() {
+        Ok(guard) => (guard, false),
+        Err(_) => (cycle_lock.lock_owned().await, true),
     };
     handshake(app).await;
-    let cycle_lock = app.state::<SyncRunner>().locks.for_vault(&ctx.vault);
-    let Ok(guard) = cycle_lock.clone().try_lock_owned() else {
-        let _wait = cycle_lock.lock().await;
-        return;
-    };
     let (path, vault, url) = (db_path(app), ctx.vault.clone(), ctx.url.clone());
     let joined = tokio::task::spawn_blocking(move || {
-        if let Err(e) = commit_local_inner(Path::new(&vault)) {
-            eprintln!("[sync] local commit before quit failed: {e:?}");
-        }
-        cycle_blocking(path, &vault, &url, CycleMode::Auto)
+        let committed = match commit_local_inner(Path::new(&vault)) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[sync] local commit before quit failed: {e:?}");
+                false
+            }
+        };
+        (!cycle_just_ran || committed)
+            .then(|| cycle_blocking(path, &vault, &url, CycleMode::Auto))
     })
     .await;
-    drop(guard);
-    if let Ok((run, snap)) = joined {
-        let payload = SyncFinishedPayload {
-            report: run.report,
-            error: run.error,
-            view: lock(&ctx.engine).view(),
-            snapshot: snap,
-        };
-        let _ = app.emit(FINISHED_EVENT, &payload);
+    // Held until the process exits: no other cycle may start.
+    *lock(&runner.quit_guard) = Some(guard);
+    match joined {
+        Ok(Some((run, snap))) => {
+            let payload = SyncFinishedPayload {
+                report: run.report,
+                error: run.error,
+                view: lock(&ctx.engine).view(),
+                snapshot: snap,
+            };
+            let _ = app.emit(FINISHED_EVENT, &payload);
+        }
+        Ok(None) => {}
+        Err(e) => eprintln!("[sync] quit cycle task failed: {e}"),
     }
 }
