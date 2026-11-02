@@ -153,7 +153,10 @@ export interface SchedulerView {
   pendingDebounce: boolean;
   consecutiveFailures: number;
   offline: boolean;
+  /** Automatic retries stopped (Unauthorized) until a manual sync or a config change. */
   halted: boolean;
+  /** Three or more consecutive failures; retries continue at the backoff cadence. */
+  needsReview: boolean;
 }
 
 /** Payload of `sync-finished` and the result of `sync_get_state`. */

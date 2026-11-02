@@ -31,6 +31,7 @@ export function indicatorFor(
 ): SyncIndicator {
   if (
     s.view.halted ||
+    s.view.needsReview ||
     s.pausedReason !== null ||
     s.pendingConflicts.length > 0 ||
     localConflicts.length > 0

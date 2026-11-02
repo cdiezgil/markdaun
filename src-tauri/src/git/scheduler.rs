@@ -54,7 +54,12 @@ pub struct SchedulerView {
     pub pending_debounce: bool,
     pub consecutive_failures: u32,
     pub offline: bool,
+    /// Automatic retries stopped (Unauthorized) until "Sincronizar ahora" or
+    /// a config change.
     pub halted: bool,
+    /// Three or more consecutive failures: "Requiere revisión". Retries go on
+    /// at the backoff cadence.
+    pub needs_review: bool,
 }
 
 #[derive(Debug)]
@@ -176,10 +181,9 @@ impl Scheduler {
             }
             Outcome::Failed => {
                 self.offline = false;
+                // Never halts: "Requiere revisión" shows from the view while
+                // the backoff keeps retrying.
                 self.consecutive_failures += 1;
-                if self.consecutive_failures >= MAX_FAILURES {
-                    self.halted = true;
-                }
                 next = self.bump_backoff();
             }
             Outcome::Unauthorized => {
@@ -209,6 +213,7 @@ impl Scheduler {
             consecutive_failures: self.consecutive_failures,
             offline: self.offline,
             halted: self.halted,
+            needs_review: self.consecutive_failures >= MAX_FAILURES,
         }
     }
 }

@@ -183,13 +183,13 @@ fn offline_backoff_then_recovers() {
 }
 
 #[test]
-fn three_failures_halt() {
+fn three_failures_need_review_but_keep_retrying() {
     let t0 = Instant::now();
     let mut sc = Scheduler::new(t0);
     let mut now = t0;
     sc.on_trigger(Trigger::Startup, now);
     sc.on_cycle_end(Outcome::Failed, now);
-    assert!(!sc.view().halted);
+    assert!(!sc.view().needs_review);
     now += s(30);
     assert_eq!(tk(&mut sc, t0, now), Action::StartCycle);
     sc.on_cycle_end(Outcome::Failed, now);
@@ -197,9 +197,29 @@ fn three_failures_halt() {
     assert_eq!(tk(&mut sc, t0, now), Action::StartCycle);
     sc.on_cycle_end(Outcome::Failed, now);
     let v = sc.view();
-    assert!(v.halted);
+    assert!(v.needs_review);
+    assert!(!v.halted, "only Unauthorized halts");
     assert_eq!(v.consecutive_failures, 3);
-    assert_eq!(tk(&mut sc, t0, now + s(1000)), Action::None);
+    // Retries continue on the backoff (120 s, then capped at 300 s).
+    now += s(120);
+    assert_eq!(tk(&mut sc, t0, now), Action::StartCycle);
+    sc.on_cycle_end(Outcome::Failed, now);
+    assert_eq!(tk(&mut sc, t0, now + s(299)), Action::None);
+    now += s(300);
+    assert_eq!(tk(&mut sc, t0, now), Action::StartCycle);
+    sc.on_cycle_end(Outcome::Failed, now);
+    now += s(300);
+    assert_eq!(tk(&mut sc, t0, now), Action::StartCycle);
+    sc.on_cycle_end(Outcome::Failed, now);
+    // Focus, changes and manual are still honoured.
+    assert_eq!(sc.on_trigger(Trigger::Focus, now + s(1)), Action::StartCycle);
+    sc.on_cycle_end(Outcome::Failed, now + s(2));
+    assert_eq!(sc.on_trigger(Trigger::Changed, now + s(3)), Action::None);
+    assert!(sc.view().pending_debounce);
+    // A success clears the review state.
+    assert_eq!(sc.on_trigger(Trigger::Manual, now + s(4)), Action::StartCycle);
+    sc.on_cycle_end(Outcome::Ok, now + s(5));
+    assert!(!sc.view().needs_review);
 }
 
 #[test]
@@ -252,4 +272,5 @@ fn view_serializes_camel_case() {
     let sc = Scheduler::new(Instant::now());
     let j = serde_json::to_string(&sc.view()).unwrap();
     assert!(j.contains("pendingDebounce") && j.contains("consecutiveFailures"));
+    assert!(j.contains("needsReview"));
 }

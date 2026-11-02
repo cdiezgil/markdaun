@@ -19,7 +19,7 @@ function makeState(over: Partial<SyncState> = {}): SyncState {
   return {
     report: null,
     error: null,
-    view: { running: false, pendingDebounce: false, consecutiveFailures: 0, offline: false, halted: false },
+    view: { running: false, pendingDebounce: false, consecutiveFailures: 0, offline: false, halted: false, needsReview: false },
     status: { uncommitted: false, ahead: 0 },
     pausedReason: null,
     pendingConflicts: [],

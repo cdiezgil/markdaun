@@ -59,7 +59,7 @@ function syncState(
   return {
     report: null,
     error: null,
-    view: { running: false, pendingDebounce: false, consecutiveFailures: 0, offline: false, halted: false, ...view },
+    view: { running: false, pendingDebounce: false, consecutiveFailures: 0, offline: false, halted: false, needsReview: false, ...view },
     status: { uncommitted: false, ahead: 0 },
     pausedReason: null,
     pendingConflicts: [],

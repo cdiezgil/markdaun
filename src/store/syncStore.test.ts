@@ -45,6 +45,7 @@ function makeState(over: Partial<SyncState> = {}, view: Partial<SyncState['view'
       consecutiveFailures: 0,
       offline: false,
       halted: false,
+      needsReview: false,
       ...view,
     },
     status: { uncommitted: false, ahead: 0 },
@@ -306,6 +307,7 @@ describe('useSyncStore', () => {
     });
     it('needsReview beats syncing: halted, paused or conflicts', () => {
       expect(indicatorFor(makeState({}, { halted: true }), true)).toBe('needsReview');
+      expect(indicatorFor(makeState({}, { needsReview: true }), true)).toBe('needsReview');
       expect(indicatorFor(makeState({ pausedReason: 'deletion' }), true)).toBe('needsReview');
       expect(indicatorFor(makeState({ pendingConflicts: ['a.md'] }), true)).toBe('needsReview');
     });
