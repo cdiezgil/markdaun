@@ -164,3 +164,173 @@ fn lock_key_is_canonical() {
     let a = locks.for_vault("/no/such/vault");
     assert!(std::sync::Arc::ptr_eq(&a, &locks.for_vault("/no/such/vault")));
 }
+
+// ─── Hold release and cycle flow (fake host) ────────────────────────────────
+
+mod flow {
+    use crate::git::error::SyncError;
+    use crate::git::runner::{
+        drive_cycle, is_clean, quit_should_push, snapshot, CycleHost, CycleRun, Engine, Snapshot,
+        SyncFinishedPayload,
+    };
+    use crate::git::scheduler::{Outcome, Trigger};
+    use crate::git::sync::{CycleReport, SyncStatus};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
+    use std::time::{Instant, SystemTime};
+    use tokio::sync::oneshot;
+
+    struct Fake {
+        current: AtomicBool,
+        /// Simulates a restart while the frontend is flushing.
+        stale_on_ack: bool,
+        events: Mutex<Vec<String>>,
+    }
+
+    impl Fake {
+        fn new(current: bool) -> Self {
+            Fake {
+                current: AtomicBool::new(current),
+                stale_on_ack: false,
+                events: Mutex::new(Vec::new()),
+            }
+        }
+        fn push(&self, e: &str) {
+            self.events.lock().unwrap().push(e.to_string());
+        }
+        fn events(&self) -> Vec<String> {
+            self.events.lock().unwrap().clone()
+        }
+    }
+
+    impl CycleHost for Fake {
+        fn may_run(&self) -> bool {
+            true
+        }
+        fn is_current(&self) -> bool {
+            self.current.load(Ordering::SeqCst)
+        }
+        fn open_ack(&self) -> oneshot::Receiver<()> {
+            if self.stale_on_ack {
+                self.current.store(false, Ordering::SeqCst);
+            }
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(());
+            rx
+        }
+        fn close_ack(&self) {}
+        fn will_start(&self) {
+            self.push("will-start");
+        }
+        fn release(&self) {
+            self.push("release");
+        }
+        fn finished(&self, _payload: &SyncFinishedPayload) {
+            self.push("finished");
+        }
+        fn record_error(&self, _error: Option<SyncError>) {
+            self.push("record-error");
+        }
+        fn reindex(&self) {
+            self.push("reindex");
+        }
+    }
+
+    fn engine() -> Mutex<Engine> {
+        let mut e = Engine::new(Instant::now(), SystemTime::now());
+        e.trigger(Trigger::Startup, Instant::now());
+        Mutex::new(e)
+    }
+
+    fn ok_run(changed: &[&str]) -> (CycleRun, Snapshot) {
+        let report = CycleReport {
+            changed_paths: changed.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        };
+        let run = CycleRun {
+            report: Some(report),
+            error: None,
+            outcome: Outcome::Ok,
+        };
+        (run, Snapshot::default())
+    }
+
+    #[tokio::test]
+    async fn stale_before_handshake_skips_git_and_hold() {
+        let host = Fake::new(false);
+        let worked = AtomicBool::new(false);
+        drive_cycle(&host, &engine(), || async {
+            worked.store(true, Ordering::SeqCst);
+            Ok(ok_run(&[]))
+        })
+        .await;
+        assert!(!worked.load(Ordering::SeqCst));
+        assert!(host.events().is_empty(), "{:?}", host.events());
+    }
+
+    #[tokio::test]
+    async fn stale_during_handshake_releases_without_git() {
+        let host = Fake {
+            stale_on_ack: true,
+            ..Fake::new(true)
+        };
+        let worked = AtomicBool::new(false);
+        drive_cycle(&host, &engine(), || async {
+            worked.store(true, Ordering::SeqCst);
+            Ok(ok_run(&[]))
+        })
+        .await;
+        assert!(!worked.load(Ordering::SeqCst), "no git work once stale");
+        assert_eq!(host.events(), vec!["will-start", "release"]);
+    }
+
+    #[tokio::test]
+    async fn stale_after_git_work_releases() {
+        let host = Fake::new(true);
+        drive_cycle(&host, &engine(), || async {
+            host.current.store(false, Ordering::SeqCst);
+            Ok(ok_run(&["a.md"]))
+        })
+        .await;
+        assert_eq!(host.events(), vec!["will-start", "release"]);
+    }
+
+    #[tokio::test]
+    async fn failed_task_still_finishes() {
+        let host = Fake::new(true);
+        drive_cycle(&host, &engine(), || async { Err("task panicked".to_string()) }).await;
+        assert_eq!(host.events(), vec!["will-start", "record-error", "finished"]);
+    }
+
+    #[tokio::test]
+    async fn success_finishes_then_reindexes() {
+        let host = Fake::new(true);
+        drive_cycle(&host, &engine(), || async { Ok(ok_run(&["a.md"])) }).await;
+        assert_eq!(
+            host.events(),
+            vec!["will-start", "record-error", "finished", "reindex"]
+        );
+    }
+
+    #[test]
+    fn clean_needs_a_successful_status_read() {
+        assert!(!is_clean(&Snapshot::default()), "unread status is not clean");
+        let dir = tempfile::TempDir::new().unwrap();
+        // A `.git` that is not a repository makes the status read fail.
+        std::fs::write(dir.path().join(".git"), "garbage").unwrap();
+        let snap = snapshot(None, Some(dir.path()));
+        assert!(!is_clean(&snap));
+        let plain = tempfile::TempDir::new().unwrap();
+        assert!(is_clean(&snapshot(None, Some(plain.path()))));
+    }
+
+    #[test]
+    fn quit_pushes_new_or_unpushed_commits() {
+        let clean = SyncStatus { uncommitted: false, ahead: 0 };
+        let ahead = SyncStatus { uncommitted: false, ahead: 2 };
+        assert!(!quit_should_push(false, Ok(clean.clone())));
+        assert!(quit_should_push(true, Ok(clean)));
+        assert!(quit_should_push(false, Ok(ahead)));
+        assert!(quit_should_push(false, Err(SyncError::Git("x".into()))), "unknown: try");
+    }
+}

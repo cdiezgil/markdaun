@@ -26,6 +26,9 @@ use tokio::sync::{oneshot, OwnedMutexGuard};
 pub const WILL_START_EVENT: &str = "sync-will-start";
 pub const FINISHED_EVENT: &str = "sync-finished";
 pub const VAULT_CHANGED_EVENT: &str = "vault-changed";
+/// Ends a save hold without a cycle result (stale session, skipped cycle).
+/// The frontend releases its hold on this or on `sync-finished`.
+pub const HOLD_RELEASE_EVENT: &str = "sync-hold-release";
 /// How long a cycle waits for the frontend to flush and hold its saves.
 const ACK_WAIT: Duration = Duration::from_secs(2);
 /// The watcher delivers the cycle's own writes up to ~1 s after it ends.
@@ -131,20 +134,34 @@ pub fn confirm_allowed(db: &Connection) -> Result<(), SyncError> {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub status: SyncStatus,
+    /// False when `status` is a default because the read failed.
+    #[serde(skip)]
+    pub status_read: bool,
     pub paused_reason: Option<String>,
     pub pending_conflicts: Vec<String>,
     pub last_success: Option<String>,
 }
 
 pub fn snapshot(db: Option<&Connection>, vault: Option<&Path>) -> Snapshot {
+    let status = vault.map(sync_status_inner).and_then(Result::ok);
     Snapshot {
-        status: vault
-            .and_then(|v| sync_status_inner(v).ok())
-            .unwrap_or_default(),
+        status_read: status.is_some(),
+        status: status.unwrap_or_default(),
         paused_reason: db.and_then(state::paused_reason),
         pending_conflicts: db.map(state::pending_conflicts).unwrap_or_default(),
         last_success: db.and_then(state::last_success),
     }
+}
+
+/// Nothing left to commit or push, as far as a successful read can tell.
+pub fn is_clean(snap: &Snapshot) -> bool {
+    snap.status_read && !snap.status.uncommitted && snap.status.ahead == 0
+}
+
+/// The quit path pushes when it just committed or commits are still unpushed;
+/// an unreadable status is worth a (bounded) try.
+pub fn quit_should_push(committed: bool, status: Result<SyncStatus, SyncError>) -> bool {
+    committed || status.map_or(true, |s| s.ahead > 0)
 }
 
 /// Payload of `sync-finished` and the result of `sync_get_state`.
@@ -473,15 +490,6 @@ fn spawn_tick_loop(app: AppHandle, ctx: Ctx) -> tauri::async_runtime::JoinHandle
     })
 }
 
-/// Emit `sync-will-start` and wait up to 2 s for `sync_hold_ack`.
-async fn handshake(app: &AppHandle) {
-    let rx = app.state::<SyncRunner>().register_ack();
-    let _ = app.emit(WILL_START_EVENT, ());
-    if tokio::time::timeout(ACK_WAIT, rx).await.is_err() {
-        app.state::<SyncRunner>().clear_ack();
-    }
-}
-
 /// Runs on a blocking thread: one cycle plus the state to report with it.
 fn cycle_blocking(
     db_path: Result<PathBuf, String>,
@@ -511,25 +519,67 @@ fn cycle_blocking(
     (run, snapshot(Some(db.connection()), Some(Path::new(vault))))
 }
 
-/// Lock, handshake, run, report. Reindexing is requested after the lock is
-/// released; `spawn_vault_sync` skips duplicates on its own.
-async fn run_cycle(app: AppHandle, ctx: Ctx) {
-    if !app.state::<SyncRunner>().may_run() {
+/// What a cycle needs from the app; a seam so the flow is unit-testable.
+pub trait CycleHost {
+    fn may_run(&self) -> bool;
+    /// False once a restart replaced the session this cycle belongs to.
+    fn is_current(&self) -> bool;
+    fn open_ack(&self) -> oneshot::Receiver<()>;
+    fn close_ack(&self);
+    fn will_start(&self);
+    fn release(&self);
+    fn finished(&self, payload: &SyncFinishedPayload);
+    fn record_error(&self, error: Option<SyncError>);
+    fn reindex(&self);
+}
+
+/// Emits `sync-hold-release` on drop unless the cycle reported
+/// `sync-finished`: every `sync-will-start` gets exactly one release.
+struct HoldGuard<'a, H: CycleHost> {
+    host: &'a H,
+    finished: bool,
+}
+
+impl<H: CycleHost> Drop for HoldGuard<'_, H> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.host.release();
+        }
+    }
+}
+
+/// Emit `sync-will-start` and wait up to 2 s for `sync_hold_ack`.
+async fn handshake<'a, H: CycleHost>(host: &'a H) -> HoldGuard<'a, H> {
+    let rx = host.open_ack();
+    host.will_start();
+    let hold = HoldGuard {
+        host,
+        finished: false,
+    };
+    if tokio::time::timeout(ACK_WAIT, rx).await.is_err() {
+        host.close_ack();
+    }
+    hold
+}
+
+/// The cycle once its lock is held: handshake, git work, report. `work`
+/// runs the git cycle (and releases the lock); it is skipped when the
+/// session went stale or the app is quitting.
+pub async fn drive_cycle<H, W, Fut>(host: &H, engine: &Mutex<Engine>, work: W)
+where
+    H: CycleHost,
+    W: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<(CycleRun, Snapshot), String>>,
+{
+    if !host.may_run() || !host.is_current() {
         return;
     }
-    let cycle_lock = app.state::<SyncRunner>().locks.for_vault(&ctx.vault);
-    let guard = cycle_lock.lock_owned().await;
-    // The quit path may have started while this cycle waited for the lock.
-    if !app.state::<SyncRunner>().may_run() {
+    let mut hold = handshake(host).await;
+    // A restart during the flush clears the ack slot: never sync then.
+    if !host.may_run() || !host.is_current() {
         return;
     }
-    handshake(&app).await;
-    let mode = app.state::<SyncRunner>().take_mode();
-    let (path, vault, url) = (db_path(&app), ctx.vault.clone(), ctx.url.clone());
-    let joined =
-        tokio::task::spawn_blocking(move || cycle_blocking(path, &vault, &url, mode)).await;
-    drop(guard);
-    let (run, snap) = joined.unwrap_or_else(|e| {
+    let (run, snap) = work().await.unwrap_or_else(|e| {
         let run = CycleRun {
             report: None,
             error: Some(SyncError::Git(format!("sync task failed: {e}"))),
@@ -537,34 +587,100 @@ async fn run_cycle(app: AppHandle, ctx: Ctx) {
         };
         (run, Snapshot::default())
     });
-
     let changed = run
         .report
         .as_ref()
         .map(|r| r.changed_paths.clone())
         .unwrap_or_default();
-    let clean = !snap.status.uncommitted && snap.status.ahead == 0;
     let view = {
-        let mut engine = lock(&ctx.engine);
-        engine.end(run.outcome, &changed, clean, Instant::now());
+        let mut engine = lock(engine);
+        engine.end(run.outcome, &changed, is_clean(&snap), Instant::now());
         engine.view()
     };
-    let runner = app.state::<SyncRunner>();
-    if !runner.is_current(ctx.id) {
-        // A restart (reconnect, vault change) replaced this session.
+    if !host.is_current() {
+        // A restart replaced this session: release the hold, report nothing.
         return;
     }
-    *lock(&runner.last_error) = run.error.clone();
+    host.record_error(run.error.clone());
     let payload = SyncFinishedPayload {
         report: run.report,
         error: run.error,
         view,
         snapshot: snap,
     };
-    let _ = app.emit(FINISHED_EVENT, &payload);
+    host.finished(&payload);
+    hold.finished = true;
+    drop(hold);
     if !changed.is_empty() {
-        crate::commands::vault_index::spawn_vault_sync(&app, ctx.vault);
+        host.reindex();
     }
+}
+
+struct AppHost<'a> {
+    app: &'a AppHandle,
+    id: u64,
+    vault: &'a str,
+}
+
+impl AppHost<'_> {
+    fn runner(&self) -> tauri::State<'_, SyncRunner> {
+        self.app.state::<SyncRunner>()
+    }
+}
+
+impl CycleHost for AppHost<'_> {
+    fn may_run(&self) -> bool {
+        self.runner().may_run()
+    }
+    fn is_current(&self) -> bool {
+        self.runner().is_current(self.id)
+    }
+    fn open_ack(&self) -> oneshot::Receiver<()> {
+        self.runner().register_ack()
+    }
+    fn close_ack(&self) {
+        self.runner().clear_ack();
+    }
+    fn will_start(&self) {
+        let _ = self.app.emit(WILL_START_EVENT, ());
+    }
+    fn release(&self) {
+        let _ = self.app.emit(HOLD_RELEASE_EVENT, ());
+    }
+    fn finished(&self, payload: &SyncFinishedPayload) {
+        let _ = self.app.emit(FINISHED_EVENT, payload);
+    }
+    fn record_error(&self, error: Option<SyncError>) {
+        *lock(&self.runner().last_error) = error;
+    }
+    fn reindex(&self) {
+        crate::commands::vault_index::spawn_vault_sync(self.app, self.vault.to_string());
+    }
+}
+
+/// Lock, then the shared flow. The lock is released right after the git
+/// work, so reindexing (`spawn_vault_sync`, which skips duplicates) runs
+/// outside it.
+async fn run_cycle(app: AppHandle, ctx: Ctx) {
+    if !app.state::<SyncRunner>().may_run() {
+        return;
+    }
+    let cycle_lock = app.state::<SyncRunner>().locks.for_vault(&ctx.vault);
+    let guard = cycle_lock.lock_owned().await;
+    let host = AppHost {
+        app: &app,
+        id: ctx.id,
+        vault: &ctx.vault,
+    };
+    let work = || async {
+        let mode = app.state::<SyncRunner>().take_mode();
+        let (path, vault, url) = (db_path(&app), ctx.vault.clone(), ctx.url.clone());
+        let joined =
+            tokio::task::spawn_blocking(move || cycle_blocking(path, &vault, &url, mode)).await;
+        drop(guard);
+        joined.map_err(|e| e.to_string())
+    };
+    drive_cycle(&host, &ctx.engine, work).await;
 }
 
 /// Current state in the `sync-finished` shape (no report).
@@ -598,8 +714,8 @@ pub fn current_state(app: &AppHandle) -> SyncFinishedPayload {
 /// Quit path. Neutralises the session first (no tick, watcher or trigger can
 /// start git work), then takes the cycle lock, waiting for a running cycle,
 /// and keeps it until exit. Under the lock: flush handshake, local commit,
-/// and one bounded push cycle unless a cycle just ran and nothing new was
-/// committed. Never cancels a running git operation.
+/// and one bounded push cycle when something is committed but unpushed.
+/// Never cancels a running git operation; the save hold is always released.
 pub async fn before_quit(app: &AppHandle) {
     let runner = app.state::<SyncRunner>();
     runner.begin_quit();
@@ -611,12 +727,13 @@ pub async fn before_quit(app: &AppHandle) {
     let old = lock(&runner.session).take();
     drop(old);
 
-    let cycle_lock = runner.locks.for_vault(&ctx.vault);
-    let (guard, cycle_just_ran) = match cycle_lock.clone().try_lock_owned() {
-        Ok(guard) => (guard, false),
-        Err(_) => (cycle_lock.lock_owned().await, true),
+    let guard = runner.locks.for_vault(&ctx.vault).lock_owned().await;
+    let host = AppHost {
+        app,
+        id: ctx.id,
+        vault: &ctx.vault,
     };
-    handshake(app).await;
+    let mut hold = handshake(&host).await;
     let (path, vault, url) = (db_path(app), ctx.vault.clone(), ctx.url.clone());
     let joined = tokio::task::spawn_blocking(move || {
         let committed = match commit_local_inner(Path::new(&vault)) {
@@ -626,7 +743,7 @@ pub async fn before_quit(app: &AppHandle) {
                 false
             }
         };
-        (!cycle_just_ran || committed)
+        quit_should_push(committed, sync_status_inner(Path::new(&vault)))
             .then(|| cycle_blocking(path, &vault, &url, CycleMode::Auto))
     })
     .await;
@@ -640,9 +757,11 @@ pub async fn before_quit(app: &AppHandle) {
                 view: lock(&ctx.engine).view(),
                 snapshot: snap,
             };
-            let _ = app.emit(FINISHED_EVENT, &payload);
+            host.finished(&payload);
+            hold.finished = true;
         }
         Ok(None) => {}
         Err(e) => eprintln!("[sync] quit cycle task failed: {e}"),
     }
+    // `hold` drops here: `sync-hold-release` unless `sync-finished` went out.
 }
