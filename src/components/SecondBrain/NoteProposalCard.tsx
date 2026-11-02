@@ -55,8 +55,8 @@ const monoBlock: React.CSSProperties = {
 };
 
 const btn = (primary: boolean): React.CSSProperties => ({
-  background: primary ? 'var(--daun)' : 'transparent',
-  color: primary ? 'var(--on-daun)' : 'var(--ink)',
+  background: primary ? 'var(--gold)' : 'transparent',
+  color: primary ? 'var(--on-gold)' : 'var(--ink)',
   border: primary ? 'none' : '1px solid var(--line-strong)',
   borderRadius: 'var(--radius-sm)',
   padding: 'var(--space-1) var(--space-3)',

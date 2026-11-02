@@ -62,7 +62,7 @@ export function Trash(): JSX.Element {
 
   return (
     <section data-testid="trash-section" style={{ marginBottom: 'var(--space-8)' }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 'var(--space-2)' }}>Papelera</h2>
+      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 'var(--space-2)' }}>Papelera</h2>
       <p style={{ ...SMALL, margin: '0 0 var(--space-4)' }}>
         Lo que descartas de la Entrada se guarda aquí, fuera del árbol y del índice, hasta que lo restaures o lo elimines.
       </p>

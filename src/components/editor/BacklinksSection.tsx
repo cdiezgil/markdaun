@@ -50,7 +50,7 @@ export default function BacklinksSection({ notePath, vaultPath }: BacklinksSecti
           marginBottom: 'var(--space-3)',
         }}
       >
-        <h2 style={{ margin: 0, fontSize: 13, lineHeight: '18px', fontWeight: 600, color: 'var(--ink)' }}>
+        <h2 style={{ margin: 0, fontSize: 13, lineHeight: '18px', fontWeight: 700, color: 'var(--ink)' }}>
           Enlazada desde
         </h2>
         <span

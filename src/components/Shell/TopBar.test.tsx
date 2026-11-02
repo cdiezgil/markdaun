@@ -21,13 +21,14 @@ describe('TopBar', () => {
     expect(bar.style.borderBottom).toBe('1px solid var(--line)');
   });
 
-  it('renders the logotype with an italic Daun', () => {
+  it('renders the brand mark and a Geist Bold logotype', () => {
     renderAt('/');
+    expect(screen.getByTestId('brand-mark')).toBeInTheDocument();
     const logo = screen.getByTestId('logotype');
     expect(logo).toHaveTextContent('MarkDaun');
-    expect(logo.querySelector('i')).toHaveTextContent('Daun');
-    expect(logo.style.fontFamily).toBe('var(--font-display)');
-    expect(logo.style.fontWeight).toBe('400');
+    expect(logo.querySelector('i')).toBeNull();
+    expect(logo.style.fontFamily).toBe('var(--font-sans)');
+    expect(logo.style.fontWeight).toBe('700');
   });
 
   it('has Notas / Grafo / Brain / IDE tabs linking to the existing routes', () => {

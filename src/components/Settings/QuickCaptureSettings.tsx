@@ -71,7 +71,7 @@ export function QuickCaptureSettings(): JSX.Element {
 
   return (
     <section data-testid="quick-capture-section" style={{ marginBottom: 'var(--space-8)' }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 'var(--space-2)' }}>Captura rápida</h2>
+      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 'var(--space-2)' }}>Captura rápida</h2>
       <p style={{ ...SMALL, margin: '0 0 var(--space-3)' }}>
         Abre una ventana para apuntar una idea, pegar una URL o una imagen desde cualquier aplicación. Todo llega a la
         entrada.

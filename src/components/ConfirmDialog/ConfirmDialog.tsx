@@ -75,7 +75,7 @@ export function ConfirmDialog({
       >
         <p
           id="confirm-dialog-title"
-          style={{ fontSize: 15, fontWeight: 600, marginBottom: 'var(--space-2)' }}
+          style={{ fontSize: 15, fontWeight: 700, marginBottom: 'var(--space-2)' }}
         >
           {title}
         </p>

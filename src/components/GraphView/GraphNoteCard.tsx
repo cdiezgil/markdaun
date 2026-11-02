@@ -9,7 +9,7 @@ interface GraphNoteCardProps {
   node: GraphNodeData;
 }
 
-const strong: React.CSSProperties = { color: 'var(--ink)', fontWeight: 600 };
+const strong: React.CSSProperties = { color: 'var(--ink)', fontWeight: 700 };
 
 /** Top-right card for the selected node: path, title, excerpt, counters, actions. */
 export function GraphNoteCard({ node }: GraphNoteCardProps) {
@@ -104,8 +104,8 @@ export function GraphNoteCard({ node }: GraphNoteCardProps) {
             padding: '0 var(--space-3)',
             border: 0,
             borderRadius: 'var(--radius-md)',
-            background: 'var(--daun)',
-            color: 'var(--on-daun)',
+            background: 'var(--gold)',
+            color: 'var(--on-gold)',
             fontFamily: 'var(--font-sans)',
             fontSize: '13px',
             fontWeight: 500,

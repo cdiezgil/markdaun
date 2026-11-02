@@ -29,7 +29,7 @@ export function AttachmentChips({ attachments, onRemove }: Props): JSX.Element |
             background: 'var(--surface)',
             border: '1px solid var(--line)',
             borderRadius: 'var(--radius-pill)',
-            fontFamily: 'var(--sans)',
+            fontFamily: 'var(--font-sans)',
             fontSize: '0.8125rem',
             color: 'var(--ink)',
           }}

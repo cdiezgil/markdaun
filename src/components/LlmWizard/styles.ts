@@ -28,7 +28,7 @@ export const modal: CSSProperties = {
   gap: 'var(--space-4)',
 };
 
-export const title: CSSProperties = { fontSize: 20, fontWeight: 600, margin: 0, color: 'var(--ink)' };
+export const title: CSSProperties = { fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--ink)' };
 export const muted: CSSProperties = { fontSize: 13, color: 'var(--ink-muted)', margin: 0 };
 export const errorText: CSSProperties = { fontSize: 13, color: 'var(--danger)', margin: 0 };
 
@@ -79,8 +79,8 @@ const buttonBase: CSSProperties = {
 
 export const primaryButton: CSSProperties = {
   ...buttonBase,
-  background: 'var(--daun)',
-  color: 'var(--on-daun)',
+  background: 'var(--gold)',
+  color: 'var(--on-gold)',
   border: 'none',
 };
 

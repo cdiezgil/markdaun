@@ -38,7 +38,7 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }): JS
         r.hit ? (
           <mark
             key={i}
-            style={{ background: 'var(--mark)', color: 'inherit', fontWeight: 600 }}
+            style={{ background: 'var(--mark)', color: 'inherit', fontWeight: 700 }}
           >
             {r.text}
           </mark>

@@ -73,6 +73,14 @@ describe('TC-29: ConversationList new conversation', () => {
     expect(useBrainStore.getState().currentConversationId).toBeNull();
     expect(useBrainStore.getState().messages).toHaveLength(0);
   });
+
+  it('paints the new conversation button as the brand primary: Oro with Navy text', () => {
+    renderList();
+    const btn = screen.getByTestId('new-conversation-btn');
+    expect(btn.style.background).toBe('var(--gold)');
+    expect(btn.style.color).toBe('var(--on-gold)');
+    expect(btn.style.fontWeight).toBe('700');
+  });
 });
 
 // ── TC-34b: delete button triggers confirm dialog ─────────────────────────────

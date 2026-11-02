@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Brain, FileText, FolderCode, Network } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NoteSearch } from './NoteSearch';
+import { BrandMark } from '../Brand/BrandMark';
 import { viewForPath, type ShellView } from '../../lib/shell';
 
 const TABS: Array<{ view: ShellView; label: string; to: string; Icon: LucideIcon }> = [
@@ -11,25 +12,6 @@ const TABS: Array<{ view: ShellView; label: string; to: string; Icon: LucideIcon
   { view: 'brain', label: 'Brain', to: '/brain', Icon: Brain },
   { view: 'ide', label: 'IDE', to: '/ide', Icon: FolderCode },
 ];
-
-function Mark(): JSX.Element {
-  return (
-    <svg aria-hidden="true" width="18" height="20" viewBox="200 120 624 784">
-      <path
-        fill="var(--daun)"
-        d="M512 200 C 700 290, 784 470, 512 868 C 240 470, 324 290, 512 200 Z"
-      />
-      <path
-        d="M512 310 V 694 M420 602 L512 694 L604 602"
-        stroke="var(--surface-sunken)"
-        strokeWidth={56}
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
 /** Application top bar: logotype, view tabs and the ⌘K note search. */
 export function TopBar(): JSX.Element {
@@ -53,18 +35,19 @@ export function TopBar(): JSX.Element {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <Mark />
+          <BrandMark size={20} />
           <span
             data-testid="logotype"
             style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: 19,
+              fontFamily: 'var(--font-sans)',
+              fontSize: 17,
               lineHeight: 1,
-              fontWeight: 400,
+              fontWeight: 700,
+              letterSpacing: '-0.02em',
               color: 'var(--ink)',
             }}
           >
-            Mark<i>Daun</i>
+            MarkDaun
           </span>
         </div>
         <nav

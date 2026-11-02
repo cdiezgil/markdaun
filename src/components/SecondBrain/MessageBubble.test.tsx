@@ -193,10 +193,11 @@ describe('MessageBubble assistant Markdown', () => {
     expect(screen.getByTestId('msg-bubble-assistant').querySelector('[data-wikilink="Primera nota"]')).not.toBeNull();
   });
 
-  it('shows the user message aligned right on daun with the asymmetric corner', () => {
+  it('shows the user message aligned right on a gold tint with the asymmetric corner', () => {
     render(<MessageBubble message={makeMsg({ role: 'user' })} onSourceClick={vi.fn()} />);
     const b = screen.getByTestId('msg-bubble-user');
-    expect(b.style.background).toBe('var(--daun)');
+    expect(b.style.background).toBe('var(--sap)');
+    expect(b.style.color).toBe('var(--ink)');
     expect(b.style.maxWidth).toBe('70%');
     expect(b.style.borderRadius).toBe('var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg)');
   });

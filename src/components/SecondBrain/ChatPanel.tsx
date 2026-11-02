@@ -346,8 +346,8 @@ export function ChatPanel({ vaultPath }: ChatPanelProps): JSX.Element {
                   justifyContent: 'center',
                   border: 'none',
                   borderRadius: 'var(--radius-pill)',
-                  background: 'var(--daun)',
-                  color: 'var(--on-daun)',
+                  background: 'var(--gold)',
+                  color: 'var(--on-gold)',
                   opacity: send ? 0.5 : 1,
                   cursor: send ? 'not-allowed' : 'pointer',
                 }}

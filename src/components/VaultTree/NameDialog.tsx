@@ -94,7 +94,7 @@ export function NameDialog({ open, title, hint, submitLabel = 'Crear', onSubmit,
       >
         <p
           id="name-dialog-title"
-          style={{ fontSize: 15, fontWeight: 600, marginBottom: 'var(--space-2)' }}
+          style={{ fontSize: 15, fontWeight: 700, marginBottom: 'var(--space-2)' }}
         >
           {title}
         </p>
@@ -156,9 +156,9 @@ export function NameDialog({ open, title, hint, submitLabel = 'Crear', onSubmit,
             disabled={busy}
             data-testid="name-dialog-submit"
             style={{
-              background: 'var(--daun)',
+              background: 'var(--gold)',
               border: 'none',
-              color: 'var(--on-daun)',
+              color: 'var(--on-gold)',
               cursor: busy ? 'wait' : 'pointer',
               padding: 'var(--space-2) var(--space-4)',
               borderRadius: 'var(--radius-sm)',

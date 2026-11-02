@@ -68,14 +68,14 @@ export function SyncDialogs(): JSX.Element {
             borderRadius: 'var(--radius-md)',
             boxShadow: 'var(--shadow-pop)',
             color: 'var(--ink)',
-            fontFamily: 'var(--sans)',
+            fontFamily: 'var(--font-sans)',
             fontSize: 13,
             display: 'flex',
             flexDirection: 'column',
             gap: 'var(--space-2)',
           }}
         >
-          <p style={{ margin: 0, fontWeight: 600, color: 'var(--amber)' }}>
+          <p style={{ margin: 0, fontWeight: 700, color: 'var(--amber)' }}>
             {conflicts.length === 1 ? 'Hay 1 conflicto' : `Hay ${conflicts.length} conflictos`}
           </p>
           <p style={{ margin: 0, color: 'var(--ink-muted)' }}>

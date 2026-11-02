@@ -210,7 +210,7 @@ function GraphCanvasInner({ vaultPath }: GraphCanvasProps) {
         proOptions={{ hideAttribution: true }}
         style={{ background: 'transparent' }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--line)" />
+        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--line)" />
       </ReactFlow>
       <GraphFilterPanel vaultPath={vaultPath} />
       {selectedVisible && <GraphNoteCard node={selected.data} />}

@@ -58,14 +58,14 @@ export function ConversationList({ vaultPath }: ConversationListProps): JSX.Elem
               width: '100%',
               height: 36,
               marginBottom: 'var(--space-3)',
-              background: 'var(--daun)',
+              background: 'var(--gold)',
               border: 'none',
               borderRadius: 'var(--radius-md)',
               fontFamily: 'var(--font-sans)',
               fontSize: 13,
               lineHeight: '18px',
-              fontWeight: 500,
-              color: 'var(--on-daun)',
+              fontWeight: 700,
+              color: 'var(--on-gold)',
               cursor: 'pointer',
             }}
           >

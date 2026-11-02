@@ -31,7 +31,7 @@ export function AiConnections(): JSX.Element {
 
   return (
     <section data-testid="ai-connections" style={{ marginBottom: 'var(--space-8)' }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 'var(--space-4)' }}>Conexiones de IA</h2>
+      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 'var(--space-4)' }}>Conexiones de IA</h2>
 
       {connections.length === 0 ? (
         <p data-testid="ai-connections-empty" style={{ fontSize: 14, color: 'var(--ink-muted)', margin: 0 }}>
@@ -92,8 +92,8 @@ export function AiConnections(): JSX.Element {
         onClick={() => openWizard()}
         style={{
           marginTop: 'var(--space-3)',
-          background: 'var(--daun)',
-          color: 'var(--on-daun)',
+          background: 'var(--gold)',
+          color: 'var(--on-gold)',
           border: 'none',
           borderRadius: 'var(--radius-sm)',
           padding: 'var(--space-2) var(--space-4)',
