@@ -84,7 +84,7 @@ beforeEach(() => {
     deferredWrites: {},
     diskContent: '# Idea',
   });
-  useSyncStore.setState({ state: null, conflicts: [], vaultChangeCount: 0 });
+  useSyncStore.setState({ state: null, conflicts: [], vaultChangeCount: 0, running: false, localPending: false });
 });
 
 afterEach(() => {
@@ -216,6 +216,68 @@ describe('useAutoSync', () => {
     });
     expect(mockInvoke).toHaveBeenCalledWith('sync_trigger', { reason: 'changed' });
   });
+  it('the status item shows "Sincronizando" from sync-will-start until sync-finished', async () => {
+    await mount();
+    expect(useSyncStore.getState().running).toBe(false);
+    await emit('sync-will-start');
+    expect(useSyncStore.getState().running).toBe(true);
+    await emit('sync-finished', finished([]));
+    expect(useSyncStore.getState().running).toBe(false);
+  });
+
+  it('a hold release without a report also ends "Sincronizando"', async () => {
+    await mount();
+    await emit('sync-will-start');
+    await emit('sync-hold-release');
+    expect(useSyncStore.getState().running).toBe(false);
+  });
+
+  it('a save shows "Pendiente" until a cycle reports the vault clean', async () => {
+    await mount();
+    await emit('sync-finished', finished([]));
+    expect(useSyncStore.getState().localPending).toBe(false);
+    useEditorStore.getState().setContent('# Idea\n\nnuevo');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(useSyncStore.getState().localPending).toBe(true);
+    await emit('sync-finished', finished([]));
+    expect(useSyncStore.getState().localPending).toBe(false);
+  });
+
+  it('refreshes the file tree when the vault changes on disk', async () => {
+    const { useVaultStore } = await import('../store/vaultStore');
+    const refreshTree = vi.fn().mockResolvedValue(undefined);
+    useVaultStore.setState({ refreshTree });
+    await mount();
+    await emit('vault-changed', ['agent.md']);
+    expect(refreshTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('a new cycle\'s hold waits for the previous sync-finished handling', async () => {
+    let finishRead!: (v: string) => void;
+    routeInvoke({
+      sync_get_state: () => makeState(),
+      read_note: () => new Promise<string>((r) => (finishRead = r)),
+      write_conflict_copy: () => COPY,
+    });
+    await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nmío');
+    await emit('sync-finished', finished(['proj/Idea.md']));
+    // The next cycle starts while the open note's remote version is being read.
+    await emit('sync-will-start');
+    expect(commands()).not.toContain('write_note');
+    expect(commands().filter((c) => c === 'sync_hold_ack')).toHaveLength(1);
+    await act(async () => {
+      finishRead('# Idea\n\nremota');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const cmds = commands();
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.indexOf('write_note'));
+    expect(cmds.filter((c) => c === 'sync_hold_ack')).toHaveLength(2);
+  });
+
   it('lists the conflict copy of a note switched away from during the cycle', async () => {
     routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
     await mount();

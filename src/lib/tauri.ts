@@ -227,6 +227,11 @@ export async function onSyncFinished(cb: (s: SyncState) => void): Promise<() => 
   return listen<SyncState>('sync-finished', (event) => cb(event.payload));
 }
 
+/** The vault watcher saw files change on disk (vault-relative paths). */
+export async function onVaultChanged(cb: (paths: string[]) => void): Promise<() => void> {
+  return listen<string[]>('vault-changed', (event) => cb(event.payload));
+}
+
 /** End a save hold without a cycle result (stale session, skipped cycle). */
 export async function onSyncHoldRelease(cb: () => void): Promise<() => void> {
   return listen('sync-hold-release', () => cb());

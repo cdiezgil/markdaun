@@ -22,12 +22,14 @@ export type SyncIndicator = 'upToDate' | 'syncing' | 'pending' | 'offline' | 'ne
 
 /**
  * What the status bar shows. `running` is whether a cycle is in flight right
- * now (the scheduler view may lag a `sync-will-start` event).
+ * now (the scheduler view may lag a `sync-will-start` event); `localPending`
+ * is a save made since the last cycle report.
  */
 export function indicatorFor(
   s: SyncState,
   running: boolean,
   localConflicts: string[] = [],
+  localPending = false,
 ): SyncIndicator {
   if (
     s.view.halted ||
@@ -40,7 +42,9 @@ export function indicatorFor(
   }
   if (running) return 'syncing';
   if (s.view.offline) return 'offline';
-  if (s.status.uncommitted || s.status.ahead > 0 || s.view.pendingDebounce) return 'pending';
+  if (localPending || s.status.uncommitted || s.status.ahead > 0 || s.view.pendingDebounce) {
+    return 'pending';
+  }
   return 'upToDate';
 }
 
@@ -119,6 +123,10 @@ interface SyncStoreState {
   localConflicts: string[];
   /** Bumped whenever sync may have changed files on disk (reload the tree). */
   vaultChangeCount: number;
+  /** A cycle is in flight: set on `sync-will-start`, cleared when it ends. */
+  running: boolean;
+  /** A save landed since the last cycle report: shown as "Pendiente" right away. */
+  localPending: boolean;
 
   loadConfig(): Promise<void>;
   /** Preview the remote; applies directly only when nothing could be lost. */
@@ -128,6 +136,8 @@ interface SyncStoreState {
   disconnect(): Promise<void>;
   /** Store a `sync-finished` payload (or a `sync_get_state` result). */
   applyFinished(payload: SyncState): void;
+  markRunning(running: boolean): void;
+  markPending(): void;
   loadState(): Promise<void>;
   syncNow(): Promise<void>;
   confirmDeletion(): Promise<void>;
@@ -187,6 +197,16 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
     conflicts: [],
     localConflicts: [],
     vaultChangeCount: 0,
+    running: false,
+    localPending: false,
+
+    markRunning(running) {
+      set({ running });
+    },
+
+    markPending() {
+      set({ localPending: true });
+    },
 
     async loadConfig() {
       set({ error: null });
@@ -264,6 +284,10 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
           deletionPromptOpen:
             (asked !== null || autoOpen || s.deletionPromptOpen) && (paused || asked !== null),
           state: payload,
+          // The report says what is still unsynced; the scheduler whether a
+          // cycle runs (a mid-cycle `sync_get_state` says so too).
+          running: payload.view.running,
+          localPending: false,
           status: { hasChanges: payload.status.uncommitted || payload.status.ahead > 0 },
           // Connect-time conflict copies are not persisted backend-side: only
           // replace the list when the backend has some, never wipe it here

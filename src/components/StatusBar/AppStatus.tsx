@@ -33,6 +33,8 @@ function SyncItem(): JSX.Element | null {
   const state = useSyncStore((s) => s.state);
   const error = useSyncStore((s) => s.error);
   const localConflicts = useSyncStore((s) => s.localConflicts);
+  const running = useSyncStore((s) => s.running);
+  const localPending = useSyncStore((s) => s.localPending);
   const syncNow = useSyncStore((s) => s.syncNow);
   const openDeletionPrompt = useSyncStore((s) => s.openDeletionPrompt);
   if (!isConnected) return null;
@@ -60,7 +62,7 @@ function SyncItem(): JSX.Element | null {
     );
   }
   const indicator: SyncIndicator = state
-    ? indicatorFor(state, state.view.running, localConflicts)
+    ? indicatorFor(state, running, localConflicts, localPending)
     : 'upToDate';
   const icon =
     indicator === 'syncing' ? <Loader {...ICON} />

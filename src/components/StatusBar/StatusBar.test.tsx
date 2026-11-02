@@ -47,6 +47,8 @@ beforeEach(() => {
     state: null,
     connecting: false,
     error: null,
+    running: false,
+    localPending: false,
   });
   useLlmStore.setState({ connections: [], active: null, loaded: true });
 });
@@ -191,9 +193,9 @@ describe('StatusBar', () => {
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Al día');
       act(() => { useSyncStore.setState({ state: syncState({ status: { uncommitted: true, ahead: 0 } }) }); });
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Pendiente');
-      act(() => { useSyncStore.setState({ state: syncState({}, { running: true }) }); });
+      act(() => { useSyncStore.setState({ state: syncState(), running: true }); });
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Sincronizando');
-      act(() => { useSyncStore.setState({ state: syncState({}, { offline: true }) }); });
+      act(() => { useSyncStore.setState({ state: syncState({}, { offline: true }), running: false }); });
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Sin conexión');
       act(() => { useSyncStore.setState({ state: syncState({ pausedReason: 'deletion' }) }); });
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Requiere revisión');
@@ -202,17 +204,26 @@ describe('StatusBar', () => {
     it('renders each indicator label', () => {
       useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true } });
       renderBar();
-      const cases: [Partial<SyncState>, Partial<SyncState['view']>, string][] = [
-        [{}, {}, 'Al día'],
-        [{ status: { uncommitted: true, ahead: 0 } }, {}, 'Pendiente'],
-        [{}, { running: true }, 'Sincronizando'],
-        [{}, { offline: true }, 'Sin conexión'],
-        [{ pendingConflicts: ['a.md'] }, {}, 'Requiere revisión'],
+      const cases: [Partial<SyncState>, Partial<SyncState['view']>, boolean, string][] = [
+        [{}, {}, false, 'Al día'],
+        [{ status: { uncommitted: true, ahead: 0 } }, {}, false, 'Pendiente'],
+        [{}, {}, true, 'Sincronizando'],
+        [{}, { offline: true }, false, 'Sin conexión'],
+        [{ pendingConflicts: ['a.md'] }, {}, false, 'Requiere revisión'],
+        [{}, { needsReview: true }, false, 'Requiere revisión'],
       ];
-      for (const [over, view, label] of cases) {
-        act(() => { useSyncStore.setState({ state: syncState(over, view) }); });
+      for (const [over, view, running, label] of cases) {
+        act(() => { useSyncStore.setState({ state: syncState(over, view), running }); });
         expect(screen.getByTestId('sync-status')).toHaveTextContent(label);
       }
+    });
+
+    it('a save shows "Pendiente" before the backend reports it', () => {
+      useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true }, state: syncState(), running: false });
+      renderBar();
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Al día');
+      act(() => { useSyncStore.getState().markPending(); });
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Pendiente');
     });
 
     it('frontend-only conflict copies need review too', () => {

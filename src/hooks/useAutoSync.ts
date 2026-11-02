@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import {
   onSyncFinished,
   onSyncHoldRelease,
+  onVaultChanged,
   onSyncWillStart,
   syncHoldAck,
   syncTrigger,
@@ -14,6 +15,7 @@ import {
   type RemoteChangeResult,
 } from '../store/editorStore';
 import { useSyncStore } from '../store/syncStore';
+import { useVaultStore } from '../store/vaultStore';
 
 export const TOAST_RELOADED = 'Nota actualizada desde GitHub';
 export const TOAST_DELETED = 'La nota se borró en GitHub';
@@ -49,6 +51,9 @@ function useTauriEvent(subscribe: () => Promise<() => void>): void {
 export function useAutoSync(showToast: (message: string) => void): void {
   const toastRef = useRef(showToast);
   toastRef.current = showToast;
+  // The last `sync-finished` handling: a new cycle's hold waits for it, so its
+  // flush never runs between reading the open note and keeping its copy.
+  const finishing = useRef<Promise<void>>(Promise.resolve());
 
   // The first cycle may finish before the listeners exist.
   useEffect(() => {
@@ -57,9 +62,9 @@ export function useAutoSync(showToast: (message: string) => void): void {
 
   useTauriEvent(() =>
     onSyncWillStart(() => {
-      void useEditorStore
-        .getState()
-        .holdSaves()
+      useSyncStore.getState().markRunning(true);
+      void finishing.current
+        .then(() => useEditorStore.getState().holdSaves())
         .then(() => syncHoldAck())
         .catch(console.error);
     }),
@@ -69,6 +74,7 @@ export function useAutoSync(showToast: (message: string) => void): void {
     onSyncHoldRelease(() => {
       // No report: the deferred notes are checked against their disk content.
       // The flush result is reported through `onDeferredFlush`.
+      useSyncStore.getState().markRunning(false);
       useEditorStore.getState().releaseSaves('unknown').catch(console.error);
     }),
   );
@@ -77,7 +83,16 @@ export function useAutoSync(showToast: (message: string) => void): void {
 
   useTauriEvent(() =>
     onSyncFinished((payload) => {
-      void handleFinished(payload, (m) => toastRef.current(m));
+      finishing.current = finishing.current
+        .then(() => handleFinished(payload, (m) => toastRef.current(m)))
+        .catch(console.error);
+    }),
+  );
+
+  // Files changed on disk outside the editor (an agent, a capture, a merge).
+  useTauriEvent(() =>
+    onVaultChanged(() => {
+      void useVaultStore.getState().refreshTree();
     }),
   );
 
@@ -86,6 +101,7 @@ export function useAutoSync(showToast: (message: string) => void): void {
     () =>
       useEditorStore.subscribe((s, prev) => {
         if (s.lastSavedAt !== null && s.lastSavedAt !== prev.lastSavedAt) {
+          useSyncStore.getState().markPending();
           syncTrigger('changed').catch(() => {
             // Not connected: nothing to sync.
           });
@@ -137,5 +153,8 @@ function reportDeferred(deferred: DeferredFlushResult, toast: (m: string) => voi
   if (deferred.failed) toast(TOAST_COPY_FAILED);
   if (deferred.writeFailed) toast(TOAST_WRITE_FAILED);
   // Like a save: let the scheduler debounce a cycle for what was written.
-  if (deferred.written > 0) syncTrigger('changed').catch(() => {});
+  if (deferred.written > 0) {
+    useSyncStore.getState().markPending();
+    syncTrigger('changed').catch(() => {});
+  }
 }
