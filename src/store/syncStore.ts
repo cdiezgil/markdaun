@@ -239,6 +239,12 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
           status: { hasChanges: false },
           connectAction: null,
           connecting: false,
+          // The backend dropped the pause and the conflict list with the link.
+          state: null,
+          pendingDeletion: null,
+          deletionPromptOpen: false,
+          conflicts: [],
+          localConflicts: [],
         });
       } catch (e) {
         set({
@@ -295,9 +301,13 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
     },
 
     async confirmDeletion() {
+      // Never a blind "Continuar": without the counts the user saw, nothing
+      // is confirmed (the dialog refreshes them with a manual cycle).
+      const seen = get().pendingDeletion;
+      if (seen === null) return;
       set({ pendingDeletion: null, deletionPromptOpen: false });
       try {
-        await syncConfirmDeletions();
+        await syncConfirmDeletions(seen);
       } catch (e) {
         set({ error: errorText(e) });
       }

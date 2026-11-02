@@ -124,7 +124,7 @@ fn quitting_runner_refuses_git_work() {
 #[test]
 fn restart_clears_pending_confirm() {
     let runner = SyncRunner::default();
-    runner.request_mode(CycleMode::ConfirmDeletions);
+    runner.request_mode(CycleMode::ConfirmDeletions { deleted: 1 });
     runner.reset_for_restart();
     assert_eq!(runner.take_mode(), CycleMode::Auto);
 }

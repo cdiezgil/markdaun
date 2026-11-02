@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -31,6 +31,7 @@ const cancelConnect = vi.fn();
 const confirmDeletion = vi.fn();
 const cancelDeletion = vi.fn();
 const dismissConflicts = vi.fn();
+const syncNow = vi.fn();
 
 function setup(partial: Partial<ReturnType<typeof useSyncStore.getState>>) {
   useSyncStore.setState({
@@ -43,6 +44,7 @@ function setup(partial: Partial<ReturnType<typeof useSyncStore.getState>>) {
     confirmDeletion,
     cancelDeletion,
     dismissConflicts,
+    syncNow,
     ...partial,
   });
   useVaultStore.setState({ vaultPath: '/vault' });
@@ -103,11 +105,25 @@ describe('SyncDialogs', () => {
     expect(confirmDeletion).toHaveBeenCalledWith();
   });
 
-  it('deletion guard with unknown counts (after a restart) uses a generic sentence', () => {
+  it('deletion guard with unknown counts (after a restart) checks first, never a blind Continuar', async () => {
     setup({ pendingDeletion: null, deletionPromptOpen: true });
+    expect(screen.getByText(/Comprobando/)).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-dialog-delete')).toBeDisabled();
+    expect(syncNow).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByTestId('confirm-dialog-delete'));
+    expect(confirmDeletion).not.toHaveBeenCalled();
+  });
+
+  it('the refreshed counts replace the check', () => {
+    setup({ pendingDeletion: null, deletionPromptOpen: true });
+    act(() => {
+      useSyncStore.setState({ pendingDeletion: { deleted: 15, total: 20 } });
+    });
     expect(
-      screen.getByText('Esta sincronización borraría notas en GitHub. ¿Continuar?'),
+      screen.getByText('Esta sincronización borraría 15 de 20 notas en GitHub. ¿Continuar?'),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-dialog-delete')).not.toBeDisabled();
+    expect(syncNow).toHaveBeenCalledTimes(1);
   });
 
   it('deletion guard stays closed unless the prompt is open', () => {

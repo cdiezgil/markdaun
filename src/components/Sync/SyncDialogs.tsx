@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConfirmDialog } from '../ConfirmDialog/ConfirmDialog';
 import { useSyncStore } from '../../store/syncStore';
@@ -24,7 +24,15 @@ export function SyncDialogs(): JSX.Element {
   const confirmDeletion = useSyncStore((s) => s.confirmDeletion);
   const cancelDeletion = useSyncStore((s) => s.cancelDeletion);
   const dismissConflicts = useSyncStore((s) => s.dismissConflicts);
+  const syncNow = useSyncStore((s) => s.syncNow);
   const vaultPath = useVaultStore((s) => s.vaultPath);
+
+  // After a restart the pause survives but its counts do not: a manual cycle
+  // re-runs the guard and its report brings them (or lifts the pause).
+  const countsUnknown = deletionPromptOpen && pendingDeletion === null;
+  useEffect(() => {
+    if (countsUnknown) void syncNow();
+  }, [countsUnknown, syncNow]);
 
   const preview = pendingConnect?.preview;
   const downloading = preview?.case === 'local_empty';
@@ -51,9 +59,10 @@ export function SyncDialogs(): JSX.Element {
         description={
           pendingDeletion
             ? `Esta sincronización borraría ${pendingDeletion.deleted} de ${pendingDeletion.total} notas en GitHub. ¿Continuar?`
-            : 'Esta sincronización borraría notas en GitHub. ¿Continuar?'
+            : 'Comprobando cuántas notas se borrarían en GitHub…'
         }
         confirmLabel="Continuar"
+        confirmDisabled={pendingDeletion === null}
         onConfirm={() => void confirmDeletion()}
         onCancel={cancelDeletion}
       />

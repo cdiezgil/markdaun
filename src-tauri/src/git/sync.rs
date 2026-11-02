@@ -607,6 +607,10 @@ pub(crate) fn sanitize_device_name(raw: &str) -> String {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CycleOptions {
     pub confirm_deletions: bool,
+    /// Deletions the user saw when confirming. With `confirm_deletions`, a
+    /// guard that now counts more asks again instead of pushing; `None`
+    /// confirms any count.
+    pub confirmed_deleted: Option<usize>,
     pub push_paused: bool,
 }
 
@@ -679,8 +683,10 @@ fn sync_cycle(
     let mut own = LateEdits::new();
     if fetch_main(&repo, pat)? {
         conflicts.extend(merge_remote_noting(&repo, &conflict_stamp(), &mut own)?);
-        if !opts.confirm_deletions && !opts.push_paused {
-            if let Some(warning) = deletion_warning(&repo)? {
+        if !opts.push_paused {
+            if let Some(warning) = deletion_warning(&repo)?
+                .filter(|w| !confirmed(&opts, w))
+            {
                 return Ok(CycleReport {
                     changed_paths: remote_changes(&repo, before, &own)?,
                     conflicts,
@@ -702,6 +708,11 @@ fn sync_cycle(
         needs_confirmation: None,
         pushed,
     })
+}
+
+/// The user already accepted this many deletions (or more).
+fn confirmed(opts: &CycleOptions, w: &DeletionWarning) -> bool {
+    opts.confirm_deletions && opts.confirmed_deleted.is_none_or(|seen| w.deleted <= seen)
 }
 
 /// Paths changed since `before`, minus this device's late edits (`own`)
@@ -792,6 +803,7 @@ pub fn git_push_inner(
         pat,
         CycleOptions {
             confirm_deletions,
+            confirmed_deleted: None,
             push_paused: false,
         },
     )?;
@@ -816,6 +828,7 @@ pub fn git_pull_inner(
         pat,
         CycleOptions {
             confirm_deletions: false,
+            confirmed_deleted: None,
             push_paused: true,
         },
     )?;

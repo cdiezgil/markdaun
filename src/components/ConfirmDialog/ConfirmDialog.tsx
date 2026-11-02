@@ -11,6 +11,8 @@ export interface ConfirmDialogProps {
   confirmLabel?: string;
   /** `danger` (default) colours the confirm label red; `neutral` uses the brand colour. */
   tone?: 'danger' | 'neutral';
+  /** Disables the confirm button (e.g. while the facts are still being checked). */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -22,6 +24,7 @@ export function ConfirmDialog({
   message,
   confirmLabel = 'Eliminar',
   tone = 'danger',
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -100,12 +103,14 @@ export function ConfirmDialog({
           </button>
           <button
             onClick={onConfirm}
+            disabled={confirmDisabled}
             data-testid="confirm-dialog-delete"
             style={{
+              opacity: confirmDisabled ? 0.5 : 1,
               background: 'var(--surface)',
               border: '1px solid var(--line-strong)',
               color: tone === 'danger' ? 'var(--danger)' : 'var(--daun)',
-              cursor: 'pointer',
+              cursor: confirmDisabled ? 'default' : 'pointer',
               padding: 'var(--space-2) var(--space-4)',
               borderRadius: 'var(--radius-sm)',
               fontSize: 14,

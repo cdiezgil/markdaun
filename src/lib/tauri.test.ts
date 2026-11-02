@@ -199,16 +199,20 @@ describe('sync commands', () => {
     expect(mockInvoke).toHaveBeenCalledWith('sync_trigger', { reason: 'manual' });
   });
 
+  it('syncConfirmDeletions sends the counts the user saw', async () => {
+    mockInvoke.mockResolvedValue(undefined);
+    await syncConfirmDeletions({ deleted: 15, total: 20 });
+    expect(mockInvoke).toHaveBeenCalledWith('sync_confirm_deletions', { deleted: 15, total: 20 });
+  });
+
   it('argument-less commands invoke the matching command', async () => {
     mockInvoke.mockResolvedValue(undefined);
     await syncHoldAck();
-    await syncConfirmDeletions();
     await syncDismissConflicts();
     await syncGetState();
     await syncBeforeQuit();
     expect(mockInvoke.mock.calls.map((c) => c[0])).toEqual([
       'sync_hold_ack',
-      'sync_confirm_deletions',
       'sync_dismiss_conflicts',
       'sync_get_state',
       'sync_before_quit',

@@ -182,9 +182,12 @@ export async function syncTrigger(reason: SyncTriggerReason): Promise<void> {
   return invoke<void>('sync_trigger', { reason });
 }
 
-/** Answer yes to the deletion guard: the next cycle may push the deletions. */
-export async function syncConfirmDeletions(): Promise<void> {
-  return invoke<void>('sync_confirm_deletions');
+/**
+ * Answer yes to the deletion guard with the counts the user saw: the next
+ * cycle may push up to that many deletions, and asks again if there are more.
+ */
+export async function syncConfirmDeletions(seen: DeletionWarning): Promise<void> {
+  return invoke<void>('sync_confirm_deletions', { deleted: seen.deleted, total: seen.total });
 }
 
 /** Forget the pending conflict notices; resolves with the fresh state. */

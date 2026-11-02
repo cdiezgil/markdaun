@@ -59,6 +59,7 @@ pub fn configure_inner(
     let db = ConfigDb::open(db_path).map_err(|e| e.to_string())?;
     db.set("github_repo_url", repo_url)
         .map_err(|e| e.to_string())?;
+    clear_sync_state(&db)?;
     Ok(result)
 }
 
@@ -90,7 +91,14 @@ pub fn get_config_inner(db_path: &Path) -> Result<Option<String>, String> {
 pub fn disconnect_inner(db_path: &Path) -> Result<(), String> {
     let db = ConfigDb::open(db_path).map_err(|e| e.to_string())?;
     db.set("github_repo_url", "").map_err(|e| e.to_string())?;
-    Ok(())
+    clear_sync_state(&db)
+}
+
+/// A deletion pause or conflict list belongs to the previous connection.
+fn clear_sync_state(db: &ConfigDb) -> Result<(), String> {
+    use crate::git::state;
+    state::set_paused_reason(db.connection(), None).map_err(|e| e.to_string())?;
+    state::clear_conflicts(db.connection()).map_err(|e| e.to_string())
 }
 
 // ─── Tauri commands ────────────────────────────────────────────────────────────
@@ -204,11 +212,17 @@ pub async fn sync_trigger(app: tauri::AppHandle, reason: TriggerReason) -> Resul
     Ok(())
 }
 
-/// "Continuar" in the deletion dialog: the next cycle pushes with
-/// `confirm_deletions` and clears the pause once it succeeds. Refused when
-/// no deletion pause is persisted.
+/// "Continuar" in the deletion dialog, with the counts the user saw: the next
+/// cycle pushes with `confirm_deletions` and clears the pause once it
+/// succeeds; if more notes would go by then, it pauses and asks again.
+/// Refused when no deletion pause is persisted.
 #[tauri::command]
-pub async fn sync_confirm_deletions(app: tauri::AppHandle) -> Result<(), SyncError> {
+pub async fn sync_confirm_deletions(
+    app: tauri::AppHandle,
+    deleted: usize,
+    total: usize,
+) -> Result<(), SyncError> {
+    let _ = total; // shown to the user; only the deletion count bounds the push
     if !app.state::<SyncRunner>().is_active() {
         return Err(SyncError::NotConfigured);
     }
@@ -216,7 +230,7 @@ pub async fn sync_confirm_deletions(app: tauri::AppHandle) -> Result<(), SyncErr
     let db = ConfigDb::open(&db_path).map_err(|e| SyncError::Git(e.to_string()))?;
     runner::confirm_allowed(db.connection())?;
     app.state::<SyncRunner>()
-        .request_mode(CycleMode::ConfirmDeletions);
+        .request_mode(CycleMode::ConfirmDeletions { deleted });
     runner::trigger(&app, Trigger::Manual);
     Ok(())
 }

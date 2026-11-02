@@ -772,6 +772,7 @@ mod typed_errors {
 
 const GO: CycleOptions = CycleOptions {
     confirm_deletions: false,
+    confirmed_deleted: None,
     push_paused: false,
 };
 
@@ -867,6 +868,7 @@ fn push_blocked_when_paused_but_merge_runs() {
 
     let opts = CycleOptions {
         confirm_deletions: false,
+        confirmed_deleted: None,
         push_paused: true,
     };
     let report = git_sync_inner(dev.path(), &url, "", opts).unwrap();
@@ -890,6 +892,35 @@ fn guard_stops_push_without_confirmation() {
     assert!(report.needs_confirmation.is_some());
     assert!(!report.pushed);
     assert_eq!(remote_oid(&bare), before);
+}
+
+#[test]
+fn confirmation_covers_only_the_deletions_the_user_saw() {
+    let bare_dir = TempDir::new().unwrap();
+    let (bare, url) = bare_repo(&bare_dir);
+    seed_remote(&url, 12);
+    let dev = clone_device(&url);
+    let before = remote_oid(&bare);
+    for i in 0..11 {
+        std::fs::remove_file(dev.path().join(format!("note-{i}.md"))).unwrap();
+    }
+    let saw_fewer = CycleOptions {
+        confirm_deletions: true,
+        confirmed_deleted: Some(7),
+        push_paused: false,
+    };
+    let report = git_sync_inner(dev.path(), &url, "", saw_fewer).unwrap();
+    assert_eq!(report.needs_confirmation.map(|w| w.deleted), Some(11));
+    assert!(!report.pushed);
+    assert_eq!(remote_oid(&bare), before);
+
+    let saw_all = CycleOptions {
+        confirmed_deleted: Some(11),
+        ..saw_fewer
+    };
+    let report = git_sync_inner(dev.path(), &url, "", saw_all).unwrap();
+    assert!(report.needs_confirmation.is_none());
+    assert!(report.pushed);
 }
 
 #[test]

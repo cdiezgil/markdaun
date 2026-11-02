@@ -45,8 +45,9 @@ pub enum CycleMode {
     Auto,
     /// "Sincronizar ahora": re-checks the deletion guard even when paused.
     Manual,
-    /// "Continuar" in the deletion dialog.
-    ConfirmDeletions,
+    /// "Continuar" in the deletion dialog, with the deletion count the user
+    /// saw: a guard that now counts more asks again.
+    ConfirmDeletions { deleted: usize },
 }
 
 #[derive(Debug)]
@@ -86,9 +87,14 @@ pub fn run_cycle_inner(
     let push_paused = paused && mode == CycleMode::Auto;
     // A stale "Continuar" must never skip the guard: confirming needs the
     // deletion pause that asked for it to still be on record.
+    let confirmed_deleted = match mode {
+        CycleMode::ConfirmDeletions { deleted } => Some(deleted),
+        _ => None,
+    };
     let opts = CycleOptions {
-        confirm_deletions: mode == CycleMode::ConfirmDeletions
+        confirm_deletions: confirmed_deleted.is_some()
             && reason.as_deref() == Some(PAUSE_DELETION),
+        confirmed_deleted,
         push_paused,
     };
     match git_sync_inner(vault, url, pat, opts) {

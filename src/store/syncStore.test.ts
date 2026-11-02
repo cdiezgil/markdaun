@@ -231,8 +231,17 @@ describe('useSyncStore', () => {
 
     await useSyncStore.getState().confirmDeletion();
 
-    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(mockConfirm).toHaveBeenCalledWith({ deleted: 15, total: 20 });
     expect(useSyncStore.getState().pendingDeletion).toBeNull();
+  });
+
+  it('confirmDeletion never confirms blindly when the counts are unknown', async () => {
+    useSyncStore.setState({ pendingDeletion: null, deletionPromptOpen: true });
+
+    await useSyncStore.getState().confirmDeletion();
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(useSyncStore.getState().deletionPromptOpen).toBe(true);
   });
 
   it('cancelDeletion confirms nothing', () => {
@@ -328,6 +337,27 @@ describe('useSyncStore', () => {
     const { config } = useSyncStore.getState();
     expect(config.isConnected).toBe(false);
     expect(config.repoUrl).toBeNull();
+  });
+
+  it('disconnect forgets the pause and the conflicts of the old connection', async () => {
+    useSyncStore.setState({
+      config: { repoUrl: 'https://github.com/u/r', isConnected: true },
+      state: makeState({ pausedReason: 'deletion', pendingConflicts: ['a.md'] }),
+      pendingDeletion: { deleted: 15, total: 20 },
+      deletionPromptOpen: true,
+      conflicts: ['a.md'],
+      localConflicts: ['b.md'],
+    });
+    mockDisconnect.mockResolvedValue(undefined);
+
+    await useSyncStore.getState().disconnect();
+
+    const s = useSyncStore.getState();
+    expect(s.state).toBeNull();
+    expect(s.pendingDeletion).toBeNull();
+    expect(s.deletionPromptOpen).toBe(false);
+    expect(s.conflicts).toEqual([]);
+    expect(s.localConflicts).toEqual([]);
   });
 
   // ─── loadConfig ───────────────────────────────────────────────────────────

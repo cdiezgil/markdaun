@@ -291,7 +291,7 @@ mod runner_cycle {
         assert!(manual.report.unwrap().needs_confirmation.is_some());
         assert_eq!(remote_notes(&url), 12);
 
-        let run = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::ConfirmDeletions);
+        let run = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::ConfirmDeletions { deleted: 11 });
         assert_eq!(run.outcome, Outcome::Ok);
         assert!(run.report.unwrap().pushed);
         assert_eq!(state::paused_reason(c), None);
@@ -310,11 +310,71 @@ mod runner_cycle {
         assert_eq!(state::paused_reason(c), None);
 
         // A stale "Continuar" with no deletion pause on record.
-        let run = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::ConfirmDeletions);
+        let run = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::ConfirmDeletions { deleted: 11 });
         assert_eq!(run.outcome, Outcome::Paused);
         assert!(run.report.unwrap().needs_confirmation.is_some());
         assert_eq!(remote_notes(&url), 12, "guard must still block the push");
         assert_eq!(state::paused_reason(c).as_deref(), Some("deletion"));
+    }
+
+    #[test]
+    fn confirm_repauses_when_more_notes_would_go() {
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+        let vault = connected_vault(&url, &db_path, 14);
+        delete_notes(vault.path(), 8);
+        let db = ConfigDb::open(&db_path).unwrap();
+        let c = db.connection();
+        let first = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::Auto);
+        let seen = first.report.unwrap().needs_confirmation.unwrap();
+        assert_eq!(seen.deleted, 8);
+
+        // Two more notes go after the user saw "8 of 14".
+        std::fs::remove_file(vault.path().join("note8.md")).unwrap();
+        std::fs::remove_file(vault.path().join("note9.md")).unwrap();
+        let run = run_cycle_inner(
+            c,
+            vault.path(),
+            &url,
+            "pat",
+            CycleMode::ConfirmDeletions { deleted: seen.deleted },
+        );
+        assert_eq!(run.outcome, Outcome::Paused);
+        let asked = run.report.unwrap().needs_confirmation.expect("asks again");
+        assert_eq!(asked.deleted, 10);
+        assert_eq!(remote_notes(&url), 14, "nothing pushed");
+        assert_eq!(state::paused_reason(c).as_deref(), Some("deletion"));
+
+        // Confirming the new count pushes.
+        let run = run_cycle_inner(c, vault.path(), &url, "pat", CycleMode::ConfirmDeletions { deleted: 10 });
+        assert_eq!(run.outcome, Outcome::Ok);
+        assert_eq!(remote_notes(&url), 4);
+    }
+
+    #[test]
+    fn disconnect_and_connect_clear_pause_and_conflicts() {
+        let (_r, url) = bare_remote();
+        let (_d, db_path) = mem_db();
+        let vault = connected_vault(&url, &db_path, 1);
+        let seed = |db_path: &Path| {
+            let db = ConfigDb::open(db_path).unwrap();
+            state::set_paused_reason(db.connection(), Some("deletion")).unwrap();
+            state::add_conflicts(db.connection(), &["a (conflicto x).md".to_string()]).unwrap();
+        };
+        let cleared = |db_path: &Path| {
+            let db = ConfigDb::open(db_path).unwrap();
+            state::paused_reason(db.connection()).is_none()
+                && state::pending_conflicts(db.connection()).is_empty()
+        };
+
+        seed(&db_path);
+        crate::commands::sync_cmd::disconnect_inner(&db_path).unwrap();
+        assert!(cleared(&db_path), "disconnect clears the pause and conflicts");
+
+        seed(&db_path);
+        configure_inner(&db_path, &url, "pat", vault.path().to_str().unwrap(), ConnectChoice::Sync)
+            .unwrap();
+        assert!(cleared(&db_path), "connect clears the pause and conflicts");
     }
 
     #[test]
