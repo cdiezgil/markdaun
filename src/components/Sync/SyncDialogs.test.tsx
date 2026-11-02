@@ -9,9 +9,11 @@ vi.mock('../../lib/tauri', () => ({
   githubConnectApply: vi.fn(),
   githubGetConfig: vi.fn(),
   githubDisconnect: vi.fn(),
-  githubPush: vi.fn(),
-  githubPull: vi.fn(),
   githubStatus: vi.fn(),
+  syncTrigger: vi.fn(),
+  syncConfirmDeletions: vi.fn(),
+  syncDismissConflicts: vi.fn(),
+  syncGetState: vi.fn(),
 }));
 
 const navigate = vi.fn();
@@ -97,7 +99,7 @@ describe('SyncDialogs', () => {
       screen.getByText('Esta sincronización borraría 15 de 20 notas en GitHub. ¿Continuar?'),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByTestId('confirm-dialog-delete'));
-    expect(confirmDeletion).toHaveBeenCalledWith('/vault');
+    expect(confirmDeletion).toHaveBeenCalledWith();
   });
 
   it('deletion guard: Cancelar pushes nothing', async () => {

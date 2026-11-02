@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Check, CircleAlert, Loader, RefreshCw } from 'lucide-react';
-import { useSyncStore } from '../../store/syncStore';
+import { useSyncStore, indicatorFor, type SyncIndicator } from '../../store/syncStore';
 import { useEditorStore } from '../../store/editorStore';
 import { onBrainIndexProgress, type IndexProgress } from '../../lib/tauri';
 
@@ -13,10 +13,17 @@ const itemStyle: React.CSSProperties = {
 
 const ICON = { size: 14, strokeWidth: 1.5 } as const;
 
+const INDICATOR_LABEL: Record<SyncIndicator, string> = {
+  upToDate: 'Al día',
+  syncing: 'Sincronizando',
+  pending: 'Pendiente',
+  offline: 'Sin conexión',
+  needsReview: 'Requiere revisión',
+};
+
 function SyncItem(): JSX.Element | null {
   const isConnected = useSyncStore((s) => s.config.isConnected);
-  const hasChanges = useSyncStore((s) => s.status.hasChanges);
-  const isLoading = useSyncStore((s) => s.isLoading);
+  const state = useSyncStore((s) => s.state);
   const error = useSyncStore((s) => s.error);
   if (!isConnected) return null;
 
@@ -27,17 +34,16 @@ function SyncItem(): JSX.Element | null {
       </span>
     );
   }
-  if (isLoading) {
-    return (
-      <span data-testid="sync-status" style={itemStyle}>
-        <Loader {...ICON} /> Sincronizando
-      </span>
-    );
-  }
+  const indicator: SyncIndicator = state ? indicatorFor(state, state.view.running) : 'upToDate';
+  const icon =
+    indicator === 'syncing' ? <Loader {...ICON} />
+    : indicator === 'upToDate' ? <Check {...ICON} />
+    : indicator === 'pending' ? <RefreshCw {...ICON} />
+    : <CircleAlert {...ICON} />;
   return (
     <span data-testid="sync-status" style={itemStyle}>
-      {hasChanges ? <RefreshCw {...ICON} /> : <Check {...ICON} />}
-      {hasChanges ? 'Cambios pendientes' : 'Al día'}
+      {icon}
+      {INDICATOR_LABEL[indicator]}
     </span>
   );
 }

@@ -10,7 +10,7 @@ import { AppearanceSettings } from '../components/Settings/AppearanceSettings';
 
 export function SettingsView(): JSX.Element {
   const config = useSyncStore((s) => s.config);
-  const isLoading = useSyncStore((s) => s.isLoading);
+  const isLoading = useSyncStore((s) => s.connecting);
   const error = useSyncStore((s) => s.error);
   const connect = useSyncStore((s) => s.connect);
   const disconnect = useSyncStore((s) => s.disconnect);

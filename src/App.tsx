@@ -12,7 +12,7 @@ import { GraphView } from './views/GraphView';
 import { SettingsView } from './views/SettingsView';
 import { ExitDialog } from './components/Sync/ExitDialog';
 import { SyncDialogs } from './components/Sync/SyncDialogs';
-import { onInboxCaptured, onRequestQuit, onVoiceChanged, quitApp } from './lib/tauri';
+import { onInboxCaptured, onRequestQuit, onVoiceChanged, quitApp, syncBeforeQuit } from './lib/tauri';
 import { captureToast } from './lib/inbox';
 import { useInboxStore } from './store/inboxStore';
 import { Toast } from './components/Shell/Toast';
@@ -51,7 +51,7 @@ function AppLayout() {
   const syncVaultPath = useVaultStore((s) => s.vaultPath);
   useEffect(() => {
     if (syncConnected && syncVaultPath) {
-      useSyncStore.getState().checkStatus(syncVaultPath).catch(console.error);
+      useSyncStore.getState().loadState().catch(console.error);
     }
   }, [syncConnected, syncVaultPath]);
 
@@ -167,9 +167,7 @@ function AppLayout() {
         isSyncing={isSyncing}
         onSyncAndQuit={async () => {
           setIsSyncing(true);
-          const { push } = useSyncStore.getState();
-          const vaultPath = useVaultStore.getState().vaultPath;
-          if (vaultPath) await push(vaultPath).catch(() => {});
+          await syncBeforeQuit().catch(() => {});
           setIsSyncing(false);
           setShowExitDialog(false);
           // A held-back push (deletion guard) must be answered first: don't quit.

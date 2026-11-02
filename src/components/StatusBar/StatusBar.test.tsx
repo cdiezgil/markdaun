@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { StatusBar } from './StatusBar';
 import { useEditorStore } from '../../store/editorStore';
 import { useSyncStore } from '../../store/syncStore';
+import type { SyncState } from '../../lib/tauri';
 import { useLlmStore } from '../../store/llmStore';
 import { useGraphStore } from '../../store/graphStore';
 
@@ -43,12 +44,29 @@ beforeEach(() => {
   useSyncStore.setState({
     config: { repoUrl: null, isConnected: false },
     status: { hasChanges: false },
-    isLoading: false,
+    state: null,
+    connecting: false,
     error: null,
   });
   useLlmStore.setState({ connections: [], active: null, loaded: true });
 });
 afterEach(() => { vi.useRealTimers(); });
+
+function syncState(
+  over: Partial<SyncState> = {},
+  view: Partial<SyncState['view']> = {},
+): SyncState {
+  return {
+    report: null,
+    error: null,
+    view: { running: false, pendingDebounce: false, consecutiveFailures: 0, offline: false, halted: false, ...view },
+    status: { uncommitted: false, ahead: 0 },
+    pausedReason: null,
+    pendingConflicts: [],
+    lastSuccess: null,
+    ...over,
+  };
+}
 
 describe('StatusBar', () => {
   it('hides note items when no note is open but keeps the AI selector', () => {
@@ -171,10 +189,14 @@ describe('StatusBar', () => {
       useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true } });
       renderBar();
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Al día');
-      act(() => { useSyncStore.setState({ status: { hasChanges: true } }); });
-      expect(screen.getByTestId('sync-status')).toHaveTextContent('Cambios pendientes');
-      act(() => { useSyncStore.setState({ isLoading: true }); });
+      act(() => { useSyncStore.setState({ state: syncState({ status: { uncommitted: true, ahead: 0 } }) }); });
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Pendiente');
+      act(() => { useSyncStore.setState({ state: syncState({}, { running: true }) }); });
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Sincronizando');
+      act(() => { useSyncStore.setState({ state: syncState({}, { offline: true }) }); });
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Sin conexión');
+      act(() => { useSyncStore.setState({ state: syncState({ pausedReason: 'deletion' }) }); });
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Requiere revisión');
     });
 
     it('styles sync errors with danger and exposes detail in tooltip', () => {

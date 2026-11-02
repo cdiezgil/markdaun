@@ -48,7 +48,7 @@ export function SyncDialogs(): JSX.Element {
         title="Borrar notas en GitHub"
         description={`Esta sincronización borraría ${pendingDeletion?.deleted ?? 0} de ${pendingDeletion?.total ?? 0} notas en GitHub. ¿Continuar?`}
         confirmLabel="Continuar"
-        onConfirm={() => vaultPath && void confirmDeletion(vaultPath)}
+        onConfirm={() => void confirmDeletion()}
         onCancel={cancelDeletion}
       />
 
@@ -106,7 +106,7 @@ export function SyncDialogs(): JSX.Element {
             ))}
           </ul>
           <button
-            onClick={dismissConflicts}
+            onClick={() => void dismissConflicts()}
             style={{
               alignSelf: 'flex-end',
               background: 'transparent',

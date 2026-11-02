@@ -26,7 +26,7 @@ function makeState({
       selector({
         config: { repoUrl, isConnected },
         status: { hasChanges: false },
-        isLoading: false,
+        connecting: false,
         error: null,
         connectAction: null,
         connect: connectFn,

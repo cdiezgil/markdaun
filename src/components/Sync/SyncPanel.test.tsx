@@ -21,15 +21,13 @@ function makeSyncState(overrides: Partial<{
   isConnected: boolean;
   hasChanges: boolean;
   isLoading: boolean;
-  push: ReturnType<typeof vi.fn>;
-  pull: ReturnType<typeof vi.fn>;
+  syncNow: ReturnType<typeof vi.fn>;
 }> = {}) {
   const defaults = {
     isConnected: true,
     hasChanges: false,
     isLoading: false,
-    push: vi.fn(),
-    pull: vi.fn(),
+    syncNow: vi.fn(),
   };
   const merged = { ...defaults, ...overrides };
 
@@ -37,9 +35,8 @@ function makeSyncState(overrides: Partial<{
     const state = {
       config: { repoUrl: 'https://github.com/u/r', isConnected: merged.isConnected },
       status: { hasChanges: merged.hasChanges },
-      isLoading: merged.isLoading,
-      push: merged.push,
-      pull: merged.pull,
+      state: { view: { running: merged.isLoading } },
+      syncNow: merged.syncNow,
     };
     return selector(state);
   });
@@ -93,19 +90,19 @@ describe('SyncPanel', () => {
     expect(container.querySelector('[data-testid="sync-panel"]')).toBeNull();
   });
 
-  it('calls push with vaultPath on push button click', async () => {
-    const pushFn = vi.fn();
-    makeSyncState({ push: pushFn });
+  it('push button asks for a sync', async () => {
+    const syncNow = vi.fn();
+    makeSyncState({ syncNow });
     render(<SyncPanel />);
     await userEvent.click(screen.getByTestId('sync-push-btn'));
-    expect(pushFn).toHaveBeenCalledWith('/vault');
+    expect(syncNow).toHaveBeenCalledTimes(1);
   });
 
-  it('calls pull with vaultPath on pull button click', async () => {
-    const pullFn = vi.fn();
-    makeSyncState({ pull: pullFn });
+  it('pull button asks for a sync', async () => {
+    const syncNow = vi.fn();
+    makeSyncState({ syncNow });
     render(<SyncPanel />);
     await userEvent.click(screen.getByTestId('sync-pull-btn'));
-    expect(pullFn).toHaveBeenCalledWith('/vault');
+    expect(syncNow).toHaveBeenCalledTimes(1);
   });
 });

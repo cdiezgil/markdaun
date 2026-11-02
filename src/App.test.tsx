@@ -117,7 +117,7 @@ describe('presencia en la barra de menús y guarda de salida', () => {
       // These tests are about the exit guard: keep the connected state they set
       // instead of reloading it from the (mocked) backend on mount.
       loadConfig: vi.fn().mockResolvedValue(undefined),
-      checkStatus: vi.fn().mockResolvedValue(undefined),
+      loadState: vi.fn().mockResolvedValue(undefined),
     });
   }
 

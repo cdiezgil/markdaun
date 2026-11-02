@@ -1,25 +1,17 @@
 import React from 'react';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 import { useSyncStore } from '../../store/syncStore';
-import { useVaultStore } from '../../store/vaultStore';
 
 export function SyncPanel(): JSX.Element {
   const config = useSyncStore((s) => s.config);
   const status = useSyncStore((s) => s.status);
-  const isLoading = useSyncStore((s) => s.isLoading);
-  const push = useSyncStore((s) => s.push);
-  const pull = useSyncStore((s) => s.pull);
-  const vaultPath = useVaultStore((s) => s.vaultPath);
+  const isLoading = useSyncStore((s) => s.state?.view.running ?? false);
+  const syncNow = useSyncStore((s) => s.syncNow);
 
   if (!config.isConnected) return <></>;
 
-  const handlePush = () => {
-    if (vaultPath) push(vaultPath);
-  };
-
-  const handlePull = () => {
-    if (vaultPath) pull(vaultPath);
-  };
+  // Sync is one automatic cycle now; both buttons just ask for it.
+  const handleSync = () => void syncNow();
 
   return (
     <div
@@ -55,7 +47,7 @@ export function SyncPanel(): JSX.Element {
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
         <button
           data-testid="sync-push-btn"
-          onClick={handlePush}
+          onClick={handleSync}
           disabled={isLoading}
           title="Subir cambios (push)"
           style={{
@@ -73,7 +65,7 @@ export function SyncPanel(): JSX.Element {
         </button>
         <button
           data-testid="sync-pull-btn"
-          onClick={handlePull}
+          onClick={handleSync}
           disabled={isLoading}
           title="Descargar cambios (pull)"
           style={{

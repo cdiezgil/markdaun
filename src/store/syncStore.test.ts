@@ -6,9 +6,11 @@ vi.mock('../lib/tauri', () => ({
   githubConnectApply: vi.fn(),
   githubGetConfig: vi.fn(),
   githubDisconnect: vi.fn(),
-  githubPush: vi.fn(),
-  githubPull: vi.fn(),
   githubStatus: vi.fn(),
+  syncTrigger: vi.fn(),
+  syncConfirmDeletions: vi.fn(),
+  syncDismissConflicts: vi.fn(),
+  syncGetState: vi.fn(),
 }));
 
 import {
@@ -16,19 +18,42 @@ import {
   githubConnectApply,
   githubGetConfig,
   githubDisconnect,
-  githubPush,
-  githubPull,
-  githubStatus,
+  syncTrigger,
+  syncConfirmDeletions,
+  syncDismissConflicts,
+  syncGetState,
 } from '../lib/tauri';
-import { useSyncStore } from './syncStore';
+import type { SyncState } from '../lib/tauri';
+import { useSyncStore, indicatorFor } from './syncStore';
 
 const mockPreview = vi.mocked(githubConnectPreview);
 const mockApply = vi.mocked(githubConnectApply);
 const mockGetConfig = vi.mocked(githubGetConfig);
 const mockDisconnect = vi.mocked(githubDisconnect);
-const mockPush = vi.mocked(githubPush);
-const mockPull = vi.mocked(githubPull);
-const mockStatus = vi.mocked(githubStatus);
+const mockTrigger = vi.mocked(syncTrigger);
+const mockConfirm = vi.mocked(syncConfirmDeletions);
+const mockDismiss = vi.mocked(syncDismissConflicts);
+const mockGetState = vi.mocked(syncGetState);
+
+function makeState(over: Partial<SyncState> = {}, view: Partial<SyncState['view']> = {}): SyncState {
+  return {
+    report: null,
+    error: null,
+    view: {
+      running: false,
+      pendingDebounce: false,
+      consecutiveFailures: 0,
+      offline: false,
+      halted: false,
+      ...view,
+    },
+    status: { uncommitted: false, ahead: 0 },
+    pausedReason: null,
+    pendingConflicts: [],
+    lastSuccess: null,
+    ...over,
+  };
+}
 
 describe('useSyncStore', () => {
   beforeEach(() => {
@@ -36,7 +61,8 @@ describe('useSyncStore', () => {
     useSyncStore.setState({
       config: { repoUrl: null, isConnected: false },
       status: { hasChanges: false },
-      isLoading: false,
+      state: null,
+      connecting: false,
       error: null,
       connectAction: null,
       pendingConnect: null,
@@ -45,8 +71,7 @@ describe('useSyncStore', () => {
       vaultChangeCount: 0,
     });
     vi.clearAllMocks();
-    // Default: status returns false (no changes)
-    mockStatus.mockResolvedValue(false);
+    mockGetState.mockResolvedValue(makeState());
   });
 
   // ─── connect = preview first, apply only after the user's choice ─────────
@@ -65,7 +90,7 @@ describe('useSyncStore', () => {
     expect(s.config.isConnected).toBe(true);
     expect(s.connectAction).toBe('pushed');
     expect(s.pendingConnect).toBeNull();
-    expect(mockStatus).toHaveBeenCalled();
+    expect(mockGetState).toHaveBeenCalled();
   });
 
   it('TC-15b: remote with notes + empty vault asks first and applies NOTHING yet', async () => {
@@ -81,7 +106,7 @@ describe('useSyncStore', () => {
       remoteCount: 1000,
       localCount: 0,
     });
-    expect(s.isLoading).toBe(false);
+    expect(s.connecting).toBe(false);
   });
 
   it('TC-15c: confirmConnect applies the choice, then clears the dialog', async () => {
@@ -132,72 +157,129 @@ describe('useSyncStore', () => {
     expect(pendingConnect).toBeNull();
   });
 
-  // ─── TC-16: push invokes github_push then github_status ───────────────────
+  // ─── sync events drive the store ──────────────────────────────────────────
 
-  it('TC-16: push invokes github_push then github_status', async () => {
-    mockPush.mockResolvedValue({ conflicts: [], needsConfirmation: null });
+  it('syncNow calls syncTrigger("manual")', async () => {
+    mockTrigger.mockResolvedValue(undefined);
 
-    await useSyncStore.getState().push('/vault');
+    await useSyncStore.getState().syncNow();
 
-    expect(mockPush).toHaveBeenCalledWith(false);
-    const pushIndex = vi.mocked(mockPush).mock.invocationCallOrder[0];
-    const statusIndex = vi.mocked(mockStatus).mock.invocationCallOrder[0];
-    expect(pushIndex).toBeDefined();
-    expect(statusIndex).toBeDefined();
-    expect(pushIndex).toBeLessThan(statusIndex);
+    expect(mockTrigger).toHaveBeenCalledWith('manual');
   });
 
-  it('TC-16b: a push that needs confirmation stores the warning and pushes nothing more', async () => {
-    mockPush.mockResolvedValue({ conflicts: [], needsConfirmation: { deleted: 15, total: 20 } });
+  it('syncNow surfaces a failure as error', async () => {
+    mockTrigger.mockRejectedValue({ kind: 'notConfigured' });
 
-    await useSyncStore.getState().push('/vault');
+    await useSyncStore.getState().syncNow();
 
+    expect(useSyncStore.getState().error).not.toBeNull();
+  });
+
+  it('applyFinished stores pendingConflicts and lastSuccess', () => {
+    const payload = makeState({
+      pendingConflicts: ['n (conflicto x).md'],
+      lastSuccess: '2026-11-02T10:00:00Z',
+    });
+
+    useSyncStore.getState().applyFinished(payload);
+
+    const s = useSyncStore.getState();
+    expect(s.state?.pendingConflicts).toEqual(['n (conflicto x).md']);
+    expect(s.state?.lastSuccess).toBe('2026-11-02T10:00:00Z');
+    expect(s.conflicts).toEqual(['n (conflicto x).md']);
+  });
+
+  it('applyFinished bumps vaultChangeCount only when paths changed', () => {
+    const report = { changedPaths: [], conflicts: [], needsConfirmation: null, pushed: true };
+    useSyncStore.getState().applyFinished(makeState({ report }));
+    expect(useSyncStore.getState().vaultChangeCount).toBe(0);
+
+    useSyncStore.getState().applyFinished(makeState({ report: { ...report, changedPaths: ['a.md'] } }));
+    expect(useSyncStore.getState().vaultChangeCount).toBe(1);
+  });
+
+  it('applyFinished keeps the deletion warning and derives hasChanges', () => {
+    const report = {
+      changedPaths: [],
+      conflicts: [],
+      needsConfirmation: { deleted: 15, total: 20 },
+      pushed: false,
+    };
+    useSyncStore.getState().applyFinished(
+      makeState({ report, pausedReason: 'deletion', status: { uncommitted: false, ahead: 2 } }),
+    );
+
+    const s = useSyncStore.getState();
+    expect(s.pendingDeletion).toEqual({ deleted: 15, total: 20 });
+    expect(s.status.hasChanges).toBe(true);
+
+    // A later payload (e.g. reloaded state) must not lose the pending question.
+    useSyncStore.getState().applyFinished(makeState({ pausedReason: 'deletion' }));
     expect(useSyncStore.getState().pendingDeletion).toEqual({ deleted: 15, total: 20 });
-    expect(mockPush).toHaveBeenCalledTimes(1);
-  });
 
-  it('TC-16c: confirmDeletion pushes again with confirmDeletions=true', async () => {
-    useSyncStore.setState({ pendingDeletion: { deleted: 15, total: 20 } });
-    mockPush.mockResolvedValue({ conflicts: [], needsConfirmation: null });
-
-    await useSyncStore.getState().confirmDeletion('/vault');
-
-    expect(mockPush).toHaveBeenCalledWith(true);
+    useSyncStore.getState().applyFinished(makeState());
     expect(useSyncStore.getState().pendingDeletion).toBeNull();
   });
 
-  it('TC-16d: cancelDeletion pushes nothing', () => {
+  it('confirmDeletion calls syncConfirmDeletions and clears the warning', async () => {
+    useSyncStore.setState({ pendingDeletion: { deleted: 15, total: 20 } });
+    mockConfirm.mockResolvedValue(undefined);
+
+    await useSyncStore.getState().confirmDeletion();
+
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(useSyncStore.getState().pendingDeletion).toBeNull();
+  });
+
+  it('cancelDeletion confirms nothing', () => {
     useSyncStore.setState({ pendingDeletion: { deleted: 15, total: 20 } });
 
     useSyncStore.getState().cancelDeletion();
 
-    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockConfirm).not.toHaveBeenCalled();
     expect(useSyncStore.getState().pendingDeletion).toBeNull();
   });
 
-  // ─── TC-17: pull invokes github_pull then github_status ───────────────────
+  it('dismissConflicts calls syncDismissConflicts and updates the state', async () => {
+    useSyncStore.setState({ conflicts: ['n (conflicto x).md'] });
+    mockDismiss.mockResolvedValue(makeState({ pendingConflicts: [] }));
 
-  it('TC-17: pull invokes github_pull then github_status', async () => {
-    mockPull.mockResolvedValue({ conflicts: [], needsConfirmation: null });
+    await useSyncStore.getState().dismissConflicts();
 
-    await useSyncStore.getState().pull('/vault');
-
-    const pullIndex = vi.mocked(mockPull).mock.invocationCallOrder[0];
-    const statusIndex = vi.mocked(mockStatus).mock.invocationCallOrder[0];
-    expect(pullIndex).toBeDefined();
-    expect(statusIndex).toBeDefined();
-    expect(pullIndex).toBeLessThan(statusIndex);
-    expect(useSyncStore.getState().vaultChangeCount).toBe(1);
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+    expect(useSyncStore.getState().conflicts).toEqual([]);
+    expect(useSyncStore.getState().state?.pendingConflicts).toEqual([]);
   });
 
-  it('TC-17b: pull exposes conflicts until dismissed', async () => {
-    mockPull.mockResolvedValue({ conflicts: ['n (conflicto x).md'], needsConfirmation: null });
+  it('loadState stores what sync_get_state returns', async () => {
+    mockGetState.mockResolvedValue(makeState({ lastSuccess: 'x' }));
 
-    await useSyncStore.getState().pull('/vault');
-    expect(useSyncStore.getState().conflicts).toEqual(['n (conflicto x).md']);
+    await useSyncStore.getState().loadState();
 
-    useSyncStore.getState().dismissConflicts();
-    expect(useSyncStore.getState().conflicts).toEqual([]);
+    expect(useSyncStore.getState().state?.lastSuccess).toBe('x');
+  });
+
+  describe('indicatorFor precedence', () => {
+    it('upToDate when nothing is going on', () => {
+      expect(indicatorFor(makeState(), false)).toBe('upToDate');
+    });
+    it('pending: uncommitted, ahead or an armed debounce', () => {
+      expect(indicatorFor(makeState({ status: { uncommitted: true, ahead: 0 } }), false)).toBe('pending');
+      expect(indicatorFor(makeState({ status: { uncommitted: false, ahead: 1 } }), false)).toBe('pending');
+      expect(indicatorFor(makeState({}, { pendingDebounce: true }), false)).toBe('pending');
+    });
+    it('offline beats pending', () => {
+      const s = makeState({ status: { uncommitted: true, ahead: 3 } }, { offline: true });
+      expect(indicatorFor(s, false)).toBe('offline');
+    });
+    it('syncing beats offline', () => {
+      expect(indicatorFor(makeState({}, { offline: true }), true)).toBe('syncing');
+    });
+    it('needsReview beats syncing: halted, paused or conflicts', () => {
+      expect(indicatorFor(makeState({}, { halted: true }), true)).toBe('needsReview');
+      expect(indicatorFor(makeState({ pausedReason: 'deletion' }), true)).toBe('needsReview');
+      expect(indicatorFor(makeState({ pendingConflicts: ['a.md'] }), true)).toBe('needsReview');
+    });
   });
 
   // ─── TC-18: disconnect resets config ──────────────────────────────────────
@@ -237,24 +319,5 @@ describe('useSyncStore', () => {
     const { config } = useSyncStore.getState();
     expect(config.isConnected).toBe(false);
     expect(config.repoUrl).toBeNull();
-  });
-
-  // ─── checkStatus ──────────────────────────────────────────────────────────
-
-  it('checkStatus updates hasChanges from github_status', async () => {
-    mockStatus.mockResolvedValue(true);
-
-    await useSyncStore.getState().checkStatus('/vault');
-
-    expect(useSyncStore.getState().status.hasChanges).toBe(true);
-  });
-
-  it('checkStatus silently handles error', async () => {
-    mockStatus.mockRejectedValue('not_configured');
-
-    await expect(
-      useSyncStore.getState().checkStatus('/vault'),
-    ).resolves.toBeUndefined();
-    expect(useSyncStore.getState().status.hasChanges).toBe(false);
   });
 });
