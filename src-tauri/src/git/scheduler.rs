@@ -8,12 +8,12 @@
 #![allow(dead_code)]
 
 use serde::Serialize;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 const DEBOUNCE: Duration = Duration::from_secs(30);
 const FOCUS_THROTTLE: Duration = Duration::from_secs(60);
 const TICK: Duration = Duration::from_secs(300);
-/// Elapsed between two ticks beyond which we assume the machine slept.
+/// Wall-clock gap between two ticks beyond which we assume the machine slept.
 const WAKE_GAP: Duration = Duration::from_secs(2 * 300);
 const BACKOFF_SECS: [u64; 4] = [30, 60, 120, 300];
 const MAX_FAILURES: u32 = 3;
@@ -60,7 +60,8 @@ pub struct Scheduler {
     run_again: bool,
     debounce_deadline: Option<Instant>,
     last_focus: Option<Instant>,
-    last_tick: Instant,
+    /// Last wall-clock time seen; `Instant` can freeze during sleep.
+    last_wall: SystemTime,
     next_due: Instant,
     consecutive_failures: u32,
     backoff_step: usize,
@@ -70,12 +71,16 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new(now: Instant) -> Self {
+        Self::new_at(now, SystemTime::now())
+    }
+
+    pub fn new_at(now: Instant, wall: SystemTime) -> Self {
         Scheduler {
+            last_wall: wall,
             running: false,
             run_again: false,
             debounce_deadline: None,
             last_focus: None,
-            last_tick: now,
             next_due: now + TICK,
             consecutive_failures: 0,
             backoff_step: 0,
@@ -102,6 +107,7 @@ impl Scheduler {
             Trigger::Manual => {
                 self.halted = false;
                 self.consecutive_failures = 0;
+                self.backoff_step = 0;
                 self.request(now)
             }
             _ if self.halted => Action::None,
@@ -119,18 +125,22 @@ impl Scheduler {
                 self.debounce_deadline = Some(now + DEBOUNCE);
                 Action::None
             }
-            Trigger::Tick => self.on_tick(now),
+            Trigger::Tick => self.on_tick(now, self.last_wall),
             Trigger::Quit => Action::None,
         }
     }
 
-    pub fn on_tick(&mut self, now: Instant) -> Action {
-        let woke = now.saturating_duration_since(self.last_tick) > WAKE_GAP;
-        self.last_tick = now;
+    pub fn on_tick(&mut self, now: Instant, wall: SystemTime) -> Action {
+        // A backwards wall jump yields Err: not a wake.
+        let woke = wall
+            .duration_since(self.last_wall)
+            .is_ok_and(|gap| gap > WAKE_GAP);
+        self.last_wall = wall;
         if self.halted {
             return Action::None;
         }
         if woke {
+            // `request` re-bases `next_due` (or queues `run_again` mid-cycle).
             return self.request(now);
         }
         if self.running {
@@ -162,13 +172,17 @@ impl Scheduler {
                 next = self.bump_backoff();
             }
             Outcome::Failed => {
+                self.offline = false;
                 self.consecutive_failures += 1;
                 if self.consecutive_failures >= MAX_FAILURES {
                     self.halted = true;
                 }
                 next = self.bump_backoff();
             }
-            Outcome::Unauthorized => self.halted = true,
+            Outcome::Unauthorized => {
+                self.offline = false;
+                self.halted = true;
+            }
         }
         self.next_due = now + next;
     }
