@@ -199,6 +199,80 @@ describe('StatusBar', () => {
       expect(screen.getByTestId('sync-status')).toHaveTextContent('Requiere revisión');
     });
 
+    it('renders each indicator label', () => {
+      useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true } });
+      renderBar();
+      const cases: [Partial<SyncState>, Partial<SyncState['view']>, string][] = [
+        [{}, {}, 'Al día'],
+        [{ status: { uncommitted: true, ahead: 0 } }, {}, 'Pendiente'],
+        [{}, { running: true }, 'Sincronizando'],
+        [{}, { offline: true }, 'Sin conexión'],
+        [{ pendingConflicts: ['a.md'] }, {}, 'Requiere revisión'],
+      ];
+      for (const [over, view, label] of cases) {
+        act(() => { useSyncStore.setState({ state: syncState(over, view) }); });
+        expect(screen.getByTestId('sync-status')).toHaveTextContent(label);
+      }
+    });
+
+    it('frontend-only conflict copies need review too', () => {
+      useSyncStore.setState({
+        config: { repoUrl: 'u', isConnected: true },
+        state: syncState(),
+        localConflicts: ['a (conflicto x).md'],
+      });
+      renderBar();
+      expect(screen.getByTestId('sync-status')).toHaveTextContent('Requiere revisión');
+      useSyncStore.setState({ localConflicts: [] });
+    });
+
+    it('tooltip shows the Spanish error text when review is needed', () => {
+      useSyncStore.setState({
+        config: { repoUrl: 'u', isConnected: true },
+        state: syncState({ error: { kind: 'unauthorized', detail: 'x' } }, { halted: true }),
+      });
+      renderBar();
+      expect(screen.getByTestId('sync-status')).toHaveAttribute('title', 'Token de GitHub no válido o caducado');
+    });
+
+    it('click triggers manual sync', () => {
+      const syncNow = vi.fn().mockResolvedValue(undefined);
+      useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true }, state: syncState(), syncNow });
+      renderBar();
+      fireEvent.click(screen.getByTestId('sync-status'));
+      expect(syncNow).toHaveBeenCalledTimes(1);
+    });
+
+    it('click opens deletion dialog when paused', () => {
+      const syncNow = vi.fn().mockResolvedValue(undefined);
+      const openDeletionPrompt = vi.fn();
+      useSyncStore.setState({
+        config: { repoUrl: 'u', isConnected: true },
+        state: syncState({ pausedReason: 'deletion' }),
+        syncNow,
+        openDeletionPrompt,
+      });
+      renderBar();
+      fireEvent.click(screen.getByTestId('sync-status'));
+      expect(openDeletionPrompt).toHaveBeenCalledTimes(1);
+      expect(syncNow).not.toHaveBeenCalled();
+    });
+
+    it('never says Guardado while a write is deferred or blocked', () => {
+      seedNote('x');
+      renderBar();
+      act(() => {
+        useEditorStore.setState({
+          deferredWrites: { '/vault/y.md': { content: 'c', vault: '/vault', base: null, blocked: false } },
+        });
+      });
+      expect(screen.getByTestId('save-state')).toHaveTextContent('Sin guardar');
+      act(() => { useEditorStore.setState({ deferredWrites: {}, saveBlockedPath: '/vault/x.md' }); });
+      expect(screen.getByTestId('save-state')).toHaveTextContent('Sin guardar');
+      act(() => { useEditorStore.setState({ saveBlockedPath: null }); });
+      expect(screen.getByTestId('save-state')).toHaveTextContent('Guardado');
+    });
+
     it('styles sync errors with danger and exposes detail in tooltip', () => {
       useSyncStore.setState({ config: { repoUrl: 'u', isConnected: true }, error: 'auth failed' });
       renderBar();

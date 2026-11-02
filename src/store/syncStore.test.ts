@@ -24,7 +24,7 @@ import {
   syncGetState,
 } from '../lib/tauri';
 import type { SyncState } from '../lib/tauri';
-import { useSyncStore, indicatorFor } from './syncStore';
+import { useSyncStore, indicatorFor, syncErrorText } from './syncStore';
 
 const mockPreview = vi.mocked(githubConnectPreview);
 const mockApply = vi.mocked(githubConnectApply);
@@ -67,7 +67,10 @@ describe('useSyncStore', () => {
       connectAction: null,
       pendingConnect: null,
       pendingDeletion: null,
+      deletionPromptOpen: false,
+      deletionPromptShown: false,
       conflicts: [],
+      localConflicts: [],
       vaultChangeCount: 0,
     });
     vi.clearAllMocks();
@@ -237,7 +240,33 @@ describe('useSyncStore', () => {
     useSyncStore.getState().cancelDeletion();
 
     expect(mockConfirm).not.toHaveBeenCalled();
-    expect(useSyncStore.getState().pendingDeletion).toBeNull();
+    expect(useSyncStore.getState().deletionPromptOpen).toBe(false);
+    expect(useSyncStore.getState().pendingDeletion).toEqual({ deleted: 15, total: 20 });
+  });
+
+  it('opens the deletion prompt once per launch when paused without a report, and on demand', () => {
+    useSyncStore.setState({ deletionPromptOpen: false, deletionPromptShown: false });
+    useSyncStore.getState().applyFinished(makeState({ pausedReason: 'deletion' }));
+    expect(useSyncStore.getState().deletionPromptOpen).toBe(true);
+    useSyncStore.getState().cancelDeletion();
+    useSyncStore.getState().applyFinished(makeState({ pausedReason: 'deletion' }));
+    expect(useSyncStore.getState().deletionPromptOpen).toBe(false);
+    useSyncStore.getState().openDeletionPrompt();
+    expect(useSyncStore.getState().deletionPromptOpen).toBe(true);
+    useSyncStore.getState().applyFinished(makeState());
+    expect(useSyncStore.getState().deletionPromptOpen).toBe(false);
+  });
+
+  it('indicatorFor counts frontend-only conflict copies', () => {
+    expect(indicatorFor(makeState(), false, ['a (conflicto x).md'])).toBe('needsReview');
+  });
+
+  it('maps sync errors to Spanish text', async () => {
+    mockTrigger.mockRejectedValue({ kind: 'unauthorized', detail: 'x' });
+    await useSyncStore.getState().syncNow();
+    expect(useSyncStore.getState().error).toBe('Token de GitHub no válido o caducado');
+    expect(syncErrorText({ kind: 'git', detail: 'boom' })).toBe('Error de git: boom');
+    expect(syncErrorText({ kind: 'notConfigured' })).toBe('GitHub no está configurado');
   });
 
   it('dismissConflicts calls syncDismissConflicts and updates the state', async () => {

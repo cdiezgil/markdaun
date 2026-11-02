@@ -14,6 +14,7 @@ import type {
   ConnectPreview,
   ConnectResult,
   DeletionWarning,
+  SyncError,
   SyncState,
 } from '../lib/tauri';
 
@@ -23,8 +24,17 @@ export type SyncIndicator = 'upToDate' | 'syncing' | 'pending' | 'offline' | 'ne
  * What the status bar shows. `running` is whether a cycle is in flight right
  * now (the scheduler view may lag a `sync-will-start` event).
  */
-export function indicatorFor(s: SyncState, running: boolean): SyncIndicator {
-  if (s.view.halted || s.pausedReason !== null || s.pendingConflicts.length > 0) {
+export function indicatorFor(
+  s: SyncState,
+  running: boolean,
+  localConflicts: string[] = [],
+): SyncIndicator {
+  if (
+    s.view.halted ||
+    s.pausedReason !== null ||
+    s.pendingConflicts.length > 0 ||
+    localConflicts.length > 0
+  ) {
     return 'needsReview';
   }
   if (running) return 'syncing';
@@ -32,6 +42,33 @@ export function indicatorFor(s: SyncState, running: boolean): SyncIndicator {
   if (s.status.uncommitted || s.status.ahead > 0 || s.view.pendingDebounce) return 'pending';
   return 'upToDate';
 }
+
+/** Spanish, user-facing text for a backend sync error. */
+export function syncErrorText(e: SyncError): string {
+  switch (e.kind) {
+    case 'offline':
+      return 'Sin conexión con GitHub';
+    case 'unauthorized':
+      return 'Token de GitHub no válido o caducado';
+    case 'notConfigured':
+      return 'GitHub no está configurado';
+    case 'pushRejected':
+      return 'GitHub rechazó la subida';
+    case 'needsDeletionConfirmation':
+      return 'Pendiente de confirmar borrados';
+    case 'git':
+      return `Error de git: ${e.detail}`;
+  }
+}
+
+const SYNC_ERROR_KINDS = [
+  'offline',
+  'unauthorized',
+  'notConfigured',
+  'pushRejected',
+  'needsDeletionConfirmation',
+  'git',
+];
 
 export interface SyncConfig {
   repoUrl: string | null;
@@ -64,6 +101,14 @@ interface SyncStoreState {
   pendingConnect: PendingConnect | null;
   /** Set when a push was held back by the deletion guard. */
   pendingDeletion: DeletionWarning | null;
+  /**
+   * The deletion dialog is showing. Opens by itself once per launch while the
+   * backend is paused for deletions (counts may be unknown after a restart),
+   * whenever a cycle asks, and on `openDeletionPrompt`.
+   */
+  deletionPromptOpen: boolean;
+  /** The automatic open already happened this launch. */
+  deletionPromptShown: boolean;
   /** Conflict copies created by the last merge (vault-relative paths). */
   conflicts: string[];
   /**
@@ -86,6 +131,8 @@ interface SyncStoreState {
   syncNow(): Promise<void>;
   confirmDeletion(): Promise<void>;
   cancelDeletion(): void;
+  /** Re-open the deletion dialog (status item click); no-op unless paused for it. */
+  openDeletionPrompt(): void;
   dismissConflicts(): Promise<void>;
   /** Show frontend-made conflict copies in the conflicts notice. */
   addConflicts(paths: string[]): void;
@@ -97,7 +144,13 @@ function union(a: string[], b: string[]): string[] {
 
 function errorText(e: unknown): string {
   if (typeof e === 'string') return e;
-  if (typeof e === 'object' && e !== null && 'kind' in e) return JSON.stringify(e);
+  if (typeof e === 'object' && e !== null && 'kind' in e) {
+    const kind = (e as { kind: unknown }).kind;
+    if (typeof kind === 'string' && SYNC_ERROR_KINDS.includes(kind)) {
+      return syncErrorText(e as SyncError);
+    }
+    return JSON.stringify(e);
+  }
   return String(e);
 }
 
@@ -128,6 +181,8 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
     connectAction: null,
     pendingConnect: null,
     pendingDeletion: null,
+    deletionPromptOpen: false,
+    deletionPromptShown: false,
     conflicts: [],
     localConflicts: [],
     vaultChangeCount: 0,
@@ -195,7 +250,12 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
     applyFinished(payload) {
       set((s) => {
         const asked = payload.report?.needsConfirmation ?? null;
+        const paused = payload.pausedReason === 'deletion';
+        const autoOpen = paused && !s.deletionPromptShown;
         return {
+          deletionPromptShown: s.deletionPromptShown || autoOpen,
+          deletionPromptOpen:
+            (asked !== null || autoOpen || s.deletionPromptOpen) && (paused || asked !== null),
           state: payload,
           status: { hasChanges: payload.status.uncommitted || payload.status.ahead > 0 },
           // Connect-time conflict copies are not persisted backend-side: only
@@ -234,7 +294,7 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
     },
 
     async confirmDeletion() {
-      set({ pendingDeletion: null });
+      set({ pendingDeletion: null, deletionPromptOpen: false });
       try {
         await syncConfirmDeletions();
       } catch (e) {
@@ -243,7 +303,12 @@ export const useSyncStore: UseBoundStore<StoreApi<SyncStoreState>> = create<Sync
     },
 
     cancelDeletion() {
-      set({ pendingDeletion: null });
+      // Keep the counts: the status item re-opens the same question.
+      set({ deletionPromptOpen: false });
+    },
+
+    openDeletionPrompt() {
+      if (get().state?.pausedReason === 'deletion') set({ deletionPromptOpen: true });
     },
 
     addConflicts(paths) {

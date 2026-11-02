@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useVaultStore } from './store/vaultStore';
 import { useEditorStore } from './store/editorStore';
@@ -10,9 +10,10 @@ import { EditorView } from './views/EditorView';
 import { PreviewView } from './views/PreviewView';
 import { GraphView } from './views/GraphView';
 import { SettingsView } from './views/SettingsView';
-import { ExitDialog } from './components/Sync/ExitDialog';
+import { ConfirmDialog } from './components/ConfirmDialog/ConfirmDialog';
+import { finishQuit, flushEditsForQuit } from './lib/quitFlow';
 import { SyncDialogs } from './components/Sync/SyncDialogs';
-import { onInboxCaptured, onRequestQuit, onVoiceChanged, quitApp, syncBeforeQuit } from './lib/tauri';
+import { onInboxCaptured, onRequestQuit, onVoiceChanged } from './lib/tauri';
 import { captureToast } from './lib/inbox';
 import { useInboxStore } from './store/inboxStore';
 import { Toast } from './components/Shell/Toast';
@@ -29,8 +30,9 @@ import { useIdeStore } from './store/ideStore';
 import { useAutoSync } from './hooks/useAutoSync';
 
 function AppLayout() {
-  const [showExitDialog, setShowExitDialog] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  // null: not quitting; 'syncing': flushing + final sync; 'confirm': edits could not be saved.
+  const [quitPhase, setQuitPhase] = useState<null | 'syncing' | 'confirm'>(null);
+  const quitting = useRef(false);
   const wizardOpen = useLlmStore((s) => s.wizardOpen);
   const vaultPath = useVaultStore((s) => s.vaultPath);
   const currentView = viewForPath(useLocation().pathname);
@@ -64,9 +66,20 @@ function AppLayout() {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     onRequestQuit(() => {
-      const { config, status } = useSyncStore.getState();
-      if (config.isConnected && status.hasChanges) setShowExitDialog(true);
-      else void quitApp();
+      if (quitting.current) return;
+      quitting.current = true;
+      const syncFirst = useSyncStore.getState().config.isConnected;
+      setQuitPhase('syncing');
+      void flushEditsForQuit()
+        .then((allWritten) => {
+          if (allWritten) return finishQuit(syncFirst);
+          // Something could not be written: ask before leaving it behind.
+          setQuitPhase('confirm');
+        })
+        .catch((e) => {
+          console.error(e);
+          setQuitPhase('confirm');
+        });
     })
       .then((fn) => (cancelled ? fn() : (unlisten = fn)))
       .catch(console.error);
@@ -165,23 +178,41 @@ function AppLayout() {
         </main>
       </div>
       <StatusBar />
-      <ExitDialog
-        open={showExitDialog}
-        isSyncing={isSyncing}
-        onSyncAndQuit={async () => {
-          setIsSyncing(true);
-          await syncBeforeQuit().catch(() => {});
-          setIsSyncing(false);
-          setShowExitDialog(false);
-          // A held-back push (deletion guard) must be answered first: don't quit.
-          if (useSyncStore.getState().pendingDeletion) return;
-          await quitApp();
+      {quitPhase === 'syncing' && (
+        <div
+          data-testid="quit-notice"
+          role="status"
+          style={{
+            position: 'fixed',
+            right: 'var(--space-6)',
+            bottom: 'var(--space-12)',
+            zIndex: 100,
+            padding: 'var(--space-3) var(--space-4)',
+            background: 'var(--surface)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: 'var(--shadow-pop)',
+            color: 'var(--ink)',
+            fontFamily: 'var(--font-sans)',
+            fontSize: 13,
+          }}
+        >
+          Sincronizando antes de salir…
+        </div>
+      )}
+      <ConfirmDialog
+        open={quitPhase === 'confirm'}
+        title="Salir"
+        description="Hay cambios que no se han podido guardar. ¿Salir igualmente?"
+        confirmLabel="Salir"
+        onConfirm={() => {
+          setQuitPhase('syncing');
+          void finishQuit(useSyncStore.getState().config.isConnected);
         }}
-        onQuit={async () => {
-          setShowExitDialog(false);
-          await quitApp();
+        onCancel={() => {
+          quitting.current = false;
+          setQuitPhase(null);
         }}
-        onCancel={() => setShowExitDialog(false)}
       />
       <SyncDialogs />
       <Toast message={toast} onDismiss={dismissToast} />

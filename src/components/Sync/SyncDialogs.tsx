@@ -10,12 +10,14 @@ function notes(n: number): string {
 
 /**
  * Every question sync must ask before it may change anything:
- * the connect decision, the mass-deletion guard, and the conflicts notice.
+ * the connect decision, the mass-deletion guard (open while the backend is paused for it),
+ * and the conflicts notice.
  */
 export function SyncDialogs(): JSX.Element {
   const navigate = useNavigate();
   const pendingConnect = useSyncStore((s) => s.pendingConnect);
   const pendingDeletion = useSyncStore((s) => s.pendingDeletion);
+  const deletionPromptOpen = useSyncStore((s) => s.deletionPromptOpen);
   const conflicts = useSyncStore((s) => s.conflicts);
   const confirmConnect = useSyncStore((s) => s.confirmConnect);
   const cancelConnect = useSyncStore((s) => s.cancelConnect);
@@ -44,9 +46,13 @@ export function SyncDialogs(): JSX.Element {
       />
 
       <ConfirmDialog
-        open={pendingDeletion !== null}
+        open={deletionPromptOpen}
         title="Borrar notas en GitHub"
-        description={`Esta sincronización borraría ${pendingDeletion?.deleted ?? 0} de ${pendingDeletion?.total ?? 0} notas en GitHub. ¿Continuar?`}
+        description={
+          pendingDeletion
+            ? `Esta sincronización borraría ${pendingDeletion.deleted} de ${pendingDeletion.total} notas en GitHub. ¿Continuar?`
+            : 'Esta sincronización borraría notas en GitHub. ¿Continuar?'
+        }
         confirmLabel="Continuar"
         onConfirm={() => void confirmDeletion()}
         onCancel={cancelDeletion}

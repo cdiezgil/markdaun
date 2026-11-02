@@ -109,15 +109,22 @@ describe('presencia en la barra de menús y guarda de salida', () => {
     }) as never);
   });
 
-  async function setSync(hasChanges: boolean) {
+  async function setSync(connected: boolean) {
     const { useSyncStore } = await import('./store/syncStore');
     useSyncStore.setState({
-      config: { repoUrl: 'https://github.com/x/y', isConnected: true },
-      status: { hasChanges },
-      // These tests are about the exit guard: keep the connected state they set
+      config: { repoUrl: 'https://github.com/x/y', isConnected: connected },
+      // These tests are about the quit flow: keep the connected state they set
       // instead of reloading it from the (mocked) backend on mount.
       loadConfig: vi.fn().mockResolvedValue(undefined),
       loadState: vi.fn().mockResolvedValue(undefined),
+    });
+    const { useEditorStore } = await import('./store/editorStore');
+    useEditorStore.setState({
+      isDirty: false,
+      saveBlockedPath: null,
+      deferredWrites: {},
+      saveHolds: 0,
+      activeNotePath: null,
     });
   }
 
@@ -125,6 +132,8 @@ describe('presencia en la barra de menús y guarda de salida', () => {
     await waitFor(() => expect(handlers.has('request-quit')).toBe(true));
     await act(async () => handlers.get('request-quit')!({}));
   };
+
+  const calls = () => mockInvoke.mock.calls.map((c) => c[0]);
 
   it('ya no intercepta el cierre desde JS: ocultar la ventana lo hace el backend', async () => {
     mockInvoke.mockResolvedValue(null);
@@ -138,53 +147,99 @@ describe('presencia en la barra de menús y guarda de salida', () => {
     expect(onCloseRequested).not.toHaveBeenCalled();
   });
 
-  it('Salir con sync conectado y cambios pendientes muestra el diálogo y no sale todavía', async () => {
+  it('quit awaits syncBeforeQuit then quits', async () => {
     await setSync(true);
-    mockInvoke.mockResolvedValue(null);
+    let finishSync: () => void = () => {};
+    mockInvoke.mockImplementation((async (cmd: string) => {
+      if (cmd === 'sync_before_quit') return new Promise<void>((r) => (finishSync = r));
+      return null;
+    }) as never);
     render(<App />);
     await requestQuit();
-    expect(await screen.findByTestId('exit-dialog')).toBeInTheDocument();
-    expect(mockInvoke).not.toHaveBeenCalledWith('quit_app');
+    expect(await screen.findByText('Sincronizando antes de salir…')).toBeInTheDocument();
+    await waitFor(() => expect(calls()).toContain('sync_before_quit'));
+    expect(calls()).not.toContain('quit_app');
+    await act(async () => finishSync());
+    await waitFor(() => expect(calls()).toContain('quit_app'));
+    expect(calls().indexOf('sync_before_quit')).toBeLessThan(calls().indexOf('quit_app'));
   });
 
-  it('"Salir sin sincronizar" sale de verdad', async () => {
+  it('quits even when syncBeforeQuit fails', async () => {
     await setSync(true);
-    mockInvoke.mockResolvedValue(null);
+    mockInvoke.mockImplementation((async (cmd: string) => {
+      if (cmd === 'sync_before_quit') throw new Error('boom');
+      return null;
+    }) as never);
     render(<App />);
     await requestQuit();
-    const { default: userEvent } = await import('@testing-library/user-event');
-    await userEvent.setup().click(await screen.findByRole('button', { name: /salir sin sincronizar/i }));
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('quit_app'));
-    expect(screen.queryByTestId('exit-dialog')).toBeNull();
+    await waitFor(() => expect(calls()).toContain('quit_app'));
   });
 
-  it('"Cancelar" cierra el diálogo y la app sigue viva', async () => {
+  it('quits after the 40 s bound when syncBeforeQuit never answers', async () => {
     await setSync(true);
-    mockInvoke.mockResolvedValue(null);
+    mockInvoke.mockImplementation((async (cmd: string) => {
+      if (cmd === 'sync_before_quit') return new Promise<void>(() => {});
+      return null;
+    }) as never);
     render(<App />);
-    await requestQuit();
-    const { default: userEvent } = await import('@testing-library/user-event');
-    await userEvent.setup().click(await screen.findByRole('button', { name: /cancelar/i }));
-    expect(screen.queryByTestId('exit-dialog')).toBeNull();
-    expect(mockInvoke).not.toHaveBeenCalledWith('quit_app');
+    await waitFor(() => expect(handlers.has('request-quit')).toBe(true));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await act(async () => handlers.get('request-quit')!({}));
+      await act(async () => { await vi.advanceTimersByTimeAsync(39_000); });
+      expect(calls()).not.toContain('quit_app');
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      expect(calls()).toContain('quit_app');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('sin cambios pendientes, Salir sale directamente', async () => {
+  it('without sync connected, quits without calling syncBeforeQuit', async () => {
     await setSync(false);
     mockInvoke.mockResolvedValue(null);
     render(<App />);
     await requestQuit();
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('quit_app'));
-    expect(screen.queryByTestId('exit-dialog')).toBeNull();
+    await waitFor(() => expect(calls()).toContain('quit_app'));
+    expect(calls()).not.toContain('sync_before_quit');
   });
 
-  it('sin sync conectado, Salir sale directamente', async () => {
-    const { useSyncStore } = await import('./store/syncStore');
-    useSyncStore.setState({ config: { repoUrl: '', isConnected: false }, status: { hasChanges: true } });
+  it('edits that cannot be written ask first; Cancelar aborts without syncing', async () => {
+    await setSync(true);
+    const { useEditorStore } = await import('./store/editorStore');
+    useEditorStore.setState({ activeNotePath: '/v/a.md', saveBlockedPath: '/v/a.md', isDirty: true });
     mockInvoke.mockResolvedValue(null);
     render(<App />);
     await requestQuit();
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('quit_app'));
+    expect(
+      await screen.findByText('Hay cambios que no se han podido guardar. ¿Salir igualmente?'),
+    ).toBeInTheDocument();
+    expect(calls()).not.toContain('sync_before_quit');
+    expect(calls()).not.toContain('quit_app');
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(calls()).not.toContain('sync_before_quit');
+    expect(calls()).not.toContain('quit_app');
+    // The quit can be asked again afterwards.
+    await requestQuit();
+    expect(
+      await screen.findByText('Hay cambios que no se han podido guardar. ¿Salir igualmente?'),
+    ).toBeInTheDocument();
+  });
+
+  it('confirming "Salir" syncs and quits despite unwritten edits', async () => {
+    await setSync(true);
+    const { useEditorStore } = await import('./store/editorStore');
+    useEditorStore.setState({
+      deferredWrites: { '/v/b.md': { content: 'x', vault: '/v', base: null, blocked: true } },
+    });
+    mockInvoke.mockResolvedValue(null);
+    render(<App />);
+    await requestQuit();
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Salir' }));
+    await waitFor(() => expect(calls()).toContain('quit_app'));
+    expect(calls().indexOf('sync_before_quit')).toBeLessThan(calls().indexOf('quit_app'));
   });
 });
 

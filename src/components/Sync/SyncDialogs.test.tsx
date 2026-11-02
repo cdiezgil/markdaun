@@ -36,6 +36,7 @@ function setup(partial: Partial<ReturnType<typeof useSyncStore.getState>>) {
   useSyncStore.setState({
     pendingConnect: null,
     pendingDeletion: null,
+    deletionPromptOpen: false,
     conflicts: [],
     confirmConnect,
     cancelConnect,
@@ -94,7 +95,7 @@ describe('SyncDialogs', () => {
   });
 
   it('deletion guard asks before deleting notes on GitHub', async () => {
-    setup({ pendingDeletion: { deleted: 15, total: 20 } });
+    setup({ pendingDeletion: { deleted: 15, total: 20 }, deletionPromptOpen: true });
     expect(
       screen.getByText('Esta sincronización borraría 15 de 20 notas en GitHub. ¿Continuar?'),
     ).toBeInTheDocument();
@@ -102,8 +103,20 @@ describe('SyncDialogs', () => {
     expect(confirmDeletion).toHaveBeenCalledWith();
   });
 
+  it('deletion guard with unknown counts (after a restart) uses a generic sentence', () => {
+    setup({ pendingDeletion: null, deletionPromptOpen: true });
+    expect(
+      screen.getByText('Esta sincronización borraría notas en GitHub. ¿Continuar?'),
+    ).toBeInTheDocument();
+  });
+
+  it('deletion guard stays closed unless the prompt is open', () => {
+    setup({ pendingDeletion: { deleted: 15, total: 20 }, deletionPromptOpen: false });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('deletion guard: Cancelar pushes nothing', async () => {
-    setup({ pendingDeletion: { deleted: 15, total: 20 } });
+    setup({ pendingDeletion: { deleted: 15, total: 20 }, deletionPromptOpen: true });
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(cancelDeletion).toHaveBeenCalled();
     expect(confirmDeletion).not.toHaveBeenCalled();

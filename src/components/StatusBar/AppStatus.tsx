@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Check, CircleAlert, Loader, RefreshCw } from 'lucide-react';
-import { useSyncStore, indicatorFor, type SyncIndicator } from '../../store/syncStore';
+import { useSyncStore, indicatorFor, syncErrorText, type SyncIndicator } from '../../store/syncStore';
 import { useEditorStore } from '../../store/editorStore';
 import { onBrainIndexProgress, type IndexProgress } from '../../lib/tauri';
 
@@ -21,36 +21,75 @@ const INDICATOR_LABEL: Record<SyncIndicator, string> = {
   needsReview: 'Requiere revisión',
 };
 
+function lastSuccessText(iso: string | null): string | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return undefined;
+  return `Última sincronización: ${d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 function SyncItem(): JSX.Element | null {
   const isConnected = useSyncStore((s) => s.config.isConnected);
   const state = useSyncStore((s) => s.state);
   const error = useSyncStore((s) => s.error);
+  const localConflicts = useSyncStore((s) => s.localConflicts);
+  const syncNow = useSyncStore((s) => s.syncNow);
+  const openDeletionPrompt = useSyncStore((s) => s.openDeletionPrompt);
   if (!isConnected) return null;
+
+  const buttonStyle: React.CSSProperties = {
+    ...itemStyle,
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    font: 'inherit',
+    cursor: 'pointer',
+  };
 
   if (error) {
     return (
-      <span data-testid="sync-status" title={error} style={{ ...itemStyle, color: 'var(--danger)' }}>
+      <button
+        type="button"
+        data-testid="sync-status"
+        title={error}
+        onClick={() => void syncNow()}
+        style={{ ...buttonStyle, color: 'var(--danger)' }}
+      >
         <CircleAlert {...ICON} /> Error de sincronización
-      </span>
+      </button>
     );
   }
-  const indicator: SyncIndicator = state ? indicatorFor(state, state.view.running) : 'upToDate';
+  const indicator: SyncIndicator = state
+    ? indicatorFor(state, state.view.running, localConflicts)
+    : 'upToDate';
   const icon =
     indicator === 'syncing' ? <Loader {...ICON} />
     : indicator === 'upToDate' ? <Check {...ICON} />
     : indicator === 'pending' ? <RefreshCw {...ICON} />
     : <CircleAlert {...ICON} />;
+  const title =
+    indicator === 'needsReview' && state?.error
+      ? syncErrorText(state.error)
+      : lastSuccessText(state?.lastSuccess ?? null);
+  const onClick = () => {
+    if (state?.pausedReason === 'deletion') openDeletionPrompt();
+    else void syncNow();
+  };
   return (
-    <span data-testid="sync-status" style={itemStyle}>
+    <button type="button" data-testid="sync-status" title={title} onClick={onClick} style={buttonStyle}>
       {icon}
       {INDICATOR_LABEL[indicator]}
-    </span>
+    </button>
   );
 }
 
 function SaveItem(): JSX.Element | null {
   const hasNote = useEditorStore((s) => s.activeNotePath !== null);
-  const isDirty = useEditorStore((s) => s.isDirty);
+  // Edits parked for a sync release or refused over a remote version are not on disk.
+  const unsaved = useEditorStore(
+    (s) =>
+      s.isDirty || s.saveBlockedPath !== null || Object.keys(s.deferredWrites).length > 0,
+  );
   if (!hasNote) return null;
   return (
     <span data-testid="save-state" style={{ ...itemStyle, gap: 6 }}>
@@ -61,11 +100,11 @@ function SaveItem(): JSX.Element | null {
           width: 6,
           height: 6,
           borderRadius: 'var(--radius-pill)',
-          background: isDirty ? 'var(--amber)' : 'var(--daun)',
+          background: unsaved ? 'var(--amber)' : 'var(--daun)',
           flexShrink: 0,
         }}
       />
-      {isDirty ? 'Sin guardar' : 'Guardado'}
+      {unsaved ? 'Sin guardar' : 'Guardado'}
     </span>
   );
 }
