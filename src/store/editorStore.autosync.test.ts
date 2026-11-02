@@ -33,6 +33,8 @@ beforeEach(() => {
     saveHolds: 0,
     lastConflictCopy: null,
     saveBlockedPath: null,
+    deferredWrites: {},
+    diskContent: '# Idea',
   });
 });
 
@@ -379,22 +381,185 @@ describe('note switching', () => {
     expect(calledCommands().filter((c) => c === 'write_note')).toHaveLength(1);
   });
 
-  it('switch during sync hold still writes the previous note', async () => {
+  it('switch during sync hold defers the write until release', async () => {
     routeInvoke({ read_note: () => '# Otra' });
     await useEditorStore.getState().holdSaves();
     useEditorStore.getState().setContent('# Idea\n\ndurante el ciclo');
 
     await useEditorStore.getState().openNote('/vault/otra.md');
 
+    // The switch is not blocked, and nothing is written while the cycle runs.
+    expect(useEditorStore.getState().activeNotePath).toBe('/vault/otra.md');
+    expect(calledCommands()).not.toContain('write_note');
+    expect(useEditorStore.getState().deferredWrites[NOTE]?.content).toBe('# Idea\n\ndurante el ciclo');
+    // The hold still defers normal autosaves.
+    useEditorStore.getState().setContent('# Otra\n\nmás');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calledCommands()).not.toContain('write_note');
+
+    routeInvoke({ read_note: (a) => ((a as { path: string }).path === NOTE ? '# Idea' : '# Otra') });
+    const result = await useEditorStore.getState().releaseSaves([]);
+
     expect(mockInvoke).toHaveBeenCalledWith('write_note', {
       path: NOTE,
       content: '# Idea\n\ndurante el ciclo',
       vaultPath: '/vault',
     });
-    // The hold still defers normal autosaves.
-    useEditorStore.getState().setContent('# Otra\n\nmás');
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(calledCommands().filter((c) => c === 'write_note')).toHaveLength(1);
+    expect(result.written).toBe(1);
+    expect(useEditorStore.getState().deferredWrites).toEqual({});
+  });
+
+  it('deferred note changed remotely gets conflict copy before write', async () => {
+    routeInvoke({ read_note: () => '# Otra' });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    routeInvoke({ read_note: () => '# Idea\n\nfusionada', write_conflict_copy: () => COPY });
+    const result = await useEditorStore.getState().releaseSaves(['proj/Idea.md']);
+
+    const cmds = calledCommands();
+    expect(cmds).toContain('write_conflict_copy');
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.lastIndexOf('write_note'));
+    expect(mockInvoke).toHaveBeenCalledWith('write_conflict_copy', { path: NOTE, vaultPath: '/vault' });
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\nlocal',
+      vaultPath: '/vault',
+    });
+    expect(result.copies).toEqual([COPY]);
+    expect(result.failed).toBe(false);
+  });
+
+  it('deferred note unchanged remotely is written on release', async () => {
+    routeInvoke({ read_note: () => '# Otra' });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    routeInvoke({ read_note: () => '# Idea', write_conflict_copy: () => COPY });
+    const result = await useEditorStore.getState().releaseSaves(['otra.md']);
+
+    expect(calledCommands()).not.toContain('write_conflict_copy');
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\nlocal',
+      vaultPath: '/vault',
+    });
+    expect(result.copies).toEqual([]);
+  });
+
+  it('keeps a deferred note pending when its conflict copy fails, and retries on the next release', async () => {
+    routeInvoke({ read_note: () => '# Otra' });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    routeInvoke({
+      read_note: () => '# Idea\n\nfusionada',
+      write_conflict_copy: () => {
+        throw 'io_error: disk full';
+      },
+    });
+    const failed = await useEditorStore.getState().releaseSaves(['proj/Idea.md']);
+    expect(failed.failed).toBe(true);
+    expect(calledCommands().filter((c) => c === 'write_conflict_copy')).toHaveLength(2);
+    expect(calledCommands()).not.toContain('write_note');
+    expect(useEditorStore.getState().deferredWrites[NOTE]?.blocked).toBe(true);
+
+    // The next cycle changed nothing, but the remote version was never kept.
+    await useEditorStore.getState().holdSaves();
+    routeInvoke({ read_note: () => '# Idea\n\nfusionada', write_conflict_copy: () => COPY });
+    const retried = await useEditorStore.getState().releaseSaves([]);
+    expect(retried.copies).toEqual([COPY]);
+    const cmds = calledCommands();
+    expect(cmds.lastIndexOf('write_conflict_copy')).toBeLessThan(cmds.lastIndexOf('write_note'));
+    expect(useEditorStore.getState().deferredWrites).toEqual({});
+  });
+
+  it('reopening a deferred note restores its buffer', async () => {
+    routeInvoke({ read_note: () => '# Otra' });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    await useEditorStore.getState().openNote(NOTE);
+
+    const s = useEditorStore.getState();
+    expect(s.activeNotePath).toBe(NOTE);
+    expect(s.activeNoteContent).toBe('# Idea\n\nlocal');
+    expect(s.isDirty).toBe(true);
+    expect(s.deferredWrites).toEqual({});
+    expect(calledCommands()).not.toContain('write_note');
+  });
+
+  it('hold-release without payload conflict-copies conservatively', async () => {
+    // No record of what the editor last loaded: copy before writing.
+    useEditorStore.setState({ diskContent: null });
+    routeInvoke({ read_note: () => '# Otra' });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    routeInvoke({ read_note: () => '# Idea', write_conflict_copy: () => COPY });
+    const result = await useEditorStore.getState().releaseSaves('unknown');
+
+    const cmds = calledCommands();
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.lastIndexOf('write_note'));
+    expect(result.copies).toEqual([COPY]);
+  });
+
+  it('hold-release without payload writes directly when disk still matches what was loaded', async () => {
+    routeInvoke({ read_note: (a) => ((a as { path: string }).path === NOTE ? '# Idea' : '# Otra') });
+    await useEditorStore.getState().openNote(NOTE);
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    const result = await useEditorStore.getState().releaseSaves('unknown');
+
+    expect(calledCommands()).not.toContain('write_conflict_copy');
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\nlocal',
+      vaultPath: '/vault',
+    });
+    expect(result.copies).toEqual([]);
+  });
+
+  it('hold-release without payload copies when disk differs from what was loaded', async () => {
+    routeInvoke({ read_note: (a) => ((a as { path: string }).path === NOTE ? '# Idea' : '# Otra') });
+    await useEditorStore.getState().openNote(NOTE);
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    routeInvoke({ read_note: () => '# Idea\n\nde otro equipo', write_conflict_copy: () => COPY });
+    const result = await useEditorStore.getState().releaseSaves('unknown');
+
+    expect(result.copies).toEqual([COPY]);
+  });
+
+  it('a new hold waits for the deferred writes before it is acknowledged', async () => {
+    routeInvoke({ read_note: () => '# Otra' });
+    await useEditorStore.getState().holdSaves();
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await useEditorStore.getState().openNote('/vault/otra.md');
+
+    let finishWrite!: () => void;
+    routeInvoke({
+      read_note: () => '# Idea',
+      write_note: () => new Promise<void>((r) => (finishWrite = r)),
+    });
+    const release = useEditorStore.getState().releaseSaves([]);
+    let held = false;
+    const hold = useEditorStore.getState().holdSaves().then(() => (held = true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(held).toBe(false);
+    finishWrite();
+    await release;
+    await hold;
+    expect(held).toBe(true);
   });
 
   it('switch during relocation flushes to the new path after it completes', async () => {
@@ -435,6 +600,13 @@ describe('note switching', () => {
     useEditorStore.getState().setContent('# Idea\n\nbloqueada');
     await useEditorStore.getState().openNote('/vault/otra.md');
     expect(calledCommands()).not.toContain('write_note');
+    expect(useEditorStore.getState().deferredWrites[NOTE]?.blocked).toBe(true);
+
+    // Release with no remote change: the block still forces the copy first.
+    routeInvoke({ read_note: () => '# Idea remota', write_conflict_copy: () => COPY });
+    await useEditorStore.getState().releaseSaves([]);
+    const cmds = calledCommands();
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.indexOf('write_note'));
   });
 
   it('does not flush a save-blocked note when switching', async () => {

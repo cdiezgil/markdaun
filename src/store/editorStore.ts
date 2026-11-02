@@ -18,6 +18,33 @@ export type SaveStatus = 'idle' | 'saving' | 'saved';
 /** What a sync cycle did to the open note (see `applyRemoteChanges`). */
 export type RemoteChangeResult = 'none' | 'reloaded' | 'conflict' | 'deleted' | 'error';
 
+/** A note switched away from during a sync hold, waiting for the release. */
+export interface DeferredWrite {
+  /** Editor buffer (load form; converted to disk form when written). */
+  content: string;
+  vault: string;
+  /** Disk content the editor last read or wrote for the note, or null if unknown. */
+  base: string | null;
+  /** The remote version was never kept: copy it before writing, always. */
+  blocked: boolean;
+}
+
+/** What a release did with the deferred writes (see `releaseSaves`). */
+export interface DeferredFlushResult {
+  /** Vault-relative conflict copies written. */
+  copies: string[];
+  /** Notes written to disk. */
+  written: number;
+  /** A remote version could not be kept; its note stays deferred. */
+  failed: boolean;
+}
+
+/**
+ * Remote changes reported to `releaseSaves`: the cycle's vault-relative
+ * changed paths, or `'unknown'` when the cycle ended without a report.
+ */
+export type ReleaseRemote = string[] | 'unknown';
+
 export interface EditorState {
   activeNotePath: string | null;
   activeNoteContent: string | null;
@@ -49,6 +76,13 @@ export interface EditorState {
    * next `applyRemoteChanges` retries; opening another note lifts it.
    */
   saveBlockedPath: string | null;
+  /**
+   * Notes switched away from while a sync cycle held saves, by absolute path
+   * (latest buffer wins). Written on release under the remote-change rules.
+   */
+  deferredWrites: Record<string, DeferredWrite>;
+  /** Disk content the editor last read or wrote for the open note, or null. */
+  diskContent: string | null;
 
   // Actions
   openNote(absolutePath: string): Promise<void>;
@@ -73,8 +107,12 @@ export interface EditorState {
   applyRelocation(from: string, to: string, rewritten: string[]): Promise<void>;
   /** Flush the pending debounced save, then hold saves until `releaseSaves`. */
   holdSaves(): Promise<void>;
-  /** End one hold; the deferred save runs when the last hold ends. */
-  releaseSaves(): void;
+  /**
+   * End one hold; the deferred save runs when the last hold ends, and so do
+   * the deferred writes of notes switched away from meanwhile. `remote` is
+   * what the sync cycle changed (omit for a rename/move).
+   */
+  releaseSaves(remote?: ReleaseRemote): Promise<DeferredFlushResult>;
   /**
    * A sync cycle changed `changedPaths` (vault-relative). Reloads, closes or
    * keeps the open note; unsaved edits always win and the remote version is
@@ -92,6 +130,11 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let relocationInFlight: Promise<void> | null = null;
 /** Forces a stuck hold off: a lost release event must never keep typing unsaved. */
 let holdSafetyTimer: ReturnType<typeof setTimeout> | null = null;
+/** Settles when the running flush of deferred writes is done. */
+let deferredFlush: Promise<DeferredFlushResult> | null = null;
+/** Remote changes reported by releases since the last deferred flush. */
+let releasedChanges = new Set<string>();
+let releasedUnknown = false;
 
 const SAVE_DEBOUNCE_MS = 1000;
 export const SAVE_HOLD_MAX_MS = 60_000;
@@ -242,12 +285,128 @@ export const useEditorStore = create<EditorState>((set, get) => {
     if (!activeNotePath || activeNoteContent === null || !vaultPath) return;
     if (saveBlockedPath === activeNotePath) return; // would overwrite the remote version
     const noteDir = activeNotePath.substring(0, activeNotePath.lastIndexOf('/'));
-    await writeNote(activeNotePath, processImagesOnSave(activeNoteContent, noteDir), vaultPath);
+    const out = processImagesOnSave(activeNoteContent, noteDir);
+    await writeNote(activeNotePath, out, vaultPath);
+    if (get().activeNotePath === activeNotePath) set({ diskContent: out });
     markSaved(activeNotePath, activeNoteContent);
     // Fire-and-forget: update embeddings after successful save (TC-35)
     if (activeNotePath.endsWith('.md')) {
       brainUpdateEmbedding(activeNotePath, vaultPath).catch(() => {});
     }
+  }
+
+  /** Keeps the open note's buffer for the release instead of writing it mid-cycle. */
+  function deferActiveNote(): void {
+    const { activeNotePath, activeNoteContent, vaultPath, saveBlockedPath, diskContent, deferredWrites } =
+      get();
+    if (!activeNotePath || activeNoteContent === null || !vaultPath) return;
+    const blocked = saveBlockedPath === activeNotePath || deferredWrites[activeNotePath]?.blocked === true;
+    set({
+      deferredWrites: {
+        ...deferredWrites,
+        [activeNotePath]: { content: activeNoteContent, vault: vaultPath, base: diskContent, blocked },
+      },
+    });
+  }
+
+  function dropDeferred(path: string, entry: DeferredWrite): void {
+    const current = get().deferredWrites;
+    if (current[path] !== entry) return; // replaced meanwhile
+    const rest = { ...current };
+    delete rest[path];
+    set({ deferredWrites: rest });
+  }
+
+  function blockDeferred(path: string, entry: DeferredWrite): void {
+    const current = get().deferredWrites;
+    if (current[path] !== entry) return;
+    set({ deferredWrites: { ...current, [path]: { ...entry, blocked: true } } });
+  }
+
+  async function conflictCopyWithRetry(path: string, vault: string): Promise<string> {
+    try {
+      return await writeConflictCopy(path, vault);
+    } catch {
+      return await writeConflictCopy(path, vault);
+    }
+  }
+
+  /**
+   * Writes each deferred note under the rules of the open note: a note the
+   * cycle changed (or may have changed) gets its disk version kept as a
+   * conflict copy first; without that copy the path is never overwritten.
+   */
+  async function writeDeferred(changed: Set<string>, unknown: boolean): Promise<DeferredFlushResult> {
+    const result: DeferredFlushResult = { copies: [], written: 0, failed: false };
+    for (const [path, entry] of Object.entries(get().deferredWrites)) {
+      const rel = vaultRelative(path, entry.vault);
+      if (rel === null) {
+        dropDeferred(path, entry);
+        continue;
+      }
+      let disk: string | null;
+      try {
+        disk = await readNote(path, entry.vault);
+      } catch (e) {
+        if (!isNotFound(e)) {
+          console.error('reading a deferred note failed:', e);
+          blockDeferred(path, entry);
+          result.failed = true;
+          continue;
+        }
+        disk = null;
+      }
+      const out = processImagesOnSave(entry.content, path.substring(0, path.lastIndexOf('/')));
+      try {
+        if (disk === null) {
+          // Edit wins over delete: recreate the note from the buffer.
+          await chatWriteNote(rel, out, 'create', entry.vault);
+        } else {
+          const mayHaveChanged =
+            entry.blocked || changed.has(rel) || (unknown && (entry.base === null || disk !== entry.base));
+          if (mayHaveChanged && disk !== out) {
+            let copy: string;
+            try {
+              copy = await conflictCopyWithRetry(path, entry.vault);
+            } catch (e) {
+              console.error('conflict copy of a deferred note failed twice:', e);
+              blockDeferred(path, entry);
+              result.failed = true;
+              continue;
+            }
+            result.copies.push(copy);
+          }
+          await writeNote(path, out, entry.vault);
+        }
+      } catch (e) {
+        // Any copy is already on disk; the buffer stays deferred.
+        console.error('writing a deferred note failed:', e);
+        continue;
+      }
+      result.written += 1;
+      dropDeferred(path, entry);
+      if (path.endsWith('.md')) brainUpdateEmbedding(path, entry.vault).catch(() => {});
+    }
+    return result;
+  }
+
+  /** Runs the deferred writes with the changes reported since the last run. */
+  function flushDeferred(): Promise<DeferredFlushResult> {
+    const changed = releasedChanges;
+    const unknown = releasedUnknown;
+    releasedChanges = new Set();
+    releasedUnknown = false;
+    if (Object.keys(get().deferredWrites).length === 0 && deferredFlush === null) {
+      return Promise.resolve({ copies: [], written: 0, failed: false });
+    }
+    const previous = deferredFlush ?? Promise.resolve(null);
+    const run: Promise<DeferredFlushResult> = previous
+      .then(() => writeDeferred(changed, unknown))
+      .finally(() => {
+        if (deferredFlush === run) deferredFlush = null;
+      });
+    deferredFlush = run;
+    return run;
   }
 
   return {
@@ -265,25 +424,52 @@ export const useEditorStore = create<EditorState>((set, get) => {
   saveHolds: 0,
   lastConflictCopy: null,
   saveBlockedPath: null,
+  deferredWrites: {},
+  diskContent: null,
 
   async openNote(absolutePath: string) {
-    // Flush the previous note's pending edit instead of dropping it. A sync
-    // hold does not stop this flush (Rust commits late writes before any
-    // checkout); a rename/move is awaited so the edit lands on the new path.
-    // `writeBuffer` never writes a save-blocked note.
+    // Never drop the previous note's pending edit. A rename/move is awaited
+    // so the edit lands on the new path. During a sync hold the buffer is
+    // deferred to the release: a write after the merge checkout would
+    // overwrite the merged file. `writeBuffer` never writes a blocked note.
+    if (deferredFlush !== null) await deferredFlush;
     clearDebounce();
     while (relocationInFlight !== null && get().isDirty) await relocationInFlight;
     clearDebounce();
     if (get().isDirty && get().activeNotePath !== null) {
-      try {
-        await writeBuffer();
-      } catch (e) {
-        console.error('flush before switching notes failed:', e);
+      if (get().saveHolds > 0) {
+        deferActiveNote();
+      } else {
+        try {
+          await writeBuffer();
+        } catch (e) {
+          console.error('flush before switching notes failed:', e);
+        }
       }
     }
 
     const { vaultPath } = get();
     if (!vaultPath) return;
+
+    const deferred = get().deferredWrites[absolutePath];
+    if (deferred !== undefined && deferred.vault === vaultPath) {
+      // Back to a note still waiting for the release: its buffer becomes the
+      // open note's again, under the open note's rules.
+      dropDeferred(absolutePath, deferred);
+      set({
+        activeNotePath: absolutePath,
+        activeNoteContent: deferred.content,
+        diskContent: deferred.base,
+        saveBlockedPath: deferred.blocked ? absolutePath : null,
+        saveStatus: 'saving',
+        lastSavedAt: null,
+        isDirty: true,
+        selectionText: '',
+        loadVersion: get().loadVersion + 1,
+      });
+      scheduleSave();
+      return;
+    }
 
     const rawMarkdown = await readNote(absolutePath, vaultPath);
 
@@ -293,6 +479,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     set({
       activeNotePath: absolutePath,
       activeNoteContent: processedMarkdown,
+      diskContent: rawMarkdown,
       saveBlockedPath: null,
       saveStatus: 'idle',
       lastSavedAt: null,
@@ -348,7 +535,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
       try {
         result = await run();
       } finally {
-        get().releaseSaves();
+        void get().releaseSaves();
       }
       if (finish) await finish(result);
       return result;
@@ -372,8 +559,12 @@ export const useEditorStore = create<EditorState>((set, get) => {
         console.warn('Save hold exceeded 60 s; resuming saves');
         set({ saveHolds: 0 });
         if (get().isDirty) scheduleSave();
+        releasedUnknown = true;
+        void flushDeferred();
       }, SAVE_HOLD_MAX_MS);
     }
+    // Deferred writes from the previous release land before the next cycle.
+    if (deferredFlush !== null) await deferredFlush;
     if (get().isDirty) {
       try {
         await writeBuffer();
@@ -383,16 +574,20 @@ export const useEditorStore = create<EditorState>((set, get) => {
     }
   },
 
-  releaseSaves() {
+  releaseSaves(remote?: ReleaseRemote) {
+    const none = Promise.resolve<DeferredFlushResult>({ copies: [], written: 0, failed: false });
     const holds = get().saveHolds;
-    if (holds === 0) return;
+    if (holds === 0) return none;
+    if (remote === 'unknown') releasedUnknown = true;
+    else remote?.forEach((p) => releasedChanges.add(p));
     set({ saveHolds: holds - 1 });
-    if (holds > 1) return;
+    if (holds > 1) return none;
     if (holdSafetyTimer !== null) {
       clearTimeout(holdSafetyTimer);
       holdSafetyTimer = null;
     }
     if (get().isDirty) scheduleSave();
+    return flushDeferred();
   },
 
   async applyRemoteChanges(changedPaths: string[], vaultPath: string) {
@@ -439,7 +634,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
       }
       // Edit wins over delete: recreate the note from the buffer.
       set({ saveBlockedPath: null });
-      await chatWriteNote(rel, processImagesOnSave(activeNoteContent, noteDir), 'create', vaultPath);
+      const out = processImagesOnSave(activeNoteContent, noteDir);
+      await chatWriteNote(rel, out, 'create', vaultPath);
+      if (get().activeNotePath === path) set({ diskContent: out });
       markSaved(path, activeNoteContent);
       return 'conflict';
     }
@@ -449,6 +646,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
       // the editor keeps its instance and scroll position.
       set({
         activeNoteContent: processImagesOnLoad(remote, noteDir),
+        diskContent: remote,
         isDirty: false,
         saveStatus: 'idle',
         saveBlockedPath: null,
@@ -486,6 +684,14 @@ export const useEditorStore = create<EditorState>((set, get) => {
     const mapped = relocate(activeNotePath);
     // A save block follows its note.
     if (saveBlockedPath !== null) set({ saveBlockedPath: relocate(saveBlockedPath) });
+    const deferred = get().deferredWrites;
+    if (Object.keys(deferred).some((p) => relocate(p) !== p)) {
+      set({
+        deferredWrites: Object.fromEntries(
+          Object.entries(deferred).map(([p, entry]) => [relocate(p) as string, entry]),
+        ),
+      });
+    }
     if (mapped !== activeNotePath) {
       set({ activeNotePath: mapped, relocation: { from: activeNotePath as string, to: mapped as string } });
     }

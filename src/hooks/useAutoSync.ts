@@ -7,7 +7,11 @@ import {
   syncTrigger,
   type SyncState,
 } from '../lib/tauri';
-import { useEditorStore, type RemoteChangeResult } from '../store/editorStore';
+import {
+  useEditorStore,
+  type DeferredFlushResult,
+  type RemoteChangeResult,
+} from '../store/editorStore';
 import { useSyncStore } from '../store/syncStore';
 
 export const TOAST_RELOADED = 'Nota actualizada desde GitHub';
@@ -36,6 +40,7 @@ function useTauriEvent(subscribe: () => Promise<() => void>): void {
  * - `sync-will-start`: flush and hold saves, then ack;
  * - `sync-finished`: apply remote changes to the open note, release the hold,
  *   store the state and toast; `sync-hold-release` only releases;
+ * - both releases write the notes switched away from during the cycle;
  * - every successful save asks for a cycle (`changed`).
  */
 export function useAutoSync(showToast: (message: string) => void): void {
@@ -59,7 +64,12 @@ export function useAutoSync(showToast: (message: string) => void): void {
 
   useTauriEvent(() =>
     onSyncHoldRelease(() => {
-      useEditorStore.getState().releaseSaves();
+      // No report: the deferred notes are checked against their disk content.
+      void useEditorStore
+        .getState()
+        .releaseSaves('unknown')
+        .then((deferred) => reportDeferred(deferred, false, (m) => toastRef.current(m)))
+        .catch(console.error);
     }),
   );
 
@@ -87,6 +97,7 @@ async function handleFinished(payload: SyncState, toast: (m: string) => void): P
   const editor = useEditorStore.getState();
   const changed = payload.report?.changedPaths ?? [];
   let result: RemoteChangeResult = 'none';
+  let release: Promise<DeferredFlushResult> | null = null;
   try {
     // Always ask: a note blocked by a failed conflict copy retries now.
     if (editor.vaultPath) {
@@ -95,20 +106,37 @@ async function handleFinished(payload: SyncState, toast: (m: string) => void): P
   } catch (e) {
     console.error('applyRemoteChanges failed:', e);
   } finally {
-    useEditorStore.getState().releaseSaves();
+    release = useEditorStore.getState().releaseSaves(changed);
   }
+  const copy = useEditorStore.getState().lastConflictCopy;
+  const deferred = await release.catch((e: unknown): DeferredFlushResult => {
+    console.error('deferred writes failed:', e);
+    return { copies: [], written: 0, failed: false };
+  });
 
   const sync = useSyncStore.getState();
   sync.applyFinished(payload);
-  const copy = useEditorStore.getState().lastConflictCopy;
   if (result === 'conflict' && copy !== null) sync.addConflicts([copy]);
 
   if (result === 'reloaded') toast(TOAST_RELOADED);
   else if (result === 'deleted') toast(TOAST_DELETED);
   else if (result === 'error') toast(TOAST_COPY_FAILED);
+  reportDeferred(deferred, result === 'error', toast);
 
   if (changed.length > 0) {
     // The vault tree reloads via `vaultChangeCount`; the editor's wikilink tree here.
     await useEditorStore.getState().refreshVaultTree().catch(console.error);
   }
+}
+
+/** Shows what the release did with notes switched away from during the cycle. */
+function reportDeferred(
+  deferred: DeferredFlushResult,
+  copyFailureShown: boolean,
+  toast: (m: string) => void,
+): void {
+  if (deferred.copies.length > 0) useSyncStore.getState().addConflicts(deferred.copies);
+  if (deferred.failed && !copyFailureShown) toast(TOAST_COPY_FAILED);
+  // Like a save: let the scheduler debounce a cycle for what was written.
+  if (deferred.written > 0) syncTrigger('changed').catch(() => {});
 }

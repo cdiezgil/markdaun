@@ -81,6 +81,8 @@ beforeEach(() => {
     saveHolds: 0,
     lastConflictCopy: null,
     saveBlockedPath: null,
+    deferredWrites: {},
+    diskContent: '# Idea',
   });
   useSyncStore.setState({ state: null, conflicts: [], vaultChangeCount: 0 });
 });
@@ -213,5 +215,67 @@ describe('useAutoSync', () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     expect(mockInvoke).toHaveBeenCalledWith('sync_trigger', { reason: 'changed' });
+  });
+  it('lists the conflict copy of a note switched away from during the cycle', async () => {
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+    expect(commands()).not.toContain('write_note');
+
+    routeInvoke({ read_note: () => '# Idea\n\nfusionada', write_conflict_copy: () => COPY });
+    await emit('sync-finished', finished(['proj/Idea.md']));
+
+    expect(mockInvoke).toHaveBeenCalledWith('write_note', {
+      path: NOTE,
+      content: '# Idea\n\nlocal',
+      vaultPath: '/vault',
+    });
+    expect(useSyncStore.getState().conflicts).toEqual([COPY]);
+    expect(mockInvoke).toHaveBeenCalledWith('sync_trigger', { reason: 'changed' });
+  });
+
+  it('toasts when a deferred note could not keep the GitHub version', async () => {
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    const { showToast } = await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    routeInvoke({
+      read_note: () => '# Idea\n\nfusionada',
+      write_conflict_copy: () => {
+        throw 'io_error: disk full';
+      },
+    });
+    await emit('sync-finished', finished(['proj/Idea.md']));
+
+    expect(showToast).toHaveBeenCalledWith(
+      'No se pudo guardar la versión de GitHub; tu texto sigue en el editor',
+    );
+    expect(commands()).not.toContain('write_note');
+  });
+
+  it('flushes deferred notes on sync-hold-release, copying conservatively', async () => {
+    useEditorStore.setState({ diskContent: null });
+    routeInvoke({ sync_get_state: () => makeState(), read_note: () => '# Otra' });
+    await mount();
+    await emit('sync-will-start');
+    useEditorStore.getState().setContent('# Idea\n\nlocal');
+    await act(async () => {
+      await useEditorStore.getState().openNote('/vault/otra.md');
+    });
+
+    routeInvoke({ read_note: () => '# Idea', write_conflict_copy: () => COPY });
+    await emit('sync-hold-release');
+
+    const cmds = commands();
+    expect(cmds.indexOf('write_conflict_copy')).toBeLessThan(cmds.indexOf('write_note'));
+    expect(useSyncStore.getState().conflicts).toEqual([COPY]);
   });
 });
