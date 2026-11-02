@@ -29,8 +29,8 @@ export function VaultEmpty() {
         onClick={openVault}
         data-testid="open-vault-btn"
         style={{
-          background: 'var(--daun)',
-          color: 'var(--on-daun)',
+          background: 'var(--gold)',
+          color: 'var(--on-gold)',
           border: 'none',
           borderRadius: 'var(--radius-sm)',
           padding: 'var(--space-2) var(--space-4)',

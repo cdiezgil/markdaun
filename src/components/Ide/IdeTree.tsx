@@ -759,7 +759,7 @@ export function IdeTree() {
                   style={{
                     fontFamily: 'var(--font-sans)',
                     fontSize: 11,
-                    fontWeight: 600,
+                    fontWeight: 700,
                     letterSpacing: '0.05em',
                     textTransform: 'uppercase',
                     color: 'var(--ink-muted)',

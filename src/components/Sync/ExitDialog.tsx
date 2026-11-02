@@ -54,7 +54,7 @@ export function ExitDialog({
         role="dialog"
         aria-modal="true"
       >
-        <p style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>
+        <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>
           Cambios sin sincronizar
         </p>
         <p style={{ fontSize: 14, color: 'var(--ink-muted)', margin: 0 }}>
@@ -69,8 +69,8 @@ export function ExitDialog({
             onClick={onSyncAndQuit}
             disabled={isSyncing}
             style={{
-              background: 'var(--daun)',
-              color: 'var(--on-daun)',
+              background: 'var(--gold)',
+              color: 'var(--on-gold)',
               border: 'none',
               borderRadius: 'var(--radius-sm)',
               padding: 'var(--space-3) var(--space-4)',

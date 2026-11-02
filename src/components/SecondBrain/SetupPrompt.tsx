@@ -22,7 +22,7 @@ export function SetupPrompt(): JSX.Element {
       }}
     >
       <Sparkles size={20} strokeWidth={1.5} color="var(--daun)" />
-      <h2 style={{ fontSize: 20, fontWeight: 600, color: 'var(--ink)', margin: 0 }}>Conecta una IA</h2>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Conecta una IA</h2>
       <p style={{ fontSize: 14, color: 'var(--ink-muted)', margin: 0, maxWidth: 'var(--measure)' }}>
         Usa tu suscripción, una API key o el endpoint de tu empresa para conversar con tus notas.
       </p>
@@ -30,8 +30,8 @@ export function SetupPrompt(): JSX.Element {
         data-testid="setup-prompt-btn"
         onClick={() => openWizard()}
         style={{
-          background: 'var(--daun)',
-          color: 'var(--on-daun)',
+          background: 'var(--gold)',
+          color: 'var(--on-gold)',
           border: 'none',
           borderRadius: 'var(--radius-md)',
           padding: 'var(--space-2) var(--space-3)',

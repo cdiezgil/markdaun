@@ -78,7 +78,7 @@ export function VoiceSettings(): JSX.Element {
 
   return (
     <section data-testid="voice-section" style={{ marginBottom: 'var(--space-8)' }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 'var(--space-2)' }}>Notas de voz</h2>
+      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 'var(--space-2)' }}>Notas de voz</h2>
       <p style={{ ...SMALL, margin: '0 0 var(--space-3)' }}>
         La transcripción se hace en este equipo, sin enviar el audio a ningún servicio. El modelo se descarga la primera
         vez que lo usas.

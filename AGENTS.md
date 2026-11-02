@@ -145,11 +145,12 @@ markdaun/
 │   │   └── db/             ← SQLite, config, vectors
 │   └── Cargo.toml
 ├── design/                 ← Sistema de diseño (fuente de verdad visual)
-│   ├── README.md           ← Libro de marca
+│   ├── README.md           ← Índice del sistema de diseño
+│   ├── cdiezgil.md         ← Manual de marca (MarkDaun × cdiezgil)
 │   ├── tokens.json         ← Tokens canónicos
 │   ├── tokens.css          ← Variables CSS generadas
-│   ├── components/         ← Button, Editor, Wikilink (referencia)
-│   ├── icons/              ← Iconos de marca (no modificar)
+│   ├── components/         ← Button, Editor, Wikilink, Loader, Seal (referencia)
+│   ├── icons/              ← Símbolo, logotipos y sello de marca (no modificar)
 │   └── AGENTS.md           ← Instrucciones de diseño para agentes
 ├── e2e/                    ← Playwright E2E tests
 ├── public/
@@ -173,24 +174,27 @@ markdaun/
 
 ## 6. Sistema de diseño
 
-Todo el trabajo visual se rige por los ficheros de `design/`. **Son vinculantes**: ningún agente inventa colores, fuentes, radios ni espaciados propios.
+Todo el trabajo visual se rige por los ficheros de `design/`. **Son vinculantes**: ningún agente inventa colores, fuentes, radios ni espaciados propios. MarkDaun es un subproyecto de la marca personal **cdiezgil** (repositorio `cdiezgil/imagen-marca`) y hereda su identidad: Azul Marino, Oro, Gris Técnico, Geist, retícula de 8pt y texturas de la casa.
 
 ### 6.1 Fuente de verdad
 
 | Fichero | Contenido |
 |---|---|
-| `design/README.md` | Libro de marca: principios, icono, logotipo, color, tipografía, espacio, movimiento, voz. Leer completo antes de cualquier trabajo visual. |
-| `design/tokens.json` | Todos los tokens de diseño en JSON (fuente canónica). |
-| `design/tokens.css` | Variables CSS generadas desde `tokens.json`. Usar siempre `var(--token)`, nunca valores en crudo. |
-| `design/components/` | Muestras de referencia: Button, Editor, Wikilink. Pautas de cada componente en su `README.md`. |
+| `design/cdiezgil.md` | Manual de marca: arquitectura de marca, principios, color, tipografía, símbolo, logotipo, sello, texturas, forma, movimiento y voz. Leer completo antes de cualquier trabajo visual. |
+| `design/README.md` | Índice del sistema y cómo cambiar un token. |
+| `design/tokens.json` | Todos los tokens de diseño (fuente canónica). |
+| `design/tokens.css` | Variables CSS **generadas** con `npm run tokens`, que también copia el resultado a `public/tokens.css`. No se editan a mano. Usar siempre `var(--token)`, nunca valores en crudo. |
+| `design/components/` | Muestras de referencia: Button, Editor, Wikilink, Loader, Seal. Las pautas de cada uno están en su `README.md`. |
 | `design/AGENTS.md` | Instrucciones cortas para agentes. Leer en cada tarea visual. |
-| `design/icons/` | Iconos de marca (`app-icon.svg`, `mark.svg`, `app-icon-light.svg`). No modificar. |
+| `design/icons/` | Símbolo y logotipos de marca, solo en Navy `#0A1122` y Oro `#FFD700` (`app-icon.svg`, `app-icon-light.svg`, `mark.svg`, `tray.svg`, `logo.svg`, `seal.svg`). No modificar sin aprobación del humano. `src-tauri/icons/` se genera desde `app-icon.svg` con `npx tauri icon`. |
 
 ### 6.2 Temas
 
 Dos temas, activados por `data-theme="dark"` o `prefers-color-scheme`:
-- **Papel** (claro): fondo `#F7F5EF`, base cálida.
-- **Humus** (oscuro): fondo `#111816`, humus profundo.
+- **Técnico** (claro): fondo `#FFFFFF`, texto Azul Marino `#0A1122`.
+- **Marino** (oscuro): fondo `#0A1122`, superficies `#1A2235`.
+
+El usuario lo elige en Ajustes → Apariencia (Sistema / Claro / Oscuro): se guarda en `localStorage` (`markdaun:theme`, `src/lib/theme.ts`) y pone `data-theme` en `<html>`. Todo color sale de Navy, Navy claro, Oro, Gris Técnico, Blanco o mezclas de ellos. Las únicas excepciones, todas por contraste, son el Oro oscurecido `#7A5E00` para texto en claro, el coral oscurecido para errores y avisos, y el esmeralda oscurecido en claro (ver `design/cdiezgil.md` §3.3).
 
 ### 6.3 Tokens clave
 
@@ -199,40 +203,53 @@ Dos temas, activados por `data-theme="dark"` o `prefers-color-scheme`:
 | **Fondos** | `--bg` · `--surface` · `--surface-sunken` |
 | **Separadores** | `--line` · `--line-strong` |
 | **Texto** | `--ink` · `--ink-muted` |
-| **Marca** | `--daun` · `--daun-strong` · `--on-daun` |
-| **Acento** | `--sap` · `--on-sap` |
-| **Especiales** | `--mark` (resaltado) · `--selection` · `--amber` · `--danger` · `--focus` |
-| **Espaciado** | `--space-1` (4px) … `--space-16` (64px) — retícula de 4px |
-| **Radios** | `--radius-sm` (6) · `--radius-md` (10) · `--radius-lg` (16) · `--radius-pill` (999px) |
-| **Sombra** | `--shadow-pop` — única sombra del sistema, solo para elementos flotantes |
+| **Acento de texto** | `--daun` · `--daun-strong` · `--on-daun`: enlaces, activo, foco. Oro en Marino y Oro profundo `#7A5E00` en Técnico. |
+| **Acción principal** | `--gold` · `--gold-strong` · `--on-gold`: botón primario Oro `#FFD700` con texto Azul Marino. Uno por vista. Nunca `--gold` como color de texto. |
+| **Tinte de Oro** | `--sap` · `--on-sap` (chips de etiqueta) |
+| **Especiales** | `--mark` (resaltado) · `--selection` · `--amber` y `--danger` (coral) · `--success` (esmeralda) · `--focus` · `--navy` · `--logo` (hoja del símbolo: Navy en claro, Oro en oscuro) |
+| **Texturas** | `--texture-dots` (grafo, ajustes, vacíos) · `--texture-diagonal` (loaders) · `--texture-metal` (splash, Acerca de) |
+| **Espaciado** | `--space-1` (4px) … `--space-16` (64px). Retícula de 8pt; los medios pasos de 4px solo se usan dentro de controles. |
+| **Radios** | `--radius-sm` (4) · `--radius-md` (6) · `--radius-lg` (8) · `--radius-pill` (999px). Máximo 8px. |
+| **Sombra** | `--shadow-pop`: única sombra del sistema, solo para elementos flotantes. |
+| **Movimiento** | `--ease` · `--dur-panel` (160ms) · `--dur-palette` (240ms) |
 | **Layout** | `--measure` (88ch) · `--sidebar-width` (264px) · `--toolbar-height` (44px) |
+
+Los nombres `daun` y `sap` vienen de la identidad anterior y se mantienen como nombres de rol.
 
 ### 6.4 Tipografía
 
-| Rol | Familia | Uso |
-|---|---|---|
-| `display` | Instrument Serif | Títulos grandes, H1 renderizado, logotipo. Nunca < 24px. |
-| `sans` | Geist | Toda la interfaz: menús, paneles, botones, cuerpo de lectura. |
-| `mono` | Geist Mono | El editor WYSIWYG. Toda la escritura y el código. |
+**Geist** (pesos 300, 400, 500 y 700; nada de 600) y **Geist Mono** para el editor y el código. **Excepción aprobada:** `--font-display` = Instrument Serif 400, solo para títulos de nota (H1 del editor y tarjeta del grafo). El logotipo y las cabeceras de vista van en Geist Bold.
 
-Pesos permitidos: 400, 500 y 600. Carga de fuentes:
+| Peso | Uso |
+|---|---|
+| Light 300 | Cuerpo de lectura, cifras y tablas (números tabulares) |
+| Regular 400 | Interfaz, editor |
+| Medium 500 | Etiquetas de controles y pestañas |
+| Bold 700 | Títulos, botón primario, logotipo |
+
 ```html
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;700&family=Geist+Mono:wght@400;500&family=Instrument+Serif&display=swap">
 ```
 
 ### 6.5 Componentes de referencia
 
-- **Button** — 4 variantes: primario (`daun`/`on-daun`), secundario, fantasma, destructivo. Solo un primario por vista.
-- **Editor** — fondo `bg`, sintaxis en `ink-muted`, contenido en `ink`, enlaces en `daun`, selección `selection`, cursor `daun` 2px, máx. `--measure`.
-- **Wikilink** — `[[enlace]]` existente en `daun` + subrayado; enlace roto en `amber` + subrayado discontinuo; `#etiqueta` como chip `sap`/`on-sap`; `==resaltado==` con fondo `mark`.
+- **Button**: cuatro variantes (primario `gold`/`on-gold` en Bold, secundario *ghost* con contorno, fantasma y destructivo). Solo un primario por vista; sin sombra.
+- **Editor**: fondo `bg`, sintaxis en `ink-muted`, contenido en `ink`, enlaces en `daun`, selección `selection`, cursor `daun` de 2px y ancho máximo `--measure`.
+- **Wikilink**:
+  - `[[enlace]]` existente en `daun` y subrayado;
+  - enlace roto en `amber` y subrayado discontinuo;
+  - `#etiqueta` como chip `sap`/`on-sap`;
+  - `==resaltado==` con fondo `mark`.
+- **Loader**: barra con la textura de líneas diagonales (`.md-loader`).
+- **Seal**: `by { cdiezgil }` en la barra de estado (`src/components/Brand/Seal.tsx`). Nunca en la cabecera.
 
 ### 6.6 Iconografía de interfaz
 
-Iconos **Lucide**, `stroke-width: 1.5`, cuadrícula 20px, terminaciones redondeadas. Color `ink-muted` en reposo, `daun` cuando activos.
+Iconos **Lucide** lineales, `stroke-width: 1.5`, cuadrícula de 20px. Color `ink-muted` en reposo y `daun` cuando están activos. Nunca iconos rellenos.
 
 ### 6.7 Movimiento
 
-160ms `cubic-bezier(.2,.7,.2,1)` para paneles. 240ms para paleta de comandos. Sin rebotes.
+160ms con `cubic-bezier(.2,.7,.2,1)` para paneles y 240ms para la paleta de comandos. Sin rebotes.
 
 ---
 

@@ -1,67 +1,91 @@
-/* MarkDaun — generado desde tokens.json */
+/* MarkDaun — generado desde tokens.json (npm run tokens). No editar a mano. */
 :root, [data-theme="light"] {
-  --bg: #F7F5EF;
-  --surface: #FDFCF8;
-  --surface-sunken: #EFECE3;
-  --line: #E2DED2;
-  --line-strong: #8E978F;
-  --ink: #1A2420;
-  --ink-muted: #5A645D;
-  --daun: #2E6A4F;
-  --daun-strong: #22513C;
+  --bg: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-sunken: #F5F5F5;
+  --line: #E5E5E5;
+  --line-strong: #91949C;
+  --ink: #0A1122;
+  --ink-muted: #4F5460;
+  --daun: #7A5E00;
+  --daun-strong: #5E4800;
   --on-daun: #FFFFFF;
-  --sap: #D9EF9A;
-  --on-sap: #1A2420;
-  --mark: #E7F3C2;
-  --selection: #DCEBB0;
-  --amber: #9A5B0E;
-  --danger: #B03A2E;
+  --gold: #FFD700;
+  --gold-strong: #E6C200;
+  --on-gold: #0A1122;
+  --sap: #FFF5BF;
+  --on-sap: #0A1122;
+  --mark: #FFED8C;
+  --selection: #E2E2E4;
+  --amber: #C83B3E;
+  --danger: #C83B3E;
+  --success: #0E7E60;
   --focus: var(--daun);
-  --humus: #14201B;
-  --shadow-pop: 0 1px 2px rgba(20,32,27,0.06), 0 12px 32px rgba(20,32,27,0.12);
+  --logo: #0A1122;
+  --navy: #0A1122;
+  --texture-dots: radial-gradient(#CCCCCC 1px, transparent 1px);
+  --texture-diagonal: repeating-linear-gradient(45deg, #E5E5E5 0 2px, transparent 2px 8px);
+  --texture-metal: linear-gradient(135deg, #E5E5E5 0%, #CCCCCC 100%);
+  --shadow-pop: 0 1px 2px rgba(10,17,34,0.06), 0 8px 24px rgba(10,17,34,0.10);
 }
 [data-theme="dark"] {
-  --bg: #111816;
-  --surface: #18211E;
-  --surface-sunken: #0C1210;
-  --line: #26312C;
-  --line-strong: #5E6B63;
-  --ink: #E9EDE6;
-  --ink-muted: #98A39B;
-  --daun: #7CC79A;
-  --daun-strong: #9BD8B2;
-  --on-daun: #0C1210;
-  --sap: #C6E86B;
-  --on-sap: #14201B;
-  --mark: #2A3A1C;
-  --selection: #2F4423;
-  --amber: #E8A33D;
-  --danger: #EC7A6F;
+  --bg: #0A1122;
+  --surface: #1A2235;
+  --surface-sunken: #121A2C;
+  --line: #232938;
+  --line-strong: #676B76;
+  --ink: #FFFFFF;
+  --ink-muted: #B6B8BD;
+  --daun: #FFD700;
+  --daun-strong: #E6C200;
+  --on-daun: #0A1122;
+  --gold: #FFD700;
+  --gold-strong: #E6C200;
+  --on-gold: #0A1122;
+  --sap: #36351C;
+  --on-sap: #FFD700;
+  --mark: #544C18;
+  --selection: #363C4A;
+  --amber: #F05555;
+  --danger: #F05555;
+  --success: #10B981;
   --focus: var(--daun);
-  --humus: #14201B;
-  --shadow-pop: 0 1px 2px rgba(0,0,0,0.4), 0 12px 32px rgba(0,0,0,0.5);
+  --logo: #FFD700;
+  --navy: #0A1122;
+  --texture-dots: radial-gradient(#1A2235 1px, transparent 1px);
+  --texture-diagonal: repeating-linear-gradient(45deg, #1A2235 0 2px, transparent 2px 8px);
+  --texture-metal: linear-gradient(135deg, #1A2235 0%, #0A1122 100%);
+  --shadow-pop: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.45);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #111816;
-    --surface: #18211E;
-    --surface-sunken: #0C1210;
-    --line: #26312C;
-    --line-strong: #5E6B63;
-    --ink: #E9EDE6;
-    --ink-muted: #98A39B;
-    --daun: #7CC79A;
-    --daun-strong: #9BD8B2;
-    --on-daun: #0C1210;
-    --sap: #C6E86B;
-    --on-sap: #14201B;
-    --mark: #2A3A1C;
-    --selection: #2F4423;
-    --amber: #E8A33D;
-    --danger: #EC7A6F;
+    --bg: #0A1122;
+    --surface: #1A2235;
+    --surface-sunken: #121A2C;
+    --line: #232938;
+    --line-strong: #676B76;
+    --ink: #FFFFFF;
+    --ink-muted: #B6B8BD;
+    --daun: #FFD700;
+    --daun-strong: #E6C200;
+    --on-daun: #0A1122;
+    --gold: #FFD700;
+    --gold-strong: #E6C200;
+    --on-gold: #0A1122;
+    --sap: #36351C;
+    --on-sap: #FFD700;
+    --mark: #544C18;
+    --selection: #363C4A;
+    --amber: #F05555;
+    --danger: #F05555;
+    --success: #10B981;
     --focus: var(--daun);
-    --humus: #14201B;
-    --shadow-pop: 0 1px 2px rgba(0,0,0,0.4), 0 12px 32px rgba(0,0,0,0.5);
+    --logo: #FFD700;
+    --navy: #0A1122;
+    --texture-dots: radial-gradient(#1A2235 1px, transparent 1px);
+    --texture-diagonal: repeating-linear-gradient(45deg, #1A2235 0 2px, transparent 2px 8px);
+    --texture-metal: linear-gradient(135deg, #1A2235 0%, #0A1122 100%);
+    --shadow-pop: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.45);
   }
 }
 :root {
@@ -73,11 +97,14 @@
   --space-8: 32px;
   --space-12: 48px;
   --space-16: 64px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
   --radius-pill: 999px;
   --radius-icon: 22.5%;
+  --ease: cubic-bezier(.2,.7,.2,1);
+  --dur-panel: 160ms;
+  --dur-palette: 240ms;
   --measure: 88ch;
   --sidebar-width: 264px;
   --toolbar-height: 44px;
@@ -85,15 +112,19 @@
   --font-sans: Geist, "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 }
-.display-xl { font-family: var(--font-display); font-size: 64px; line-height: 64px; font-weight: 400; letter-spacing: -0.01em; }
-.display-l { font-family: var(--font-display); font-size: 40px; line-height: 44px; font-weight: 400; }
-.display-italic { font-family: var(--font-display); font-size: 28px; line-height: 34px; font-weight: 400; font-style: italic; }
-.title { font-family: var(--font-sans); font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; }
-.heading { font-family: var(--font-sans); font-size: 15px; line-height: 22px; font-weight: 600; }
+.display-xl { font-family: var(--font-sans); font-size: 56px; line-height: 64px; font-weight: 700; letter-spacing: -0.02em; }
+.display-l { font-family: var(--font-sans); font-size: 40px; line-height: 48px; font-weight: 700; letter-spacing: -0.02em; }
+.display-m { font-family: var(--font-sans); font-size: 28px; line-height: 32px; font-weight: 700; letter-spacing: -0.01em; }
+.title { font-family: var(--font-sans); font-size: 20px; line-height: 28px; font-weight: 700; letter-spacing: -0.01em; }
+.heading { font-family: var(--font-sans); font-size: 15px; line-height: 24px; font-weight: 700; }
 .body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 400; }
-.label { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 500; }
+.label { font-family: var(--font-sans); font-size: 13px; line-height: 16px; font-weight: 500; }
 .caption { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 400; letter-spacing: 0.01em; }
-.reading { font-family: var(--font-sans); font-size: 17px; line-height: 28px; font-weight: 400; }
-.reading-h1 { font-family: var(--font-display); font-size: 36px; line-height: 42px; font-weight: 400; }
+.data { font-family: var(--font-sans); font-size: 13px; line-height: 16px; font-weight: 300; font-variant-numeric: tabular-nums; }
+.reading { font-family: var(--font-sans); font-size: 17px; line-height: 28px; font-weight: 300; }
+.reading-h1 { font-family: var(--font-display); font-size: 40px; line-height: 46px; font-weight: 400; letter-spacing: -0.01em; }
 .editor { font-family: var(--font-mono); font-size: 15px; line-height: 26px; font-weight: 400; }
 .code { font-family: var(--font-mono); font-size: 13px; line-height: 20px; font-weight: 400; }
+.bg-dots { background-image: var(--texture-dots); background-size: 16px 16px; }
+.bg-diagonal { background-image: var(--texture-diagonal); background-size: 11px 11px; }
+.bg-metal { background-image: var(--texture-metal); }

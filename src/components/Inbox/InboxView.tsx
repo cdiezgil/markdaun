@@ -140,7 +140,7 @@ export function InboxView(): JSX.Element {
       style={{ maxWidth: 720, margin: '0 auto', padding: 'var(--space-8)', fontFamily: 'var(--font-sans)', color: 'var(--ink)' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
-        <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400 }}>Entrada</h1>
+        <h1 style={{ margin: 0, fontFamily: 'var(--font-sans)', fontSize: 28, fontWeight: 700, letterSpacing: '-0.01em' }}>Entrada</h1>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
           <button
             data-testid="add-files"
@@ -160,8 +160,8 @@ export function InboxView(): JSX.Element {
               style={{
                 ...BUTTON,
                 border: 'none',
-                background: 'var(--daun)',
-                color: 'var(--on-daun)',
+                background: 'var(--gold)',
+                color: 'var(--on-gold)',
                 opacity: noConnection ? 0.5 : 1,
               }}
             >
@@ -206,8 +206,8 @@ export function InboxView(): JSX.Element {
             style={{
               ...BUTTON,
               border: 'none',
-              background: 'var(--daun)',
-              color: 'var(--on-daun)',
+              background: 'var(--gold)',
+              color: 'var(--on-gold)',
               opacity: clipping || url.trim() === '' ? 0.5 : 1,
             }}
           >

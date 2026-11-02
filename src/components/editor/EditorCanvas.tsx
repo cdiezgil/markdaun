@@ -49,7 +49,7 @@ export function noteCaption(notePath: string, vaultPath: string | null, savedAt:
 const plainTextareaStyle: React.CSSProperties = {
   flex: 1,
   width: '100%',
-  maxWidth: 'min(var(--measure), calc(100% - 2 * var(--space-8)))',
+  maxWidth: 'calc(100% - 2 * var(--space-8))',
   margin: '0 auto',
   padding: 'var(--space-12) var(--space-8) var(--space-16)',
   boxSizing: 'border-box',
@@ -223,7 +223,7 @@ export default function EditorCanvas({ onEditorReady, plainMdMode = false }: Edi
         style={{
           display: plainMdMode ? 'none' : undefined,
           width: '100%',
-          maxWidth: 'min(var(--measure), calc(100% - 2 * var(--space-8)))',
+          maxWidth: 'calc(100% - 2 * var(--space-8))',
           margin: '0 auto',
           padding: 'var(--space-12) var(--space-8) var(--space-16)',
           boxSizing: 'content-box',

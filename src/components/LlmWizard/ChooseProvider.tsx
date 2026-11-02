@@ -26,7 +26,7 @@ export function ChooseProvider({ route, onSelect, onBack }: Props): JSX.Element 
           return (
             <button key={p.id} data-testid={`preset-${p.id}`} style={card} onClick={() => onSelect(p)}>
               <Icon size={20} strokeWidth={1.5} color="var(--daun)" />
-              <span style={{ fontSize: 15, fontWeight: 600 }}>{p.name}</span>
+              <span style={{ fontSize: 15, fontWeight: 700 }}>{p.name}</span>
               <span style={muted}>{p.help}</span>
             </button>
           );

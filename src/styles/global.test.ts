@@ -14,8 +14,9 @@ describe('global styles', () => {
 
   it('loads tokens.css once and the Google Fonts link', () => {
     expect(html.match(/tokens\.css/g)).toHaveLength(1);
-    expect(html).toContain('family=Geist:wght@400;500;600');
-    expect(html).toContain('family=Instrument+Serif');
+    expect(html).toContain('family=Geist:wght@300;400;500;700');
+    expect(html).toContain('family=Geist+Mono');
+    expect(html).toContain('family=Instrument+Serif&');
   });
 
   it('sets body typography and colours from tokens', () => {

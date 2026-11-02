@@ -527,16 +527,14 @@ fn two_h1_docx() -> Vec<u8> {
     let styles = format!(
         r#"<?xml version="1.0"?><w:styles {ns}><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/></w:style></w:styles>"#
     );
-    let body = format!(
+    let body =
         r#"<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Introducción</w:t></w:r></w:p>
 <w:p><w:r><w:t>Texto de introducción.</w:t></w:r></w:p>
 <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Conclusión</w:t></w:r></w:p>
-<w:p><w:r><w:t>Texto final.</w:t></w:r></w:p>"#
-    );
+<w:p><w:r><w:t>Texto final.</w:t></w:r></w:p>"#.to_string();
     let doc = format!(r#"<?xml version="1.0"?><w:document {ns}><w:body>{body}</w:body></w:document>"#);
-    let rels = format!(
-        r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>"#
-    );
+    let rels =
+        r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>"#.to_string();
     zip_of(&[
         ("word/document.xml", doc.as_bytes()),
         ("word/_rels/document.xml.rels", rels.as_bytes()),

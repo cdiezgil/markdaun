@@ -2,9 +2,12 @@
 *.bak
 .pool/
 graphify-out/
+node_modules
 node_modules/
 dist/
 coverage/
 src-tauri/target/
 src-tauri/.ort/
 *.db
+.worktrees
+.worktrees/

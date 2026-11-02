@@ -62,59 +62,105 @@ let relocating = false;
 // ── Image path helpers ────────────────────────────────────────────────────────
 
 const IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+const REMOTE_OR_ASSET_URL = /^(https?|tauri|asset):\/\//i;
+const DATA_URL = /^data:/i;
 
-/**
- * Matches any src that is already an absolute served URL:
- * https://, http://, tauri:// (Tauri v1) or asset:// (Tauri v2 macOS/Linux).
- * These must NOT be re-resolved against the note directory on LOAD.
- */
-const SERVED_URL_RE = /^(https?|tauri|asset):\/\//i;
-
-/**
- * Matches only the LOCAL asset URLs produced by convertAssetSrc.
- * On SAVE these are converted back to relative paths in the Markdown source.
- * Remote https:// images stay as-is in the saved Markdown.
- */
-const LOCAL_ASSET_RE = /^(tauri|asset):\/\//i;
+export function normalizePosixPath(path: string): string {
+  const isAbs = path.startsWith('/');
+  const segments = path.split('/');
+  const resolved: string[] = [];
+  for (const seg of segments) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (resolved.length > 0 && resolved[resolved.length - 1] !== '..') {
+        resolved.pop();
+      } else if (!isAbs) {
+        resolved.push('..');
+      }
+    } else {
+      resolved.push(seg);
+    }
+  }
+  return (isAbs ? '/' : '') + resolved.join('/');
+}
 
 /** The `src` the editor shows for an image path typed/written in a note (remote URLs unchanged). */
 export function resolveImageSrc(src: string, noteDir: string): string {
-  if (SERVED_URL_RE.test(src)) return src;
-  try {
-    const absPath = new URL(src, 'file://' + noteDir + '/').pathname;
-    return convertAssetSrc(absPath);
-  } catch {
-    return src;
+  const trimmed = src.trim();
+  if (DATA_URL.test(trimmed) || REMOTE_OR_ASSET_URL.test(trimmed)) {
+    return trimmed;
   }
+
+  let normalized = trimmed.replace(/^\/\/+/, '/');
+  try {
+    normalized = decodeURI(normalized);
+  } catch {
+    // Keep as is if decodeURI fails
+  }
+
+  const isWinAbs = /^[a-zA-Z]:[/\\]/.test(normalized);
+  const isAbs = normalized.startsWith('/') || isWinAbs;
+
+  const unified = isAbs
+    ? normalized.replace(/\\/g, '/')
+    : noteDir.replace(/\\/g, '/') + '/' + normalized.replace(/\\/g, '/');
+
+  const absPath = normalizePosixPath(unified);
+  return convertAssetSrc(absPath);
 }
 
-function processImagesOnLoad(markdown: string, noteDir: string): string {
-  return markdown.replace(IMAGE_RE, (match, alt: string, src: string) => {
-    if (SERVED_URL_RE.test(src)) return match;
-    try {
-      const absPath = new URL(src, 'file://' + noteDir + '/').pathname;
-      return `![${alt}](${convertAssetSrc(absPath)})`;
-    } catch {
-      return match;
-    }
+export function processImagesOnLoad(markdown: string, noteDir: string): string {
+  return markdown.replace(IMAGE_RE, (_match, alt: string, src: string) => {
+    return `![${alt}](${resolveImageSrc(src, noteDir)})`;
   });
+}
+
+export function computeRelativePosixPath(fromDir: string, toPath: string): string {
+  const normFrom = fromDir.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normTo = toPath.replace(/\\/g, '/');
+
+  const fromParts = normFrom.split('/').filter(Boolean);
+  const toParts = normTo.split('/').filter(Boolean);
+
+  let common = 0;
+  while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
+    common++;
+  }
+
+  if (common === 0) {
+    return toPath;
+  }
+
+  const upCount = fromParts.length - common;
+  const upSegments = Array(upCount).fill('..');
+  const remainingTo = toParts.slice(common);
+
+  const rel = [...upSegments, ...remainingTo].join('/');
+  return rel || '.';
 }
 
 export function processImagesOnSave(markdown: string, noteDir: string): string {
   return markdown.replace(IMAGE_RE, (match, alt: string, src: string) => {
-    if (!LOCAL_ASSET_RE.test(src)) return match;
-    try {
-      // Both tauri:// (production) and asset:// (test mock) paths
-      const absPath = decodeURIComponent(new URL(src).pathname);
-      // Compute relative path from noteDir
-      const notePrefix = noteDir.endsWith('/') ? noteDir : noteDir + '/';
-      const rel = absPath.startsWith(notePrefix)
-        ? absPath.slice(notePrefix.length)
-        : absPath;
-      return `![${alt}](${rel})`;
-    } catch {
+    const trimmed = src.trim();
+    if (/^https?:\/\/(?!asset\.localhost)/i.test(trimmed) || /^data:/i.test(trimmed)) {
       return match;
     }
+
+    let absPath: string | null = null;
+    if (trimmed.startsWith('tauri://') || trimmed.startsWith('asset://') || trimmed.startsWith('http://asset.localhost')) {
+      try {
+        absPath = decodeURIComponent(new URL(trimmed).pathname);
+      } catch {
+        absPath = null;
+      }
+    } else if (trimmed.startsWith('//') || trimmed.startsWith('/')) {
+      absPath = trimmed.replace(/^\/\/+/, '/');
+    }
+
+    if (!absPath) return match;
+
+    const rel = computeRelativePosixPath(noteDir, absPath);
+    return `![${alt}](${rel})`;
   });
 }
 

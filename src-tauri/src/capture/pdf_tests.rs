@@ -14,12 +14,11 @@ fn text_pdf(text: &str) -> Vec<u8> {
     let stream_content = format!("BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET");
     let stream_len = stream_content.len();
 
-    let obj1 = format!("1 0 obj\n<</Type /Catalog /Pages 2 0 R>>\nendobj\n");
-    let obj2 = format!("2 0 obj\n<</Type /Pages /Kids [3 0 R] /Count 1>>\nendobj\n");
-    let obj3 = format!(
-        "3 0 obj\n<</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+    let obj1 = "1 0 obj\n<</Type /Catalog /Pages 2 0 R>>\nendobj\n".to_string();
+    let obj2 = "2 0 obj\n<</Type /Pages /Kids [3 0 R] /Count 1>>\nendobj\n".to_string();
+    let obj3 = "3 0 obj\n<</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
          /Contents 4 0 R /Resources <</Font <</F1 5 0 R>>>>>>\nendobj\n"
-    );
+        .to_string();
     let obj4 = format!(
         "4 0 obj\n<</Length {stream_len}>>\nstream\n{stream_content}\nendstream\nendobj\n"
     );

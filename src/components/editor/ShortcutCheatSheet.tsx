@@ -29,7 +29,7 @@ const KEY_STYLE: React.CSSProperties = {
 
 const HEADING_STYLE: React.CSSProperties = {
   fontSize: 12,
-  fontWeight: 600,
+  fontWeight: 700,
   color: 'var(--ink-muted)',
   margin: '0 0 var(--space-2)',
 };
@@ -115,7 +115,7 @@ export function ShortcutCheatSheet({ open, onClose, mac = isMac() }: ShortcutChe
           fontFamily: 'var(--font-sans)',
         }}
       >
-        <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 var(--space-4)' }}>
+        <h2 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 var(--space-4)' }}>
           Atajos de teclado
         </h2>
         <div

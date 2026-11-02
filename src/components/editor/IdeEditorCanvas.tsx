@@ -76,7 +76,7 @@ export default function IdeEditorCanvas({ onEditorReady }: IdeEditorCanvasProps)
         data-testid="ide-editor-column"
         style={{
           width: '100%',
-          maxWidth: 'min(var(--measure), calc(100% - 2 * var(--space-8)))',
+          maxWidth: 'calc(100% - 2 * var(--space-8))',
           margin: '0 auto',
           padding: 'var(--space-12) var(--space-8) var(--space-16)',
           boxSizing: 'content-box',

@@ -36,7 +36,7 @@ export function ChooseRoute({ onSelect }: Props): JSX.Element {
         {ROUTES.map(({ id, title: t, text, Icon }) => (
           <button key={id} data-testid={`route-${id}`} style={card} onClick={() => onSelect(id)}>
             <Icon size={20} strokeWidth={1.5} color="var(--daun)" />
-            <span style={{ fontSize: 15, fontWeight: 600 }}>{t}</span>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>{t}</span>
             <span style={muted}>{text}</span>
           </button>
         ))}

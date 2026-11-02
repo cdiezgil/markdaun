@@ -27,7 +27,7 @@ const actionButton: React.CSSProperties = {
   border: '1px solid var(--line)',
   borderRadius: 'var(--radius-sm)',
   color: 'var(--ink)',
-  fontFamily: 'var(--sans)',
+  fontFamily: 'var(--font-sans)',
   fontSize: '0.875rem',
   cursor: 'pointer',
 };

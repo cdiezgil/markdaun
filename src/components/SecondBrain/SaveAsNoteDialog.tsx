@@ -139,7 +139,7 @@ export function SaveAsNoteDialog({
           color: 'var(--ink)',
         }}
       >
-        <p id="save-note-title" style={{ fontSize: 15, fontWeight: 600, marginBottom: 'var(--space-3)' }}>
+        <p id="save-note-title" style={{ fontSize: 15, fontWeight: 700, marginBottom: 'var(--space-3)' }}>
           Guardar como nota
         </p>
         <label style={{ fontSize: 13, color: 'var(--ink-muted)' }}>
@@ -208,7 +208,7 @@ export function SaveAsNoteDialog({
             type="submit"
             data-testid="save-note-submit"
             disabled={busy}
-            style={{ background: 'var(--daun)', color: 'var(--on-daun)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: 'var(--space-2) var(--space-4)', fontSize: 14, fontWeight: 500 }}
+            style={{ background: 'var(--gold)', color: 'var(--on-gold)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', padding: 'var(--space-2) var(--space-4)', fontSize: 14, fontWeight: 500 }}
           >
             Guardar
           </button>

@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { AppStatus } from './AppStatus';
 import { NoteStats } from './NoteStats';
 import { ModelSwitcher } from '../ModelSwitcher/ModelSwitcher';
+import { Seal } from '../Brand/Seal';
 import { useGraphStore } from '../../store/graphStore';
 import { graphStats, formatGraphStats } from '../../lib/graphStats';
 import { viewForPath } from '../../lib/shell';
@@ -48,6 +49,7 @@ export function StatusBar(): JSX.Element {
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', minWidth: 0 }}>
         {view === 'notes' && <NoteStats />}
         <ModelSwitcher />
+        <Seal />
       </div>
     </footer>
   );

@@ -55,7 +55,7 @@ export function AttachmentPicker({ onPick, onClose }: Props): JSX.Element {
       }}
     >
       {files.length === 0 ? (
-        <p style={{ margin: 'var(--space-3)', color: 'var(--ink-muted)', fontFamily: 'var(--sans)', fontSize: '0.875rem' }}>
+        <p style={{ margin: 'var(--space-3)', color: 'var(--ink-muted)', fontFamily: 'var(--font-sans)', fontSize: '0.875rem' }}>
           No hay imágenes ni PDFs en la bóveda.
         </p>
       ) : (
@@ -77,7 +77,7 @@ export function AttachmentPicker({ onPick, onClose }: Props): JSX.Element {
               padding: 'var(--space-2) var(--space-3)',
               borderRadius: 'var(--radius-sm)',
               cursor: 'pointer',
-              fontFamily: 'var(--sans)',
+              fontFamily: 'var(--font-sans)',
               fontSize: '0.875rem',
               color: 'var(--ink)',
               overflow: 'hidden',

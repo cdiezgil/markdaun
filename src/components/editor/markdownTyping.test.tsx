@@ -116,6 +116,20 @@ describe('markdown typing: inline rules', () => {
     type(ed, '![x](https://example.com/a.png)');
     expect(html(ed)).toContain('src="https://example.com/a.png"');
   });
+
+  it('![alt](path with spaces.gif) becomes an image node with a resolved src', () => {
+    const ed = make();
+    type(ed, '![tarta](media/recetas/tarta de queso.gif)');
+    expect(html(ed)).toContain('src="asset://resolved/media/recetas/tarta de queso.gif"');
+    expect(html(ed)).toContain('alt="tarta"');
+  });
+
+  it('![alt](//Users/...) resolves via resolveImageSrc', () => {
+    const ed = make();
+    type(ed, '![foto](//Users/test/media/0001.jpg)');
+    expect(html(ed)).toContain('src="asset://resolved///Users/test/media/0001.jpg"');
+    expect(html(ed)).toContain('alt="foto"');
+  });
 });
 
 describe('markdown typing: nothing fires inside code', () => {

@@ -6,6 +6,7 @@ import { AiConnections } from '../components/Settings/AiConnections';
 import { Trash } from '../components/Settings/Trash';
 import { QuickCaptureSettings } from '../components/Settings/QuickCaptureSettings';
 import { VoiceSettings } from '../components/Settings/VoiceSettings';
+import { AppearanceSettings } from '../components/Settings/AppearanceSettings';
 
 export function SettingsView(): JSX.Element {
   const config = useSyncStore((s) => s.config);
@@ -42,26 +43,28 @@ export function SettingsView(): JSX.Element {
         maxWidth: 'var(--measure)',
         margin: '0 auto',
         padding: 'var(--space-8)',
-        fontFamily: 'var(--sans)',
+        fontFamily: 'var(--font-sans)',
         color: 'var(--ink)',
       }}
     >
       <h1
         style={{
           fontSize: 20,
-          fontWeight: 600,
+          fontWeight: 700,
           marginBottom: 'var(--space-6)',
         }}
       >
         Ajustes
       </h1>
 
+      <AppearanceSettings />
+
       {/* GitHub Sync section */}
       <section style={{ marginBottom: 'var(--space-8)' }}>
         <h2
           style={{
             fontSize: 15,
-            fontWeight: 600,
+            fontWeight: 700,
             marginBottom: 'var(--space-4)',
           }}
         >
@@ -134,8 +137,8 @@ export function SettingsView(): JSX.Element {
               onClick={handleConnect}
               disabled={isLoading || !repoUrl || !pat}
               style={{
-                background: 'var(--daun)',
-                color: 'var(--on-daun)',
+                background: 'var(--gold)',
+                color: 'var(--on-gold)',
                 border: 'none',
                 borderRadius: 'var(--radius-sm)',
                 padding: 'var(--space-2) var(--space-4)',

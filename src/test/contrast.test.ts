@@ -47,12 +47,19 @@ const TEXT_PAIRS: Array<[string, string]> = [
   ['amber', 'bg'],
   ['amber', 'surface-sunken'],
   ['danger', 'bg'],
+  ['danger', 'surface-sunken'],
+  ['success', 'bg'],
+  ['success', 'surface-sunken'],
+  ['on-gold', 'gold'],
+  ['danger', 'surface'],
+  ['amber', 'surface'],
+  ['success', 'surface'],
 ];
 
 describe('design token contrast', () => {
   it('parses both themes', () => {
-    expect(THEMES.light.bg).toBe('#F7F5EF');
-    expect(THEMES.dark.bg).toBe('#111816');
+    expect(THEMES.light.bg).toBe('#FFFFFF');
+    expect(THEMES.dark.bg).toBe('#0A1122');
   });
 
   for (const [theme, tokens] of Object.entries(THEMES)) {
