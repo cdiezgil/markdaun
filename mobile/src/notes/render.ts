@@ -10,7 +10,7 @@ type Env = { ctx: RenderContext; images: Set<string>; mermaid: boolean };
 
 const FRONT_MATTER = /^﻿?---[ \t]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/;
 
-const md = new MarkdownIt({ html: false, linkify: false, breaks: false });
+const md = new MarkdownIt({ html: true, linkify: false, breaks: false });
 
 const esc = (s: string) => md.utils.escapeHtml(s);
 
@@ -139,12 +139,42 @@ md.renderer.rules.link_open = (tokens, idx, _o, env: Env) => {
   return target ? `<a data-note="${esc(target)}">` : '<a class="broken">';
 };
 
+// The sanitizer hook needs the per-render env; renderNote is synchronous so a module slot is safe.
+let activeEnv: Env | null = null;
+
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  const env = activeEnv;
+  if (!env || node.nodeName !== 'IMG') return;
+  const src = node.getAttribute('src');
+  if (src === null) return; // already a data-src image from our own renderer (or empty)
+  const resolved = resolveImagePath(src, env.ctx.path, env.ctx.allPaths);
+  if (!resolved) {
+    const span = node.ownerDocument.createElement('span');
+    span.className = 'broken';
+    span.textContent = node.getAttribute('alt') || src;
+    node.replaceWith(span);
+    return;
+  }
+  if (/^https?:/i.test(resolved)) return;
+  env.images.add(resolved);
+  node.removeAttribute('src');
+  node.removeAttribute('srcset');
+  node.setAttribute('data-src', resolved);
+});
+
 export function renderNote(source: string, ctx: RenderContext): Rendered {
   const env: Env = { ctx, images: new Set(), mermaid: false };
   const html = md.render(source.replace(FRONT_MATTER, ''), env);
-  const clean = DOMPurify.sanitize(html, {
-    ADD_ATTR: ['data-note', 'data-src', 'target'],
-    ALLOW_DATA_ATTR: false,
-  });
-  return { html: clean, images: [...env.images], hasMermaid: env.mermaid };
+  activeEnv = env;
+  try {
+    const clean = DOMPurify.sanitize(html, {
+      ADD_ATTR: ['data-note', 'data-src', 'target'],
+      FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select'],
+      FORBID_ATTR: ['srcset'],
+      ALLOW_DATA_ATTR: false,
+    });
+    return { html: clean, images: [...env.images], hasMermaid: env.mermaid };
+  } finally {
+    activeEnv = null;
+  }
 }

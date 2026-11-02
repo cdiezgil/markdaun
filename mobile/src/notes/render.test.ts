@@ -29,11 +29,42 @@ describe('renderNote', () => {
     expect(res.html).not.toContain('data-src="https');
     expect([...res.images].sort()).toEqual(['Cocina/pic.png', 'media/a b.jpg']);
   });
-  it('sanitizes', () => {
-    const h = r('<script>alert(1)</script>\n\n<img src=x onerror="alert(1)">\n\n[a](javascript:alert(1))').html;
+  it('sanitizes hostile raw HTML but keeps benign tags', () => {
+    const h = r(
+      [
+        '<script>alert(1)</script>',
+        '',
+        '<img src=x onerror=alert(1)>',
+        '',
+        '<a href="javascript:alert(1)">x</a>',
+        '',
+        '<iframe src="https://evil.example"></iframe>',
+        '',
+        '<form action="/x"><input name="a"></form>',
+        '',
+        'a<br>b <kbd>Ctrl</kbd>',
+        '',
+        '<details><summary>más</summary>oculto</details>',
+      ].join('\n'),
+    ).html;
     expect(h).not.toContain('<script');
-    expect(h).not.toContain('<img');
-    expect(h).not.toContain('href="javascript');
+    expect(h).not.toContain('onerror');
+    expect(h).not.toContain('javascript:');
+    expect(h).not.toContain('<iframe');
+    expect(h).not.toContain('<form');
+    expect(h).not.toContain('<input');
+    expect(h).toContain('<br>');
+    expect(h).toContain('<kbd>Ctrl</kbd>');
+    expect(h).toContain('<details><summary>más</summary>oculto</details>');
+  });
+  it('raw HTML images resolve like Markdown images', () => {
+    const res = r('<img src="../media/a%20b.jpg" alt="p"> <img src="https://e.com/z.png"> <img src="gone.png" alt="g"> <img src="data:image/png;base64,AAAA">');
+    expect(res.html).toContain('data-src="media/a b.jpg"');
+    expect(res.html).not.toContain('src="../media');
+    expect(res.html).toContain('src="https://e.com/z.png"');
+    expect(res.html).toContain('<span class="broken">g</span>');
+    expect(res.html).not.toContain('src="data:');
+    expect(res.images).toEqual(['media/a b.jpg']);
   });
   it('detects mermaid', () => {
     const res = r('```mermaid\ngraph TD; A-->B\n```');
@@ -48,13 +79,5 @@ describe('renderNote', () => {
   });
   it('renders tables', () => {
     expect(r('|a|b|\n|-|-|\n|1|2|').html).toContain('<table>');
-  });
-});
-
-describe('renderNote sanitizer backstop', () => {
-  it('drops event handlers and script even if markup slipped through', () => {
-    // Simulates raw HTML reaching DOMPurify (html:false normally escapes it).
-    const h = renderNote('```\n<img src=x onerror=alert(1)>\n```', { path: 'a.md', mdPaths: [], allPaths: [] }).html;
-    expect(h).not.toContain('<img');
   });
 });
