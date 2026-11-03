@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JobState {
+    /// Claimed and waiting for its turn (the engine runs one job at a time).
+    Queued,
     /// The model is being fetched; `total` when the server announced it.
     Downloading { done: u64, total: Option<u64> },
     Transcribing,
@@ -38,9 +40,19 @@ impl VoiceJobs {
     pub fn clear(&self, key: &str) {
         self.lock().remove(key);
     }
-    /// A job for `key` is running (not failed).
+    /// Atomically marks `key` as queued unless a job for it is already queued
+    /// or running. Returns whether the caller now owns the job.
+    pub fn try_claim(&self, key: &str) -> bool {
+        let mut map = self.lock();
+        if matches!(map.get(key), Some(JobState::Queued | JobState::Downloading { .. } | JobState::Transcribing)) {
+            return false;
+        }
+        map.insert(key.to_string(), JobState::Queued);
+        true
+    }
+    /// A job for `key` is queued or running (not failed).
     pub fn is_active(&self, key: &str) -> bool {
-        matches!(self.get(key), Some(JobState::Downloading { .. } | JobState::Transcribing))
+        matches!(self.get(key), Some(JobState::Queued | JobState::Downloading { .. } | JobState::Transcribing))
     }
 }
 

@@ -27,3 +27,15 @@ fn real_spanish_clip_is_transcribed_with_the_small_model() {
     assert!(lower.contains("- idioma: es"), "language auto-detected as Spanish: {text}");
     assert!(lower.contains("nota de voz") && lower.contains("prueba"), "expected the spoken sentence: {text}");
 }
+
+/// A real Android Chrome recording (MediaRecorder, webm/Opus) decodes to
+/// 16 kHz mono samples of a plausible length.
+#[test]
+fn decodes_android_webm() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/voice/fixtures/voz-android.webm");
+    let decoded = super::audio::decode_file(&path).unwrap();
+    assert!(!decoded.samples.is_empty());
+    let secs = decoded.samples.len() as f64 / super::audio::WHISPER_RATE as f64;
+    assert!((1.5..4.0).contains(&secs), "unexpected length {secs}s");
+    assert!(decoded.samples.iter().any(|v| v.abs() > 0.01), "decoded audio is silent");
+}

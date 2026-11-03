@@ -247,6 +247,9 @@ mod flow {
         fn reindex(&self) {
             self.push("reindex");
         }
+        fn transcribe_new_audio(&self, changed: &[String]) {
+            self.push(&format!("transcribe:{}", changed.join(",")));
+        }
     }
 
     fn engine() -> Mutex<Engine> {
@@ -321,8 +324,25 @@ mod flow {
         drive_cycle(&host, &engine(), || async { Ok(ok_run(&["a.md"])) }).await;
         assert_eq!(
             host.events(),
-            vec!["will-start", "record-error", "finished", "reindex"]
+            vec!["will-start", "record-error", "finished", "reindex", "transcribe:a.md"]
         );
+    }
+
+    #[tokio::test]
+    async fn synced_audio_is_handed_to_transcription() {
+        let host = Fake::new(true);
+        let run = || async { Ok(ok_run(&["Entrada/Nota de voz 2026-11-02 09-05.webm", "b.md"])) };
+        drive_cycle(&host, &engine(), run).await;
+        assert!(host
+            .events()
+            .contains(&"transcribe:Entrada/Nota de voz 2026-11-02 09-05.webm,b.md".to_string()));
+    }
+
+    #[tokio::test]
+    async fn no_changes_means_no_transcription() {
+        let host = Fake::new(true);
+        drive_cycle(&host, &engine(), || async { Ok(ok_run(&[])) }).await;
+        assert!(!host.events().iter().any(|e| e.starts_with("transcribe")));
     }
 
     #[test]

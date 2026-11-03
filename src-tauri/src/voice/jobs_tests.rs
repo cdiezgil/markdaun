@@ -147,3 +147,21 @@ fn an_undecodable_recording_is_a_job_error() {
     assert!(run_job(&jobs, "k", &audio, when(), "small", prepared(Ok(ok_transcript())), &|| {}).is_err());
     assert!(matches!(jobs.get("k"), Some(JobState::Error(_))));
 }
+
+#[test]
+fn claiming_the_same_key_twice_fails_the_second_time() {
+    let jobs = VoiceJobs::default();
+    assert!(jobs.try_claim("Entrada/a.webm"));
+    assert_eq!(jobs.get("Entrada/a.webm"), Some(JobState::Queued));
+    assert!(!jobs.try_claim("Entrada/a.webm"));
+    assert!(jobs.try_claim("Entrada/b.webm"));
+}
+
+#[test]
+fn a_failed_job_can_be_claimed_again_and_a_running_one_cannot() {
+    let jobs = VoiceJobs::default();
+    jobs.set("k", JobState::Error("x".into()));
+    assert!(jobs.try_claim("k"));
+    jobs.set("k", JobState::Transcribing);
+    assert!(!jobs.try_claim("k"));
+}
