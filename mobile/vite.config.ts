@@ -5,6 +5,8 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   base: '/markdaun/',
+  // Inline config stops Vite from picking up the desktop app's Tailwind PostCSS config in the repo root.
+  css: { postcss: {} },
   plugins: [
     react(),
     VitePWA({
