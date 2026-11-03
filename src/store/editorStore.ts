@@ -159,6 +159,12 @@ let releasedUnknown = false;
 let reopenedDuringHold: { path: string; base: string | null } | null = null;
 /** The open note is being checked against disk: no save may run meanwhile. */
 let openCheckPath: string | null = null;
+/**
+ * Monotonically increasing counter bumped at the start of every `openNote`
+ * call. When a concurrent call starts after this one, the stale result is
+ * discarded (last-caller-wins; prevents wrong-note display after rapid clicks).
+ */
+let openNoteSeq = 0;
 const flushListeners = new Set<(result: DeferredFlushResult) => void>();
 
 /**
@@ -622,6 +628,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
   editLocked: false,
 
   async openNote(absolutePath: string) {
+    // Claim this call's slot. Any older in-flight openNote is stale and must
+    // not overwrite the store once a newer request is already loading.
+    const seq = ++openNoteSeq;
     // Never drop the previous note's pending edit. A rename/move is awaited
     // so the edit lands on the new path. During a sync hold the buffer is
     // deferred to the release: a write after the merge checkout would
@@ -672,7 +681,35 @@ export const useEditorStore = create<EditorState>((set, get) => {
       return;
     }
 
-    const rawMarkdown = await readNote(absolutePath, vaultPath);
+    let rawMarkdown: string;
+    try {
+      rawMarkdown = await readNote(absolutePath, vaultPath);
+    } catch (e) {
+      console.error('openNote: failed to read note:', absolutePath, e);
+      // Keep URL and store in sync even on failure so the UI does not get
+      // stuck (the editor will show an empty canvas; the user can retry by
+      // clicking a different note and coming back).
+      // Only apply if no newer openNote superseded this one while we awaited.
+      if (seq === openNoteSeq) {
+        set({
+          activeNotePath: absolutePath,
+          activeNoteContent: null,
+          diskContent: null,
+          saveBlockedPath: null,
+          saveStatus: 'idle',
+          lastSavedAt: null,
+          isDirty: false,
+          selectionText: '',
+          loadVersion: get().loadVersion + 1,
+        });
+      }
+      return;
+    }
+
+    // Only the last openNote call may write to the store. If a newer call
+    // started and completed its own readNote while this one was reading,
+    // silently discard our stale result.
+    if (seq !== openNoteSeq) return;
 
     const noteDir = absolutePath.substring(0, absolutePath.lastIndexOf('/'));
     const processedMarkdown = processImagesOnLoad(rawMarkdown, noteDir);

@@ -30,7 +30,10 @@ export function EditorView() {
     setPlainMdMode(false);
   }, [activeNotePath]);
 
-  // Open the note whenever the URL param changes
+  // Open the note whenever the URL param changes.
+  // The seq token in openNote ensures that if two openNote calls race, only
+  // the last one applies its result, preventing stale content from overwriting
+  // a more recent load.
   useEffect(() => {
     if (filePath && vaultPath && filePath !== activeNotePath) {
       openNote(filePath).catch(console.error);

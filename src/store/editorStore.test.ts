@@ -230,3 +230,83 @@ describe('isDirty', () => {
     expect(useEditorStore.getState().saveStatus).toBe('saving');
   });
 });
+
+// ── openNote: race-condition and error-recovery ────────────────────────────────
+describe('openNote: concurrent calls and error recovery', () => {
+  it('only the last openNote call wins when two are in flight concurrently', async () => {
+    // openNote(A) starts first but resolves AFTER openNote(B).
+    // The store must reflect B (the latest request), never A.
+    let resolveA!: (v: string) => void;
+    const readA = new Promise<string>((r) => (resolveA = r));
+    let resolveB!: (v: string) => void;
+    const readB = new Promise<string>((r) => (resolveB = r));
+
+    mockInvoke
+      .mockImplementationOnce(() => readA)   // first call → note A
+      .mockImplementationOnce(() => readB);  // second call → note B
+
+    const openA = useEditorStore.getState().openNote('/vault/a.md');
+    const openB = useEditorStore.getState().openNote('/vault/b.md');
+
+    // B resolves first, then A.
+    resolveB('# B content');
+    resolveA('# A content');
+    await Promise.all([openA, openB]);
+
+    const s = useEditorStore.getState();
+    // Only the last caller (B) should have written to the store.
+    expect(s.activeNotePath).toBe('/vault/b.md');
+    expect(s.activeNoteContent).toBe('# B content');
+  });
+
+  it('when the later openNote starts after the earlier one already finished, last caller still wins', async () => {
+    // openNote(A) finishes, THEN openNote(B) is called and finishes.
+    mockInvoke
+      .mockResolvedValueOnce('# A content')
+      .mockResolvedValueOnce('# B content');
+
+    await useEditorStore.getState().openNote('/vault/a.md');
+    await useEditorStore.getState().openNote('/vault/b.md');
+
+    const s = useEditorStore.getState();
+    expect(s.activeNotePath).toBe('/vault/b.md');
+    expect(s.activeNoteContent).toBe('# B content');
+  });
+
+  it('keeps URL and store in sync when readNote fails: sets activeNotePath to the requested path', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockInvoke.mockRejectedValueOnce('io_error: permission denied');
+
+    await useEditorStore.getState().openNote('/vault/broken.md');
+
+    const s = useEditorStore.getState();
+    // activeNotePath must match the requested path so the UI does not diverge.
+    expect(s.activeNotePath).toBe('/vault/broken.md');
+    // Content is null (error state; editor renders the empty canvas).
+    expect(s.activeNoteContent).toBeNull();
+    // Not dirty: no edits to save.
+    expect(s.isDirty).toBe(false);
+  });
+
+  it('a stale openNote that started before a newer one does not overwrite the result', async () => {
+    // Stale call: resolves late. Fresh call: resolves first.
+    let resolveStale!: (v: string) => void;
+    const readStale = new Promise<string>((r) => (resolveStale = r));
+
+    mockInvoke
+      .mockImplementationOnce(() => readStale)  // stale call (started first)
+      .mockResolvedValueOnce('# Fresh');         // fresh call (started second)
+
+    const stale = useEditorStore.getState().openNote('/vault/stale.md');
+    // Fresh call starts WHILE stale is still reading from disk.
+    await useEditorStore.getState().openNote('/vault/fresh.md');
+    // Now let the stale call resolve.
+    resolveStale('# Stale');
+    await stale;
+
+    const s = useEditorStore.getState();
+    // Fresh call won; stale result must be discarded.
+    expect(s.activeNotePath).toBe('/vault/fresh.md');
+    expect(s.activeNoteContent).toBe('# Fresh');
+  });
+});
